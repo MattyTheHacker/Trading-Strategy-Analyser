@@ -34,6 +34,7 @@ from nqbt.sim.filters import EarlyExiting, LabelSized
 from nqbt.sim.types import (
     BAND_VWAP,
     EARLINESS_OFF,
+    LOSING_OPTIONAL_EXITS,
     ORB_SCALE_NONE,
     ORB_STOP_ATR,
     STOP_ATR,
@@ -125,8 +126,10 @@ MA_GATE_PREFIXES = ("ema", "fast_sma", "slow_sma")
 
 
 def _needs_time_of_day(values: Mapping[str, Sequence[AxisValue]]) -> bool:
-    """Return whether any combination actually restricts its entries to some session phases."""
-    return any(int(v) != timeofday.ALL_PHASES for v in values.get("phase_filter", ()))
+    """Return whether any combination restricts its entries to some phases, or exits on leaving one."""
+    filters: bool = any(int(v) != timeofday.ALL_PHASES for v in values.get("phase_filter", ()))
+
+    return filters or any(values.get("early_exit_on_phase_change", ()))
 
 
 def _sizes_on_vwap(values: Mapping[str, Sequence[AxisValue]]) -> bool:
@@ -157,9 +160,16 @@ def _reads_label(
     return filters or any(any(values.get(reader, ())) for reader in readers)
 
 
-def _stop_atr_periods(values: Mapping[str, Sequence[AxisValue]]) -> set[int]:
-    """Return the ATR periods a stop move reads: a breakeven trigger in ATRs, or a late stop in ATRs."""
+def _exit_atr_periods(values: Mapping[str, Sequence[AxisValue]]) -> set[int]:
+    """Return the ATR periods an exit reads: a breakeven trigger, a late stop or an early exit in ATRs."""
     periods: set[int] = set()
+    if any(
+        float(v) > 0
+        for name in ("early_exit_atr_expansion", "early_exit_adverse_atr")
+        for v in values.get(name, ())
+    ):
+        periods |= {int(v) for v in values.get("early_exit_atr_period", ())}
+
     if any(float(v) > 0 for v in values.get("breakeven_at", ())) and any(
         int(v) == bracket.BREAKEVEN_ATR for v in values.get("breakeven_unit", ())
     ):
@@ -187,9 +197,13 @@ def _regime_lookbacks(values: Mapping[str, Sequence[AxisValue]]) -> tuple[int, .
     return tuple(sorted({int(v) for v in values.get("regime_lookback", ())}))
 
 
+VOLUME_EXITS = ("early_exit_on_thin_volume", "early_exit_on_heavy_against")
+"""The two volume exits: each reads the volume series, and one threshold of the two."""
+
+
 def _volume_keys(values: Mapping[str, Sequence[AxisValue]]) -> tuple[volume.VolumeKey, ...]:
-    """List the relative-volume series to build: none unless some combination filters or sizes on them."""
-    if not _reads_label(values, "volume_filter", volume.ALL_STATES, "size_on_volume"):
+    """List the relative-volume series to build: none unless a combination filters, sizes or exits on them."""
+    if not _reads_label(values, "volume_filter", volume.ALL_STATES, "size_on_volume", *VOLUME_EXITS):
         return ()
 
     return tuple(
@@ -225,7 +239,14 @@ def _compression_keys(
 
 def _trend_keys(values: Mapping[str, Sequence[AxisValue]]) -> tuple[trend.TrendKey, ...]:
     """List the trend labels to build: none unless some combination filters, sizes or exits on them."""
-    if not _reads_label(values, "trend_filter", trend.ALL_TRENDS, "size_on_trend", "early_exit_on_trend"):
+    if not _reads_label(
+        values,
+        "trend_filter",
+        trend.ALL_TRENDS,
+        "size_on_trend",
+        "early_exit_on_trend",
+        "early_exit_counter_trend_bars",
+    ):
         return ()
 
     return tuple(
@@ -243,12 +264,13 @@ def _trend_keys(values: Mapping[str, Sequence[AxisValue]]) -> tuple[trend.TrendK
 def _higher_timeframe_keys(
     values: Mapping[str, Sequence[AxisValue]],
 ) -> tuple[higher_timeframe.HigherTimeframeKey, ...]:
-    """List the coarse averages to build: none unless some combination filters or sizes on a side."""
+    """List the coarse averages to build: none unless some combination filters, sizes or exits on a side."""
     if not _reads_label(
         values,
         "higher_timeframe_filter",
         higher_timeframe.ALL_SIDES,
         "size_on_higher_timeframe",
+        "early_exit_on_higher_timeframe",
     ):
         return ()
 
@@ -290,7 +312,7 @@ def moving_average_context(values: Mapping[str, Sequence[AxisValue]]) -> Context
     """
     return ContextSpec(
         ma_keys=_ma_keys(values, MA_GATE_PREFIXES),
-        atr_periods=tuple(sorted(_stop_atr_periods(values))),
+        atr_periods=tuple(sorted(_exit_atr_periods(values))),
         needs_vwap=any(values.get("use_vwap", ())) or _sizes_on_vwap(values),
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
@@ -318,7 +340,7 @@ def crossover_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
 
     return ContextSpec(
         ma_keys=_ma_keys(values, gates),
-        atr_periods=tuple(sorted(atr | _stop_atr_periods(values))),
+        atr_periods=tuple(sorted(atr | _exit_atr_periods(values))),
         needs_vwap=_sizes_on_vwap(values),
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
@@ -345,7 +367,7 @@ def emapullback_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpe
 
     return ContextSpec(
         ma_keys=_ma_keys(values, gates),
-        atr_periods=tuple(sorted(_stop_atr_periods(values))),
+        atr_periods=tuple(sorted(_exit_atr_periods(values))),
         needs_time_of_day=_needs_time_of_day(values),
         needs_vwap=_sizes_on_vwap(values),
         regime_lookbacks=_regime_lookbacks(values),
@@ -377,7 +399,7 @@ def elasticband_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpe
         band_periods=tuple(sorted(periods)),
         needs_vwap_band=BAND_VWAP in sources,
         needs_vwap=_sizes_on_vwap(values),
-        atr_periods=tuple(sorted(atr | _stop_atr_periods(values))),
+        atr_periods=tuple(sorted(atr | _exit_atr_periods(values))),
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
         volume_keys=_volume_keys(values),
@@ -419,7 +441,7 @@ def openingrange_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSp
         ),
         follow_through_sessions=tuple(sorted(scaled)),
         needs_vwap=_sizes_on_vwap(values),
-        atr_periods=tuple(sorted(atr | _stop_atr_periods(values))),
+        atr_periods=tuple(sorted(atr | _exit_atr_periods(values))),
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
         volume_keys=_volume_keys(values),
@@ -451,7 +473,7 @@ def squeeze_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
     )
 
     return ContextSpec(
-        atr_periods=tuple(sorted(atr | _stop_atr_periods(values))),
+        atr_periods=tuple(sorted(atr | _exit_atr_periods(values))),
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
         volume_keys=_volume_keys(values),
@@ -474,7 +496,7 @@ def insidebar_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
     """
     return ContextSpec(
         ma_keys=_ma_keys(values, MA_GATE_PREFIXES),
-        atr_periods=tuple(sorted({int(v) for v in values.get("atr_length", ())} | _stop_atr_periods(values))),
+        atr_periods=tuple(sorted({int(v) for v in values.get("atr_length", ())} | _exit_atr_periods(values))),
         needs_vwap=_sizes_on_vwap(values),
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
@@ -500,6 +522,12 @@ INERT_AT: Mapping[str, object] = {
     "early_exit_bars": 0,
     "early_exit_minutes": 0,
     "early_exit_on_trend": bracket.TREND_EXIT_OFF,
+    "early_exit_counter_trend_bars": 0,
+    "early_exit_stall_bars": 0,
+    "early_exit_atr_expansion": 0.0,
+    "early_exit_adverse_closes": 0,
+    "early_exit_adverse_atr": 0.0,
+    "early_exit_give_back": 0.0,
     "breakeven_at": 0.0,
     "breakeven_unit": bracket.BREAKEVEN_R,
     "age_stop_bars": 0,
@@ -590,12 +618,14 @@ def _read_by_filter_or(gates: Mapping[str, str], *readers: str) -> dict[str, Gat
 EARLY_EXIT_GATES: Mapping[str, Gate] = {
     "early_exit_below_r": AnyOf(("early_exit_bars", "early_exit_minutes")),
     "early_exit_measure": AnyOf(("early_exit_bars", "early_exit_minutes")),
-    "early_exit_only_if_losing": AnyOf(
-        ("early_exit_on_regime_change", "early_exit_on_trend", "early_exit_on_invalidation"),
-    ),
+    "early_exit_counter_trend_bars": "early_exit_bars",
+    "early_exit_only_if_losing": AnyOf(LOSING_OPTIONAL_EXITS),
+    "early_exit_atr_period": AnyOf(("early_exit_atr_expansion", "early_exit_adverse_atr")),
+    "early_exit_give_back_from_r": "early_exit_give_back",
 }
-"""The threshold and the measure are read only by the not-working exit, in bars or in minutes, and
-the losing condition only by the two label exits and the invalidation exit --
+"""The threshold and the measure are read only by the not-working exit, in bars or in minutes, its
+counter-trend age only in bars, the losing condition only by the exits it applies to, the ATR
+period only by the two exits in ATRs and the arming distance only by the give-back exit --
 ``docs/nt8-fidelity.md``, "The conditional early exit"."""
 
 STOP_TIGHTENING_GATES: Mapping[str, Gate] = {
@@ -622,10 +652,16 @@ BREAKEVEN_GATES: Mapping[str, Gate] = {
 
 CONTEXT_GATES: Mapping[str, Gate] = {
     **_read_by_filter_or(REGIME_GATES, "size_on_regime", "early_exit_on_regime_change"),
-    **_read_by_filter_or(VOLUME_GATES, "size_on_volume"),
+    **_read_by_filter_or(VOLUME_GATES, "size_on_volume", *VOLUME_EXITS),
+    "volume_thin_below": AnyOf(("volume_filter", "size_on_volume", "early_exit_on_thin_volume")),
+    "volume_heavy_above": AnyOf(("volume_filter", "size_on_volume", "early_exit_on_heavy_against")),
     **COMPRESSION_GATES,
-    **_read_by_filter_or(TREND_GATES, "size_on_trend", "early_exit_on_trend"),
-    **_read_by_filter_or(HIGHER_TIMEFRAME_GATES, "size_on_higher_timeframe"),
+    **_read_by_filter_or(
+        TREND_GATES, "size_on_trend", "early_exit_on_trend", "early_exit_counter_trend_bars"
+    ),
+    **_read_by_filter_or(
+        HIGHER_TIMEFRAME_GATES, "size_on_higher_timeframe", "early_exit_on_higher_timeframe"
+    ),
     "size_symmetric": "quantity_per_confluence",
     **EARLY_EXIT_GATES,
     **BREAKEVEN_GATES,

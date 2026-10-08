@@ -300,7 +300,7 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
     trail_distance = 0.0
     structure_cushion = 0.0
     trigger_fill = np.nan
-    excursion = bracket.Excursion(0.0, 0.0)
+    excursion = bracket.Excursion(0.0, 0.0, 0, 0)
 
     legs = bracket.Legs(
         np.zeros(n_lots, dtype=np.bool_),
@@ -336,7 +336,7 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
 
             in_position = False
         elif in_position:
-            excursion = bracket.extend_excursion(excursion, bars.high[i], bars.low[i])
+            excursion = bracket.extend_excursion(excursion, bars.high[i], bars.low[i], i)
             before = open_lots(legs)
             written, trigger_fill = resolve_lots(
                 out,
@@ -406,7 +406,7 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
                     direction=d,
                     filled_at_open=True,
                 )
-                excursion = bracket.Excursion(bars.high[i], bars.low[i])
+                excursion = bracket.start_excursion(bars.high[i], bars.low[i], i)
                 raw_target = fill + d * bar_atr * rules.tp_multiplier
                 bracket.size_legs(legs, sizing, pending_bar)
                 legs.is_open[BRACKETED_LOT] = True

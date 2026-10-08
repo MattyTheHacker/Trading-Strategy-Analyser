@@ -1069,22 +1069,31 @@ A parameterised window, not a boolean, and **distinct from `block_entry_at_sessi
 
 **Every archetype can close a position before its stop, target or flatten when a condition reading price, time or market context says the trade has failed** (#369). §M29 ruled out the unconditional form; this is the conditional one, and each rule below puts price or a context label back into the decision. **No NinjaScript has any of it, so nothing here is backed by a trade list**: each rule names the NinjaScript it would be written as, and a row using any of them is `TIER1_ONLY`, on the reconciled ports as much as on the originals. Every rule is off by default everywhere, and nothing measured before this rests on it.
 
-The first tier of #369 and the market exits of its second are built, with their fields on every parameter class:
+The first tier of #369, the market exits of its second and all of its third are built, with their fields on every parameter class:
 
-| rule                    | fields                                                           | fires at a bar close where                                                                                  |
-| ----------------------- | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| not working by bar N    | `early_exit_bars`, `early_exit_below_r`, `early_exit_measure`    | the bar is `entry_bar + N` and open profit, or the best excursion so far, is below `early_exit_below_r` R   |
-| not working by minute N | `early_exit_minutes`, `early_exit_below_r`, `early_exit_measure` | the bar is the first close at least N minutes after the entry bar's, and the same measure is below the same |
-| losing before the close | `early_exit_minutes_before_close`                                | the bar is inside the window before the session close and the position is losing                            |
-| regime change           | `early_exit_on_regime_change`, `early_exit_only_if_losing`       | the regime label differs from the one on the bar before the entry bar                                       |
-| trend turns against     | `early_exit_on_trend`, `early_exit_only_if_losing`               | the trend label is against the position and was not on the bar before the entry bar                         |
-| invalidated on a close  | `early_exit_on_invalidation`, `early_exit_only_if_losing`        | the close is strictly beyond the adverse extreme of the bar before the entry bar                            |
+| rule                           | fields                                                                                         | fires at a bar close where                                                                                                                                      |
+| ------------------------------ | ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| not working by bar N           | `early_exit_bars`, `early_exit_below_r`, `early_exit_measure`, `early_exit_counter_trend_bars` | the bar is `entry_bar + N`, or the shorter count for an entry against the trend, and open profit, or the best excursion so far, is below `early_exit_below_r` R |
+| not working by minute N        | `early_exit_minutes`, `early_exit_below_r`, `early_exit_measure`                               | the bar is the first close at least N minutes after the entry bar's, and the same measure is below the same                                                     |
+| losing before the close        | `early_exit_minutes_before_close`                                                              | the bar is inside the window before the session close and the position is losing                                                                                |
+| regime change                  | `early_exit_on_regime_change`, `early_exit_only_if_losing`                                     | the regime label differs from the one on the bar before the entry bar                                                                                           |
+| trend turns against            | `early_exit_on_trend`, `early_exit_only_if_losing`                                             | the trend label is against the position and was not on the bar before the entry bar                                                                             |
+| invalidated on a close         | `early_exit_on_invalidation`, `early_exit_only_if_losing`                                      | the close is strictly beyond the adverse extreme of the bar before the entry bar                                                                                |
+| stalled                        | `early_exit_stall_bars`, `early_exit_only_if_losing`                                           | the best favourable price has not improved for N closes                                                                                                         |
+| leaving the entry's phase      | `early_exit_on_phase_change`                                                                   | the session phase differs from the one on the bar before the entry bar and the position is losing                                                               |
+| higher timeframe turns against | `early_exit_on_higher_timeframe`, `early_exit_only_if_losing`                                  | the close is on the far side of the higher-timeframe average from the position and was not on the bar before the entry bar                                      |
+| thin volume                    | `early_exit_on_thin_volume`, `early_exit_only_if_losing`                                       | the bar is `THIN` and the bar before the entry bar was not                                                                                                      |
+| heavy bar against              | `early_exit_on_heavy_against`, `early_exit_only_if_losing`                                     | the bar is `HEAVY` and closed worse than it opened                                                                                                              |
+| volatility expands             | `early_exit_atr_expansion`, `early_exit_atr_period`                                            | the ATR is above that multiple of its value on the bar before the entry bar and the position is losing                                                          |
+| adverse closes                 | `early_exit_adverse_closes`, `early_exit_only_if_losing`                                       | each of the last N closes was strictly worse than the one before, every one since the entry bar's                                                               |
+| adverse move                   | `early_exit_adverse_atr`, `early_exit_atr_period`, `early_exit_only_if_losing`                 | the close is worse than the one before by at least that multiple of the earlier bar's ATR                                                                       |
+| give-back                      | `early_exit_give_back`, `early_exit_give_back_from_r`, `early_exit_only_if_losing`             | the best excursion has reached `early_exit_give_back_from_r` R and the close has given back that fraction of it                                                 |
 
 **What every rule shares.** Each is decided in `OnBarUpdate` at a bar close and submitted as `ExitLong(); ExitShort();`, so it **fills at the next bar's open** and takes precedence over the stop and the targets on that bar — the maximum hold time's arithmetic, § "The maximum hold time, and why it is its own exit code". `bracket.early_exit_due` is the one decision, `bracket.market_exit_reason` the one order between it and the hold cap, and `bracket.flatten_position` the one writer; every loop calls all three. **Where a bar is two exits at once, the archetype's own signal exit takes it, then the hold cap, then this one**; all three fill at the same open, so only the label differs. On EmaCrossover a signal on the other side, on the bar the exit is decided, reopens at the same open, as it does at the hold limit, and one on the same side opens nothing (§M39).
 
 **A position is losing when `Close[0]` is strictly worse than its entry price**, which is `Position.GetUnrealizedProfitLoss(PerformanceUnit.Points, Close[0]) < 0` against the average fill, slippage included. A close exactly at the entry is not losing. **Open profit in R is measured against the planned risk the trade log's `r_multiple` uses** — from the trigger on a stop entry, from the fill on a market entry — so a threshold means the same thing in both. **InsideBarTrailing's two lots carry different stops, and its R is the bracketed lot's**, the one its `OpenTrade` holds. Every threshold is in R, never in currency, so nothing here goes through `instruments.py`.
 
-**One exit code, `EXIT_EARLY`, with one rule on at a time.** The parameter class refuses a combination switching on two, so the code and the combination's fields together always say which rule fired, and a campaign arm is one rule. **It also refuses a combination whose setting nothing reads or that can never fire**: a threshold or a measure with the not-working exit off, "only if losing" with none of the label and invalidation exits on, and a not-working bar at or past `max_hold_bars`, where the hold cap closes the position first. Each would run identical trades under a different label. Under ElasticBand's stored grids, which sweep `max_hold_bars` over `[0, 30]`, the not-working exit therefore has to test a bar below 30. **The minutes form cannot be refused the same way**, because the bar size is not a parameter: a minute count at or past `max_hold_bars` bars never fires, and a campaign has to choose its values knowing that. One code per rule would let rules share a log; nothing measured yet asks for that, and it would add six codes to `trades.py` instead of one.
+**One exit code, `EXIT_EARLY`, with one rule on at a time.** The parameter class refuses a combination switching on two, so the code and the combination's fields together always say which rule fired, and a campaign arm is one rule. **It also refuses a combination whose setting nothing reads or that can never fire**: a threshold or a measure with the not-working exit off, a counter-trend count without the bar form or not shorter than it, "only if losing" with none of the exits it applies to on, an ATR period with neither exit in ATRs on, an arming distance with the give-back exit off, and a not-working, stalled or adverse-closes count at or past `max_hold_bars`, or the adverse move under a cap of one bar, where the hold cap closes the position first. Each would run identical trades under a different label. Under ElasticBand's stored grids, which sweep `max_hold_bars` over `[0, 30]`, the not-working exit therefore has to test a bar below 30. **The minutes form cannot be refused the same way**, because the bar size is not a parameter: a minute count at or past `max_hold_bars` bars never fires, and a campaign has to choose its values knowing that. One code per rule would let rules share a log; nothing measured yet asks for that, and it would add fifteen codes to `trades.py` instead of one.
 
 **No stop moves.** Every rule here is a market exit, so none of them touches `tightened_stop`. The stop-moving members are breakeven, § "The breakeven stop", the stop tightening with time, § "Tightening the stop with time", and InsideBarTrailing's trail to structure, § "Trailing to structure".
 
@@ -1112,9 +1121,65 @@ The first tier of #369 and the market exits of its second are built, with their 
 
 `early_exit_on_invalidation` exits at a close strictly beyond the adverse extreme of the bar before the entry bar — the signal bar, for every entry but EmaPullback's confirmation entry above a one-bar lifetime, as for the label exits: `if (Close[0] < Low[BarsSinceEntryExecution() + 1]) { ExitLong(); }` for a long, `High` and `>` for a short. **It is tested at every close from the entry bar's own**, and a close exactly on the extreme is not beyond it. The resting stop stays where the archetype put it, as a catastrophe stop, so where that stop is already the signal bar's extreme plus an offset the rule can fire only on a close between the two, and is close to inert. **It is one rule for every archetype, OpeningRange included**: "back inside the range" would need a reference level per entry mode. ElasticBand's `exit_on_invalidation`, which reads the excursion the trade faded rather than the signal bar, is unchanged and runs beside it as `EXIT_SIGNAL`; as an archetype's own signal exit, it takes a bar both would exit on.
 
+#### Counter-trend entries get less time
+
+`early_exit_counter_trend_bars` is a second bar count for the not-working exit, used instead of `early_exit_bars` for a position entered against the trend (#369's D6). **Against is the opposite trend on the bar before the entry bar** — `DOWN` for a long — the label the trend exit's `TREND_EXIT_OPPOSED` reads, at this combination's own trend settings; `MIXED` and an undefined label are not against, so those entries keep the longer count. The label is recorded where `OnExecutionUpdate` has that bar current (§M22): `int checkBars = enteredAgainstTrend ? CounterTrendBars : ExitCheckBars;` and the not-working test above at `checkBars`. **It is a setting of the not-working exit rather than a rule of its own**, so an arm carrying it is still one rule. It is read in bars only, and it is refused without `early_exit_bars` and at or above it, where it would give a counter-trend entry no less time.
+
+#### Stalled
+
+`early_exit_stall_bars` exits at the close where the position's best favourable price has not improved for that many closes (#369's A4). **The count runs from the bar the high-water mark was last strictly raised on, not from the entry**, so every new best restarts it, and a bar that only touches the best is no improvement. The water marks the trade log's MFE comes from record that bar beside each mark (`bracket.Excursion`), and the entry bar's whole range counts, as it does for the MFE. For a long, in `OnBarUpdate`:
+
+```csharp
+if (BarsSinceEntryExecution() == 0 || High[0] > bestPrice) { bestPrice = High[0]; bestBar = CurrentBar; }
+if (CurrentBar - bestBar >= StallBars) { ExitLong(); }
+```
+
+**#369 words its optional condition as "only while below +x R"; only x = 0 is built**, as the "only if losing" cross. A count at or past `max_hold_bars` is refused, because the hold cap closes the position first.
+
+#### Leaving the entry's phase
+
+`early_exit_on_phase_change` exits a losing position at **any close whose session phase differs from the one on the bar before the entry bar** (#369's C3), the bar a `phase_filter` stratum selected the signal on. So a midday entry still losing in `AFTERNOON` leaves, and one winning as the phase turns rides on until a later close in the new phase is losing. A bar outside every session never counts. **The loss is part of the rule**, so `early_exit_only_if_losing` is not read with it. The phases are ours rather than NT8's (§ "Session phases are ours, not NT8's"), so the script computes them from `Time[0]` in exchange time: `if (PhaseOf(Time[0]) != entryPhase && Position.GetUnrealizedProfitLoss(PerformanceUnit.Points, Close[0]) < 0) { ExitLong(); ExitShort(); }`.
+
+#### Higher timeframe turns against
+
+`early_exit_on_higher_timeframe` exits where the close is on the far side of the higher-timeframe average from the position — `BELOW` for a long — **and was not on the bar before the entry bar** (#369's D3), the trend exit's shape. Exactly on the average is neither side, and an undefined side, before the first coarse bar has closed, never turns. It reads the average at this combination's own `higher_timeframe_minutes` and `higher_timeframe_period`, the one § "And so is the higher-timeframe average" describes, so the script needs the same added data series.
+
+#### Volume turns
+
+Two rules (#369's D4), both read at this combination's own volume form and windows (§ "So are the volume labels"):
+
+- **`early_exit_on_thin_volume`** exits on a `THIN` bar after an entry whose bar before was `NORMAL` or `HEAVY`. An undefined label on either side, before the baseline has filled, never counts.
+- **`early_exit_on_heavy_against`** exits on a `HEAVY` bar whose close is strictly worse than its own open — `Close[0] < Open[0]` for a long. It is tested from the entry bar's own close, whose open is before the fill.
+
+**They are two switches rather than one field with two values** because each reads one threshold alone, `volume_thin_below` and `volume_heavy_above` respectively, and the registry can then mark the other one unread, so a sweep crossing it under that exit is refused rather than run as duplicates.
+
+#### Volatility expands
+
+`early_exit_atr_expansion` exits a losing position at a close where **NT8's ATR is strictly above that multiple of its value on the bar before the entry bar** (#369's D5): `if (ATR(AtrPeriod).Value[0] > AtrExpansion * entryAtr && Position.GetUnrealizedProfitLoss(PerformanceUnit.Points, Close[0]) < 0) { ExitLong(); ExitShort(); }`, with `entryAtr` read where `OnExecutionUpdate` has that bar current. The multiple is at least 1, since below it the rule is "exit while losing" under another name. An ATR still warming up names nothing. **The loss is part of the rule**, so `early_exit_only_if_losing` is not read with it.
+
+#### Adverse momentum
+
+Two rules (#369's E2), both counted on **closes the position was open for**, so the entry bar's close is the first one compared against and neither is ever decided at the entry bar:
+
+- **`early_exit_adverse_closes`** exits once each of the last N closes was strictly worse than the one before; an equal close ends the run. The earliest it can fire is N bars after the entry bar: `if (BarsSinceEntryExecution() >= N && Close[0] < Close[1] && … && Close[N - 1] < Close[N]) { ExitLong(); }` for a long. A count at or past `max_hold_bars` is refused.
+- **`early_exit_adverse_atr`** exits once one close is worse than the close before by at least that multiple of the earlier bar's ATR: `if (BarsSinceEntryExecution() >= 1 && Close[1] - Close[0] >= AdverseAtr * ATR(AtrPeriod).Value[1]) { ExitLong(); }` for a long. The earlier bar's ATR is the one known before the move it measures.
+
+`early_exit_atr_period` is the ATR both this and the volatility exit read, and is refused with neither on.
+
+#### Give-back
+
+`early_exit_give_back` exits once the best favourable excursion has reached `early_exit_give_back_from_r` R and the close has given back at least that fraction of it (#369's E3), a close-based relative of a trail. For a long:
+
+```csharp
+double peak = MAX(High, BarsSinceEntryExecution() + 1)[0] - Position.AveragePrice;
+if (peak >= GiveBackFromR * riskPoints && Close[0] - Position.AveragePrice <= (1 - GiveBack) * peak) { ExitLong(); }
+```
+
+The excursion is the not-working exit's `MEASURE_EXCURSION`, and the arming distance is reached within a billionth of it, as the breakeven trigger's is (`BREAKEVEN_TOLERANCE`). A fraction of 1 exits at a close back at the entry. **With "only if losing" it is a different rule**: a position that once reached the arming distance exits at the first losing close, whatever the fraction.
+
 #### Only if losing
 
-`early_exit_only_if_losing` lets the regime, trend or invalidation exit fire only at a bar close where the position is losing, which is the condition the findings name. Those three rules alone read it; the others already carry a condition on open profit of their own. On the invalidation exit it binds only where the entry filled beyond that extreme too: a gapped market entry can, and so can OpeningRange's limit entries, which fill at their own level and that level can sit beyond the bar before the fill.
+`early_exit_only_if_losing` lets the regime, trend, invalidation, stalled, higher-timeframe, thin-volume, heavy-bar, adverse-closes, adverse-move or give-back exit fire only at a bar close where the position is losing, which is the condition the findings name (`types.LOSING_OPTIONAL_EXITS`). Those rules alone read it; the others already carry a condition on open profit of their own. On the invalidation exit it binds only where the entry filled beyond that extreme too: a gapped market entry can, and so can OpeningRange's limit entries, which fill at their own level and that level can sit beyond the bar before the fill.
 
 ### The breakeven stop
 

@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, NamedTuple
 import numpy as np
 from numba import njit
 
-from nqbt import regime, trend
+from nqbt import higher_timeframe, regime, timeofday, trend, volume
 from nqbt.trades import (
     C_AMBIGUOUS,
     C_BARS_HELD,
@@ -129,6 +129,10 @@ class Excursion(NamedTuple):
 
     run_high: float
     run_low: float
+    high_bar: int
+    """The bar :attr:`run_high` was last raised on, which the stalled exit counts from."""
+
+    low_bar: int
 
 
 class LegExit(NamedTuple):
@@ -152,6 +156,10 @@ class EarlyExit(NamedTuple):
     at_minutes: float
     """The not-working exit's age in minutes rather than bars, measured on :attr:`clock`."""
 
+    counter_trend_bar: int
+    """The not-working exit's age in bars for a position entered against the trend, read only
+    beside :attr:`at_bar` and where :attr:`trend_labels` is non-empty."""
+
     below_r: float
     measure: int
     """One of :data:`EARLY_EXIT_MEASURES`: what the not-working exit compares with :attr:`below_r`."""
@@ -161,9 +169,27 @@ class EarlyExit(NamedTuple):
 
     only_if_losing: bool
     on_invalidation: bool
+    stall_bars: int
+    adverse_closes: int
+    adverse_atr: float
+    """The adverse move, in ATRs, one close-to-close change has to reach; read only where :attr:`atr`
+    is non-empty."""
+
+    atr_expansion: float
+    """The multiple of its entry value the ATR has to exceed; read only where :attr:`atr` is non-empty."""
+
+    give_back: float
+    give_back_from_r: float
+    volume_form: int
+    """One of :data:`VOLUME_EXIT_FORMS`, read only where :attr:`volume_labels` is non-empty."""
+
     near_close: BoolArray
     regime_labels: LabelArray
     trend_labels: LabelArray
+    phase_labels: LabelArray
+    higher_timeframe_labels: LabelArray
+    volume_labels: LabelArray
+    atr: FloatArray
     clock: FloatArray
     """Each bar's timestamp in epoch seconds, read only for an age in minutes."""
 
@@ -181,6 +207,22 @@ TREND_EXIT_FORMS = {
 TREND_MIXED = int(trend.Trend.MIXED)
 """The middle trend label, which a position's side is measured either side of."""
 
+SIDE_AT = int(higher_timeframe.Side.AT)
+"""The middle higher-timeframe side, which a position's side is measured either side of."""
+
+VOLUME_EXIT_OFF = 0
+VOLUME_EXIT_THINNED = 1
+VOLUME_EXIT_HEAVY_AGAINST = 2
+VOLUME_EXIT_FORMS = {
+    VOLUME_EXIT_OFF: "off",
+    VOLUME_EXIT_THINNED: "thinned",
+    VOLUME_EXIT_HEAVY_AGAINST: "heavy_against",
+}
+"""Which turn in volume exits: a ``THIN`` bar after a busier entry, or a ``HEAVY`` bar closing against."""
+
+VOLUME_THIN = int(volume.VolumeState.THIN)
+VOLUME_HEAVY = int(volume.VolumeState.HEAVY)
+
 MEASURE_OPEN_PROFIT = 0
 MEASURE_EXCURSION = 1
 EARLY_EXIT_MEASURES = {MEASURE_OPEN_PROFIT: "open_profit", MEASURE_EXCURSION: "excursion"}
@@ -191,19 +233,32 @@ SECONDS_PER_MINUTE = 60.0
 NO_CLOCK = np.zeros(0, dtype=np.bool_)
 NO_LABELS = np.zeros(0, dtype=np.int8)
 NO_SECONDS = np.zeros(0, dtype=np.float64)
+NO_ATR = np.zeros(0, dtype=np.float64)
 """Stand-ins for a series the active rule never reads, which numba still needs typed."""
 
 EARLY_EXIT_OFF = EarlyExit(
     at_bar=0,
     at_minutes=0.0,
+    counter_trend_bar=0,
     below_r=0.0,
     measure=MEASURE_OPEN_PROFIT,
     trend_form=TREND_EXIT_OFF,
     only_if_losing=False,
     on_invalidation=False,
+    stall_bars=0,
+    adverse_closes=0,
+    adverse_atr=0.0,
+    atr_expansion=0.0,
+    give_back=0.0,
+    give_back_from_r=1.0,
+    volume_form=VOLUME_EXIT_OFF,
     near_close=NO_CLOCK,
     regime_labels=NO_LABELS,
     trend_labels=NO_LABELS,
+    phase_labels=NO_LABELS,
+    higher_timeframe_labels=NO_LABELS,
+    volume_labels=NO_LABELS,
+    atr=NO_ATR,
     clock=NO_SECONDS,
 )
 """Every rule off, which is every loop's default."""
@@ -242,10 +297,8 @@ BREAKEVEN_TRIGGERS = {BREAKEVEN_ON_CLOSE: "close", BREAKEVEN_ON_EXTREME: "extrem
 """Which price has to reach the trigger at a bar close: the close, or the bar's favourable extreme."""
 
 BREAKEVEN_TOLERANCE = 1e-9
-"""The fraction of the trigger distance a gain may round short by and still reach it."""
-
-NO_ATR = np.zeros(0, dtype=np.float64)
-"""A stand-in for the ATR a breakeven stop in R never reads, which numba still needs typed."""
+"""The fraction of the trigger distance a gain may round short by and still reach it; the give-back
+exit's arming distance reads it too."""
 
 BREAKEVEN_OFF = Breakeven(at=0.0, unit=BREAKEVEN_R, on=BREAKEVEN_ON_CLOSE, offset_ticks=0.0, atr=NO_ATR)
 """The breakeven stop off, which is every loop's default."""
@@ -311,9 +364,18 @@ def slippage_points(costs: Costs) -> float:
 
 
 @njit(cache=True)
-def extend_excursion(excursion: Excursion, high: float, low: float) -> Excursion:
-    """Extend the water marks by one more bar."""
-    return Excursion(max(excursion.run_high, high), min(excursion.run_low, low))
+def start_excursion(high: float, low: float, i: int) -> Excursion:
+    """Return the water marks of a position entered on bar ``i``, which reads the whole bar."""
+    return Excursion(high, low, i, i)
+
+
+@njit(cache=True)
+def extend_excursion(excursion: Excursion, high: float, low: float, i: int) -> Excursion:
+    """Extend the water marks by bar ``i``, noting the bar each was last moved on."""
+    high_bar = i if high > excursion.run_high else excursion.high_bar
+    low_bar = i if low < excursion.run_low else excursion.low_bar
+
+    return Excursion(max(excursion.run_high, high), min(excursion.run_low, low), high_bar, low_bar)
 
 
 @njit(cache=True)
@@ -513,15 +575,22 @@ def early_exit_due(rule: EarlyExit, trade: OpenTrade, bars: Bars, excursion: Exc
     close = float(bars.close[i])
     losing = trade.direction * (close - trade.entry_price) < 0.0
     if rule.at_bar > 0 or rule.at_minutes > 0.0:
-        return reached_age(rule.at_bar, rule.at_minutes, rule.clock, trade.entry_bar, i) and not_working(
+        at_bar = not_working_bar(rule, trade)
+        return reached_age(at_bar, rule.at_minutes, rule.clock, trade.entry_bar, i) and not_working(
             rule, trade, excursion, close
         )
 
-    if rule.near_close.size > 0:
-        return losing and rule.near_close[i]
+    if rule.near_close.size > 0 or rule.phase_labels.size > 0 or rule.atr_expansion > 0.0:
+        return losing and losing_exit_holds(rule, trade.entry_bar - 1, i)
+
+    if rule.only_if_losing and not losing:
+        return False
+
+    if rule.stall_bars > 0 or rule.adverse_closes > 0 or rule.adverse_atr > 0.0 or rule.give_back > 0.0:
+        return price_failed(rule, trade, bars, excursion, i)
 
     at_entry = trade.entry_bar - 1
-    if at_entry < 0 or (rule.only_if_losing and not losing):
+    if at_entry < 0:
         return False
 
     return turned_against(rule, trade, bars, at_entry, i)
@@ -529,17 +598,69 @@ def early_exit_due(rule: EarlyExit, trade: OpenTrade, bars: Bars, excursion: Exc
 
 @njit(cache=True)
 def turned_against(rule: EarlyExit, trade: OpenTrade, bars: Bars, at_entry: int, i: int) -> bool:
-    """Return whether the invalidation, regime or trend exit, whichever is on, fires at bar ``i``'s close."""
+    """Return whether the invalidation exit or a label exit, whichever is on, fires at bar ``i``'s close."""
     if rule.on_invalidation:
         return closed_beyond(bars, at_entry, i, trade.direction)
 
     if rule.regime_labels.size > 0:
         return regime_changed(rule.regime_labels, at_entry, i)
 
-    if rule.trend_labels.size > 0:
+    if rule.trend_form != TREND_EXIT_OFF and rule.trend_labels.size > 0:
         return trend_turned(rule.trend_labels, at_entry, i, trade.direction, rule.trend_form)
 
+    if rule.higher_timeframe_labels.size > 0:
+        return side_turned(rule.higher_timeframe_labels, at_entry, i, trade.direction)
+
+    if rule.volume_labels.size > 0:
+        return volume_turned(rule, bars, at_entry, i, trade.direction)
+
     return False
+
+
+@njit(cache=True)
+def losing_exit_holds(rule: EarlyExit, at_entry: int, i: int) -> bool:
+    """Return whether the window, phase or volatility exit, which all need a loss, holds at bar ``i``."""
+    if rule.near_close.size > 0:
+        return bool(rule.near_close[i])
+
+    if at_entry < 0:
+        return False
+
+    if rule.phase_labels.size > 0:
+        return phase_left(rule.phase_labels, at_entry, i)
+
+    return volatility_expanded(rule.atr, rule.atr_expansion, at_entry, i)
+
+
+@njit(cache=True)
+def price_failed(rule: EarlyExit, trade: OpenTrade, bars: Bars, excursion: Excursion, i: int) -> bool:
+    """Return whether the stalled, adverse-move or give-back exit, whichever is on, fires at bar ``i``."""
+    if rule.stall_bars > 0:
+        return stalled(excursion, trade.direction, i, rule.stall_bars)
+
+    if rule.adverse_closes > 0:
+        return closes_against(bars, trade, i, rule.adverse_closes)
+
+    if rule.adverse_atr > 0.0:
+        return moved_against(bars, rule.atr, rule.adverse_atr, trade, i)
+
+    return gave_back(rule, trade, excursion, float(bars.close[i]))
+
+
+@njit(cache=True)
+def not_working_bar(rule: EarlyExit, trade: OpenTrade) -> int:
+    """Return the bar the not-working exit tests a position at: the shorter one if entered against the trend.
+
+    Against is the opposite trend on the bar before the entry bar; an undefined label is against nothing.
+    """
+    at_entry = trade.entry_bar - 1
+    if rule.counter_trend_bar == 0 or at_entry < 0 or at_entry >= rule.trend_labels.size:
+        return rule.at_bar
+
+    if trend_against(int(rule.trend_labels[at_entry]), trade.direction, TREND_EXIT_OPPOSED):
+        return rule.counter_trend_bar
+
+    return rule.at_bar
 
 
 @njit(cache=True)
@@ -638,6 +759,118 @@ def trend_turned(labels: LabelArray, at_entry: int, i: int, direction: float, fo
         return False
 
     return trend_against(int(labels[i]), direction, form) and not trend_against(entry, direction, form)
+
+
+@njit(cache=True)
+def side_against(label: int, direction: float) -> bool:
+    """Return whether a higher-timeframe side is the far side of the average from a position on ``direction``.
+
+    An undefined side is against nothing.
+    """
+    if label == higher_timeframe.UNDEFINED:
+        return False
+
+    return direction * (label - SIDE_AT) < 0.0
+
+
+@njit(cache=True)
+def side_turned(labels: LabelArray, at_entry: int, i: int, direction: float) -> bool:
+    """Return whether bar ``i``'s higher-timeframe side is against the position when the one at entry was not.
+
+    An undefined side at entry never turns.
+    """
+    entry = int(labels[at_entry])
+    if entry == higher_timeframe.UNDEFINED:
+        return False
+
+    return side_against(int(labels[i]), direction) and not side_against(entry, direction)
+
+
+@njit(cache=True)
+def volume_turned(rule: EarlyExit, bars: Bars, at_entry: int, i: int, direction: float) -> bool:
+    """Return whether bar ``i``'s volume turned in :attr:`EarlyExit.volume_form`'s sense.
+
+    Thinned is a ``THIN`` bar after an entry that was not; heavy against is a ``HEAVY`` bar whose
+    close is strictly worse than its open. An undefined label never turns.
+    """
+    now = int(rule.volume_labels[i])
+    if rule.volume_form == VOLUME_EXIT_HEAVY_AGAINST:
+        return now == VOLUME_HEAVY and direction * (bars.close[i] - bars.open_[i]) < 0.0
+
+    entry = int(rule.volume_labels[at_entry])
+
+    return now == VOLUME_THIN and entry not in (VOLUME_THIN, volume.UNDEFINED)
+
+
+@njit(cache=True)
+def phase_left(labels: LabelArray, at_entry: int, i: int) -> bool:
+    """Return whether bar ``i``'s session phase differs from the entry's; one outside a session never does."""
+    entry = int(labels[at_entry])
+    now = int(labels[i])
+    if timeofday.OUT_OF_SESSION in (entry, now):
+        return False
+
+    return now != entry
+
+
+@njit(cache=True)
+def volatility_expanded(atr: FloatArray, multiple: float, at_entry: int, i: int) -> bool:
+    """Return whether bar ``i``'s ATR is above ``multiple`` of the one at entry; a warming-up one never is."""
+    if i >= atr.size:
+        return False
+
+    return float(atr[i]) > multiple * float(atr[at_entry])
+
+
+@njit(cache=True)
+def stalled(excursion: Excursion, direction: float, i: int, stall_bars: int) -> bool:
+    """Return whether the best price has not improved over the ``stall_bars`` closes up to bar ``i``."""
+    _, improved_at = sided(float(excursion.low_bar), float(excursion.high_bar), direction)
+
+    return i - improved_at >= stall_bars
+
+
+@njit(cache=True)
+def closes_against(bars: Bars, trade: OpenTrade, i: int, count: int) -> bool:
+    """Return whether each of the ``count`` closes up to bar ``i`` was strictly worse than the one before.
+
+    Only closes the position was open for count, so the first one compared against is the entry bar's.
+    """
+    if i - count < trade.entry_bar:
+        return False
+
+    for j in range(i - count + 1, i + 1):
+        if trade.direction * (bars.close[j] - bars.close[j - 1]) >= 0.0:
+            return False
+
+    return True
+
+
+@njit(cache=True)
+def moved_against(bars: Bars, atr: FloatArray, multiple: float, trade: OpenTrade, i: int) -> bool:
+    """Return whether bar ``i`` closed worse than the bar before by at least ``multiple`` of that bar's ATR.
+
+    Both closes have to be ones the position was open for, and an ATR still warming up names nothing.
+    """
+    if i <= trade.entry_bar or i > atr.size:
+        return False
+
+    return trade.direction * float(bars.close[i] - bars.close[i - 1]) <= -multiple * float(atr[i - 1])
+
+
+@njit(cache=True)
+def gave_back(rule: EarlyExit, trade: OpenTrade, excursion: Excursion, close: float) -> bool:
+    """Return whether the close has given back :attr:`EarlyExit.give_back` of the best excursion.
+
+    Armed only once that excursion reached :attr:`EarlyExit.give_back_from_r` R, within
+    :data:`BREAKEVEN_TOLERANCE`.
+    """
+    _, best = sided(excursion.run_low, excursion.run_high, trade.direction)
+    peak = trade.direction * (best - trade.entry_price)
+    if peak < rule.give_back_from_r * trade.risk * (1.0 - BREAKEVEN_TOLERANCE):
+        return False
+
+    return trade.direction * (close - trade.entry_price) <= (1.0 - rule.give_back) * peak
 
 
 @njit(cache=True)

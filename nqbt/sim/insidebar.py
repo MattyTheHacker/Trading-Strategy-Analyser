@@ -83,7 +83,7 @@ def simulate_insidebar(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rul
     d = 0.0
     trade = bracket.OpenTrade(0, 0, 0.0, 0.0, 0.0, d, True)
     stop = 0.0
-    excursion = bracket.Excursion(0.0, 0.0)
+    excursion = bracket.Excursion(0.0, 0.0, 0, 0)
     legs = bracket.Legs(
         np.zeros(n_legs, dtype=np.bool_),
         np.zeros(n_legs, dtype=np.float64),
@@ -109,7 +109,7 @@ def simulate_insidebar(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rul
 
             in_position = False
         elif in_position:
-            excursion = bracket.extend_excursion(excursion, bars.high[i], bars.low[i])
+            excursion = bracket.extend_excursion(excursion, bars.high[i], bars.low[i], i)
             written, in_position = bracket.resolve_brackets(
                 out,
                 written,
@@ -164,7 +164,7 @@ def simulate_insidebar(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rul
                     filled_at_open=True,
                 )
                 stop = candidate_stop
-                excursion = bracket.Excursion(bars.high[i], bars.low[i])
+                excursion = bracket.start_excursion(bars.high[i], bars.low[i], i)
                 raw_target = fill + d * bar_atr * rules.tp_multiplier
                 bracket.size_legs(legs, sizing, pending_bar)
                 for leg in range(n_legs):

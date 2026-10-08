@@ -90,18 +90,22 @@ below and is what you quote; this file is the index, not the record.
   reaches `max_hold_bars + 1`, not `max_hold_bars`. Where a bar is both this and an
   archetype's own signal exit, the archetype's rule takes it. `docs/nt8-fidelity.md`, "The
   maximum hold time, and why it is its own exit code".
-- **The conditional early exit is every archetype's too, and it is `EXIT_EARLY`.** Six rules --
-  not working by bar N or by minute N (on open profit or the best excursion), losing before the
-  close, a regime change, a trend turning against and a close beyond the signal bar's adverse
-  extreme -- all off by default, and the parameter class refuses two at once, so one code says
-  which fired. The minutes form reads `Dataset.bar_seconds`, UTC epoch seconds converted by
-  unit, never `asi8`, whose unit pandas 3 infers. `bracket.early_exit_due` is the one decision,
+- **The conditional early exit is every archetype's too, and it is `EXIT_EARLY`.** Fifteen
+  rules -- not working by bar N (shorter for a counter-trend entry) or by minute N, losing
+  before the close, a regime change, a trend or higher-timeframe side turning against, a close
+  beyond the signal bar's adverse extreme, a stall, leaving the entry's session phase, a thin
+  bar or a heavy bar against, an expanding ATR, adverse closes or one adverse move in ATRs,
+  and a give-back -- all off by default, and the parameter class refuses two at once, so one
+  code says which fired.
+  The minutes form reads `Dataset.bar_seconds`, UTC epoch seconds converted by unit, never
+  `asi8`, whose unit pandas 3 infers. `bracket.early_exit_due` is the one decision,
   `bracket.market_exit_reason` the one order between it and the hold cap, and
   `bracket.flatten_position` the one writer, so **do not fork any of them**. Each is decided at
   a bar close and fills at the next bar's open; on a bar that is two exits, the archetype's own
   rule takes it, then the hold cap, then this. The label rules compare against the bar
-  **before** the entry bar, and every threshold is in R. A setting nothing reads,
-  or a not-working bar the hold cap always beats, is refused rather than run.
+  **before** the entry bar, every threshold is in R or ATRs, and the stall counts from the bar
+  `bracket.Excursion` last raised its mark on, not from the entry. A setting nothing reads,
+  or a count the hold cap always beats, is refused rather than run.
   `docs/nt8-fidelity.md`, "The conditional early exit".
 - **The breakeven stop is every archetype's too, and it moves the stop rather than exiting.**
   `bracket.breakeven_level` is the one decision and `tightened_stop` the one ratchet, so **do not
