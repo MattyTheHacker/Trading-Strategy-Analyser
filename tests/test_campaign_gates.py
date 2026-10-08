@@ -249,10 +249,10 @@ def test_every_structure_trail_arm_is_read_against_the_high_water_trail() -> Non
     assert controls(arms) == [("trailing structure=off", arm) for arm in arms[1:]]
 
 
-def test_every_ladder_end_arm_is_read_against_its_own_high_water_trail() -> None:
+def test_every_ladder_arm_old_and_new_is_read_against_section_49s_high_water_trail() -> None:
     arms = [variant.name for variant in insidebartrailing_structure_end_variants("MNQ")]
-    assert arms[0] == "trailing structure_ends=off"
-    assert controls(arms) == [("trailing structure_ends=off", arm) for arm in arms[1:]]
+    assert arms[0] == "trailing structure=off"
+    assert controls(arms) == [("trailing structure=off", arm) for arm in arms[1:]]
 
 
 def test_the_tiers_above_a_half_read_against_the_eight_tenths_split_and_their_inverses() -> None:

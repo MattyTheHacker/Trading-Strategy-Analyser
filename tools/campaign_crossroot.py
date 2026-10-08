@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from nqbt import archetypes, context, disambiguate, logsetup, paths, resample, splice
 from tools.campaign_report import load, rank
 from tools.campaign_shortlist import rerun_group
-from tools.campaign_sweep import db_path
+from tools.campaign_sweep import COMMISSION, db_path
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -30,17 +30,6 @@ logger = logging.getLogger(__name__)
 
 PAIRS: dict[str, tuple[str, ...]] = {"NQ": ("ES", "GC"), "MNQ": ("MES", "MGC")}
 """Which target roots each source root's shortlist is run on, paired by size class."""
-
-COMMISSION: dict[str, float] = {
-    "NQ": 4.50,
-    "MNQ": 1.50,
-    "ES": 4.50,
-    "MES": 1.50,
-    "GC": 4.50,
-    "MGC": 1.50,
-    "SI": 4.50,
-}
-"""Round-turn dollars per contract, matching ``tools/campaign_sweep.py``."""
 
 TOP = 200
 MIN_TRADES = 500

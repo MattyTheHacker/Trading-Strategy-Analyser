@@ -2730,8 +2730,9 @@ def test_no_arm_above_a_half_takes_a_name_already_in_the_database() -> None:
 
 def test_the_tiers_above_a_half_refuse_a_cut_without_its_earliness_cuts() -> None:
     (campaign,) = insidebartrailing_variants("MNQ")
-    with pytest.raises(SystemExit, match="holds no earliness cuts"):
-        sizing_high_arms(campaign, replace(a_cut(), early_max_trend_bars=None))
+    for missing in ("early_max_extension_atr", "early_max_trend_bars"):
+        with pytest.raises(SystemExit, match="holds no earliness cuts"):
+            sizing_high_arms(campaign, replace(a_cut(), **{missing: None}))  # type: ignore[arg-type]  # one optional field set to None
 
 
 def test_the_tiers_above_a_half_read_their_own_roots_cuts_in_the_sizing_strata(
@@ -3399,62 +3400,65 @@ def test_the_structure_trail_run_states_its_strata_before_it_runs() -> None:
 # -- the structure-trail ladder's ends -------------------------------------------------------
 
 
-def test_the_ladder_end_arms_are_a_control_and_every_rung_section_49_did_not_run() -> None:
+def test_the_ladder_end_arms_are_every_rung_section_49_did_not_run() -> None:
     arms = structure_trail_end_arms()
     stored = structure_trail_arms()
     wide = len(STRUCTURE_TRAIL_WIDE_BARS) * len(STRUCTURE_TRAIL_WIDE_CUSHIONS)
-    assert len(arms) == 1 + wide - (len(stored) - 1)
-    assert arms["off"] == {}
-    assert not set(arms).difference({"off"}) & set(stored)
+    assert len(arms) == wide - (len(stored) - 1)
+    assert not set(arms) & set(stored)
     for arm, fields in arms.items():
-        if arm == "off":
-            continue
-
         past_an_end = fields["structure_trail_bars"] not in STRUCTURE_TRAIL_BARS
         past_an_end |= fields["structure_trail_cushion_atr"] not in STRUCTURE_TRAIL_CUSHIONS
         assert past_an_end, arm
 
 
-def test_the_wide_ladders_reach_one_rung_past_each_end_of_section_49s() -> None:
+def test_the_wide_ladders_widen_both_ends_of_the_box_and_the_top_of_the_cushion() -> None:
     assert min(STRUCTURE_TRAIL_WIDE_BARS) == 1 < min(STRUCTURE_TRAIL_BARS)
     assert max(STRUCTURE_TRAIL_WIDE_BARS) > max(STRUCTURE_TRAIL_BARS)
+    assert min(STRUCTURE_TRAIL_WIDE_CUSHIONS) == min(STRUCTURE_TRAIL_CUSHIONS) == 0.0
     assert max(STRUCTURE_TRAIL_WIDE_CUSHIONS) > max(STRUCTURE_TRAIL_CUSHIONS)
     assert set(STRUCTURE_TRAIL_BARS) < set(STRUCTURE_TRAIL_WIDE_BARS)
     assert set(STRUCTURE_TRAIL_CUSHIONS) < set(STRUCTURE_TRAIL_WIDE_CUSHIONS)
 
 
-def test_every_ladder_end_arm_is_the_stored_grid_with_only_the_trail_changed() -> None:
+def test_the_ladder_end_set_opens_with_section_49s_variants_unchanged() -> None:
+    """Under their stored names, a sweep on §M49's bars skips them as stored and runs only the new arms."""
+    for root in COMMISSION:
+        stored = insidebartrailing_structure_variants(root)
+        assert insidebartrailing_structure_end_variants(root)[: len(stored)] == stored
+
+
+def test_every_new_ladder_end_arm_is_the_stored_grid_with_only_the_trail_changed() -> None:
     arms = structure_trail_end_arms()
     for root in COMMISSION:
         (campaign,) = insidebartrailing_variants(root)
-        variants = insidebartrailing_structure_end_variants(root)
-        assert [variant.name for variant in variants] == [f"trailing structure_ends={arm}" for arm in arms]
-        for variant, fields in zip(variants, arms.values(), strict=True):
+        added = insidebartrailing_structure_end_variants(root)[len(structure_trail_arms()) :]
+        assert [variant.name for variant in added] == [f"trailing structure_ends={arm}" for arm in arms]
+        for variant, fields in zip(added, arms.values(), strict=True):
             assert variant.axes == campaign.axes
             assert variant.archetype is campaign.archetype
             assert variant.base == replace(campaign.base, **fields)
 
 
-def test_no_ladder_end_variant_takes_a_name_already_in_the_database() -> None:
-    """Its control runs again under its own name, so it pairs on the bars its arms ran on."""
+def test_no_new_ladder_end_arm_takes_a_name_already_in_the_database() -> None:
     taken = {variant.name for variant in VARIANTS["InsideBarTrailing"]("MNQ")}
     taken |= {variant.name for variant in insidebartrailing_structure_variants("MNQ")}
     names = [variant.name for variant in insidebartrailing_structure_end_variants("MNQ")]
     assert len(set(names)) == len(names)
-    assert not taken & set(names)
+    assert not taken & set(names[len(structure_trail_arms()) :])
 
 
 def test_only_the_ladder_end_control_keeps_its_reconciliation() -> None:
     for variant in insidebartrailing_structure_end_variants("MNQ"):
-        control: bool = variant.name.endswith(" structure_ends=off")
+        control: bool = variant.name.endswith(" structure=off")
         expected = archetypes.Tier2Status.RECONCILED if control else archetypes.Tier2Status.TIER1_ONLY
         assert variant.archetype.tier2_for(variant.base) is expected
 
 
-def test_every_ladder_end_grid_can_be_built_at_every_cell() -> None:
-    for variant in insidebartrailing_structure_end_variants("NQ"):
+def test_every_new_ladder_end_arm_is_a_legal_rule_set_at_every_cell() -> None:
+    for variant in insidebartrailing_structure_end_variants("NQ")[len(structure_trail_arms()) :]:
         for _, grid in grids_for(variant, IBT_STRUCTURE_ENDS):
-            assert len(grid) == variant.sized()
+            assert sum(1 for _ in grid.combinations()) == variant.sized()
 
 
 def test_the_ladder_end_run_states_the_same_strata_as_section_49() -> None:
