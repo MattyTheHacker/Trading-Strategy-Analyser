@@ -688,10 +688,14 @@ def insidebar_variants(root: str) -> list[Variant]:
 
 
 NARROW_ENTRY: dict[int, dict[str, AxisValue]] = {
-    5: {"ema_kind": "hma", "ema_period": 22, "error_margin": 0.1, "atr_length": 14},
-    10: {"ema_kind": "hma", "ema_period": 11, "error_margin": 0.1, "atr_length": 3},
+    2: {"ema_kind": "hma", "ema_period": 11, "atr_length": 3},
+    5: {"ema_kind": "hma", "ema_period": 22, "error_margin": 0.1, "atr_length": 14, "slow_sma_period": 200},
+    10: {"ema_kind": "hma", "ema_period": 11, "error_margin": 0.1, "atr_length": 3, "slow_sma_period": 100},
+    15: {"ema_kind": "ema", "error_margin": 0.01, "atr_length": 3, "slow_sma_period": 200},
 }
-"""InsideBar's entry, held per resolution at the modal value of §M27's own DIRECTIONAL top twenty."""
+"""InsideBar's entry per resolution: each value more than half of the stored campaign's DIRECTIONAL
+top twenty share. A field left out has no majority and stays at its default -- ``tools/README.md``
+§ "Why the grids look the way they do"."""
 
 NARROW_TP = [1.0, 1.5, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0]
 """Target distances in ATRs from the fill. Opens at the ``1.0`` the campaign was stuck with and
@@ -705,8 +709,8 @@ since a tighter stop is the other half of the same asymmetry."""
 def insidebar_narrow_variants(root: str) -> list[Variant]:
     """Build one variant per resolution: the campaign's entry, crossed over the bracket it never swept.
 
-    Two variants rather than one because the entry §M27 chose differs between five and ten
-    minutes, and a ``Variant`` carries one base -- ``docs/roadmap.md`` §M27.3.
+    One variant per resolution because the entry differs between them, and a ``Variant`` carries
+    one base -- ``docs/roadmap.md`` §M27.3.
     """
     return [
         Variant(
