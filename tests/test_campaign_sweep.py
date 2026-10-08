@@ -116,8 +116,12 @@ from tools.campaign_sweep import (
     EMAPULLBACK_TRAIL,
     EMAPULLBACK_TRAIL_VARIANTS,
     IBT_SIZING,
+    IBT_SIZING_HIGH,
+    IBT_SIZING_HIGH_VARIANTS,
     IBT_SIZING_VARIANTS,
     IBT_STRUCTURE,
+    IBT_STRUCTURE_ENDS,
+    IBT_STRUCTURE_ENDS_VARIANTS,
     IBT_STRUCTURE_VARIANTS,
     LONDON_OPEN_MINUTES,
     MIDDAY,
@@ -161,12 +165,15 @@ from tools.campaign_sweep import (
     SERIAL_BELOW_COMBINATION_BARS,
     SIZE_FIXED,
     SIZING_CONFLUENCE,
+    SIZING_HIGH_QUANTITIES,
     SIZING_QUANTITIES,
     SIZING_SYMMETRIC,
     SLIPPAGE_TICKS,
     STRATUM_SETS,
     STRUCTURE_TRAIL_BARS,
     STRUCTURE_TRAIL_CUSHIONS,
+    STRUCTURE_TRAIL_WIDE_BARS,
+    STRUCTURE_TRAIL_WIDE_CUSHIONS,
     UNFILTERED,
     VARIANTS,
     VOLUME_BASELINE_SESSIONS,
@@ -191,7 +198,9 @@ from tools.campaign_sweep import (
     fit_volume,
     grids_for,
     insidebartrailing_confluence_arms,
+    insidebartrailing_sizing_high_variants,
     insidebartrailing_sizing_variants,
+    insidebartrailing_structure_end_variants,
     insidebartrailing_structure_variants,
     insidebartrailing_variants,
     named_forms,
@@ -204,8 +213,10 @@ from tools.campaign_sweep import (
     sizing_arms,
     sizing_cuts,
     sizing_cuts_path,
+    sizing_high_arms,
     strata,
     structure_trail_arms,
+    structure_trail_end_arms,
     swept_on,
     tail_pairs,
     tier2_arms,
@@ -356,6 +367,16 @@ def test_each_micro_is_costed_below_the_root_it_micros(micro: str, full_size: st
     """
     assert instruments.get_instrument(micro).point_value < instruments.get_instrument(full_size).point_value
     assert COMMISSION[micro] < COMMISSION[full_size]
+
+
+def test_every_root_is_costed_at_the_index_figure_for_its_size() -> None:
+    """A micro carries MNQ's figure and a full-size root NQ's.
+
+    ``docs/roadmap.md`` § "Commission on the roots beyond NQ".
+    """
+    for root, commission in COMMISSION.items():
+        index_root: str = "NQ" if instruments.get_instrument(root).mini_equivalent == 1.0 else "MNQ"
+        assert commission == COMMISSION[index_root], root
 
 
 def test_the_crossover_variants_sweep_disjoint_stop_axes() -> None:
@@ -2646,6 +2667,86 @@ def test_the_sizing_variants_read_their_own_roots_cuts(
     assert variants_for(IBT_SIZING) is IBT_SIZING_VARIANTS
 
 
+# -- the tiers above a half ----------------------------------------------------------------
+
+
+def test_every_arm_above_a_half_shares_one_grid_at_its_own_ladder() -> None:
+    """Paired, not a best-of-more: each arm differs from its control in its base alone."""
+    (campaign,) = insidebartrailing_variants("MNQ")
+    arms = sizing_high_arms(campaign, a_cut())
+    assert len(arms) == 8
+    assert len({arm.name for arm in arms}) == 8
+    assert all(arm.axes == arms[0].axes for arm in arms)
+    assert "partial_take_profit_percentage" not in arms[0].axes
+    assert arms[0].axes["order_quantity"] == SIZING_HIGH_QUANTITIES
+    assert {arm.resolutions for arm in arms} == {(5,)}
+
+
+def test_every_combination_of_every_arm_above_a_half_is_a_legal_rule_set() -> None:
+    """The split rounds up, so a size leaving no runner would raise mid-sweep."""
+    (campaign,) = insidebartrailing_variants("NQ")
+    for arm in sizing_high_arms(campaign, a_cut("NQ")):
+        for _, grid in grids_for(arm, IBT_SIZING_HIGH):
+            assert sum(1 for _ in grid.combinations()) == arm.sized()
+
+
+def test_an_eight_tenths_split_leaves_no_runner_below_the_ladders_floor() -> None:
+    below: int = min(SIZING_HIGH_QUANTITIES) - 1
+    with pytest.raises(ValueError, match="leaves a lot of zero contracts"):
+        InsideBarTrailingParams(order_quantity=below, partial_take_profit_percentage=0.8)
+
+
+def test_each_tier_above_a_half_runs_beside_its_inverse() -> None:
+    (campaign,) = insidebartrailing_variants("MNQ")
+    arms = {
+        arm.name.removeprefix(f"{campaign.name} "): base_as(arm, InsideBarTrailingParams)
+        for arm in sizing_high_arms(campaign, a_cut())
+    }
+    written, inverted = arms["tier=trend-age@0.6/0.8"], arms["tier=trend-age@0.6/0.8 inverted"]
+    assert (written.early_partial_percentage, written.partial_take_profit_percentage) == (0.6, 0.8)
+    assert (inverted.early_partial_percentage, inverted.partial_take_profit_percentage) == (0.8, 0.6)
+    assert arms["split=0.8"].partial_take_profit_percentage == 0.8
+    assert arms["split=0.6"].partial_take_profit_percentage == 0.6
+    assert arms["split=0.8"].earliness_mode == arms["split=0.6"].earliness_mode == 0
+
+
+def test_only_the_splits_above_a_half_keep_their_reconciliation() -> None:
+    """No NinjaScript tiers its first partial, so every tier arm's rows are ``TIER1_ONLY``."""
+    (campaign,) = insidebartrailing_variants("MNQ")
+    for arm in sizing_high_arms(campaign, a_cut()):
+        split: bool = " split=" in arm.name
+        expected = archetypes.Tier2Status.RECONCILED if split else archetypes.Tier2Status.TIER1_ONLY
+        assert arm.archetype.tier2_for(arm.base) is expected, arm.name
+
+
+def test_no_arm_above_a_half_takes_a_name_already_in_the_database() -> None:
+    """Rows are separated by variant name alone, so a shared name would be skipped as stored."""
+    (campaign,) = insidebartrailing_variants("MNQ")
+    taken = {variant.name for variant in VARIANTS["InsideBarTrailing"]("MNQ")}
+    taken |= {arm.name for arm in insidebartrailing_confluence_arms(campaign, a_cut())}
+    names = {arm.name for arm in sizing_high_arms(campaign, a_cut())}
+    assert not taken & names
+
+
+def test_the_tiers_above_a_half_refuse_a_cut_without_its_earliness_cuts() -> None:
+    (campaign,) = insidebartrailing_variants("MNQ")
+    for missing in ("early_max_extension_atr", "early_max_trend_bars"):
+        with pytest.raises(SystemExit, match="holds no earliness cuts"):
+            sizing_high_arms(campaign, replace(a_cut(), **{missing: None}))  # type: ignore[arg-type]  # one optional field set to None
+
+
+def test_the_tiers_above_a_half_read_their_own_roots_cuts_in_the_sizing_strata(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    path = tmp_path / "cuts.json"
+    rows = [dataclasses.asdict(a_cut("MNQ", 5)), dataclasses.asdict(a_cut("NQ", 10))]
+    path.write_text(json.dumps(rows), encoding="utf-8")
+    monkeypatch.setattr(campaign_sweep, "SIZING_CUTS", path)
+    assert {variant.resolutions for variant in insidebartrailing_sizing_high_variants("MNQ")} == {(5,)}
+    assert [name for name, _ in strata(IBT_SIZING_HIGH)] == [name for name, _ in strata(IBT_SIZING)]
+    assert variants_for(IBT_SIZING_HIGH) is IBT_SIZING_HIGH_VARIANTS
+
+
 def test_a_sizing_arm_is_stored_tier1_only_and_its_control_reconciled(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -3294,3 +3395,72 @@ def test_the_structure_trail_run_states_its_strata_before_it_runs() -> None:
     assert [name for name, _ in strata(IBT_STRUCTURE)] == [name for name, _ in strata(ALL_STRATA)]
     assert STRATUM_SETS[IBT_STRUCTURE] == STRATUM_SETS[ALL_STRATA]
     assert variants_for(IBT_STRUCTURE) is IBT_STRUCTURE_VARIANTS
+
+
+# -- the structure-trail ladder's ends -------------------------------------------------------
+
+
+def test_the_ladder_end_arms_are_every_rung_section_49_did_not_run() -> None:
+    arms = structure_trail_end_arms()
+    stored = structure_trail_arms()
+    wide = len(STRUCTURE_TRAIL_WIDE_BARS) * len(STRUCTURE_TRAIL_WIDE_CUSHIONS)
+    assert len(arms) == wide - (len(stored) - 1)
+    assert not set(arms) & set(stored)
+    for arm, fields in arms.items():
+        past_an_end = fields["structure_trail_bars"] not in STRUCTURE_TRAIL_BARS
+        past_an_end |= fields["structure_trail_cushion_atr"] not in STRUCTURE_TRAIL_CUSHIONS
+        assert past_an_end, arm
+
+
+def test_the_wide_ladders_widen_both_ends_of_the_box_and_the_top_of_the_cushion() -> None:
+    assert min(STRUCTURE_TRAIL_WIDE_BARS) == 1 < min(STRUCTURE_TRAIL_BARS)
+    assert max(STRUCTURE_TRAIL_WIDE_BARS) > max(STRUCTURE_TRAIL_BARS)
+    assert min(STRUCTURE_TRAIL_WIDE_CUSHIONS) == min(STRUCTURE_TRAIL_CUSHIONS) == 0.0
+    assert max(STRUCTURE_TRAIL_WIDE_CUSHIONS) > max(STRUCTURE_TRAIL_CUSHIONS)
+    assert set(STRUCTURE_TRAIL_BARS) < set(STRUCTURE_TRAIL_WIDE_BARS)
+    assert set(STRUCTURE_TRAIL_CUSHIONS) < set(STRUCTURE_TRAIL_WIDE_CUSHIONS)
+
+
+def test_the_ladder_end_set_opens_with_section_49s_variants_unchanged() -> None:
+    """Under their stored names, a sweep on §M49's bars skips them as stored and runs only the new arms."""
+    for root in COMMISSION:
+        stored = insidebartrailing_structure_variants(root)
+        assert insidebartrailing_structure_end_variants(root)[: len(stored)] == stored
+
+
+def test_every_new_ladder_end_arm_is_the_stored_grid_with_only_the_trail_changed() -> None:
+    arms = structure_trail_end_arms()
+    for root in COMMISSION:
+        (campaign,) = insidebartrailing_variants(root)
+        added = insidebartrailing_structure_end_variants(root)[len(structure_trail_arms()) :]
+        assert [variant.name for variant in added] == [f"trailing structure_ends={arm}" for arm in arms]
+        for variant, fields in zip(added, arms.values(), strict=True):
+            assert variant.axes == campaign.axes
+            assert variant.archetype is campaign.archetype
+            assert variant.base == replace(campaign.base, **fields)
+
+
+def test_no_new_ladder_end_arm_takes_a_name_already_in_the_database() -> None:
+    taken = {variant.name for variant in VARIANTS["InsideBarTrailing"]("MNQ")}
+    taken |= {variant.name for variant in insidebartrailing_structure_variants("MNQ")}
+    names = [variant.name for variant in insidebartrailing_structure_end_variants("MNQ")]
+    assert len(set(names)) == len(names)
+    assert not taken & set(names[len(structure_trail_arms()) :])
+
+
+def test_only_the_ladder_end_control_keeps_its_reconciliation() -> None:
+    for variant in insidebartrailing_structure_end_variants("MNQ"):
+        control: bool = variant.name.endswith(" structure=off")
+        expected = archetypes.Tier2Status.RECONCILED if control else archetypes.Tier2Status.TIER1_ONLY
+        assert variant.archetype.tier2_for(variant.base) is expected
+
+
+def test_every_new_ladder_end_arm_is_a_legal_rule_set_at_every_cell() -> None:
+    for variant in insidebartrailing_structure_end_variants("NQ")[len(structure_trail_arms()) :]:
+        for _, grid in grids_for(variant, IBT_STRUCTURE_ENDS):
+            assert sum(1 for _ in grid.combinations()) == variant.sized()
+
+
+def test_the_ladder_end_run_states_the_same_strata_as_section_49() -> None:
+    assert STRATUM_SETS[IBT_STRUCTURE_ENDS] == STRATUM_SETS[IBT_STRUCTURE]
+    assert variants_for(IBT_STRUCTURE_ENDS) is IBT_STRUCTURE_ENDS_VARIANTS

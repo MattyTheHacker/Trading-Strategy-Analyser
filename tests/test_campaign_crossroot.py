@@ -15,7 +15,8 @@ import pytest
 from nqbt import disambiguate
 from nqbt.instruments import get_instrument
 from tools import campaign_crossroot
-from tools.campaign_crossroot import COMMISSION, PAIRS, selected, summarise
+from tools.campaign_crossroot import PAIRS, selected, summarise
+from tools.campaign_sweep import COMMISSION
 
 
 def stored(n: int = 40) -> pd.DataFrame:
