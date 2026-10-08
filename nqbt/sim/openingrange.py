@@ -278,7 +278,7 @@ def simulate_openingrange(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
 
     trade = bracket.OpenTrade(0, 0, 0.0, 0.0, 0.0, direction, False)
     stop = 0.0
-    excursion = bracket.Excursion(0.0, 0.0)
+    excursion = bracket.Excursion(0.0, 0.0, 0, 0)
     legs = bracket.Legs(
         np.zeros(n_legs, dtype=np.bool_),
         np.zeros(n_legs, dtype=np.float64),
@@ -309,7 +309,7 @@ def simulate_openingrange(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
 
             in_position = False
         elif in_position:
-            excursion = bracket.extend_excursion(excursion, bars.high[i], bars.low[i])
+            excursion = bracket.extend_excursion(excursion, bars.high[i], bars.low[i], i)
             written, in_position = bracket.resolve_brackets(
                 out,
                 written,
@@ -347,7 +347,7 @@ def simulate_openingrange(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
                     filled_at_open=False,
                 )
                 stop = pending_stop
-                excursion = bracket.Excursion(bars.high[i], bars.low[i])
+                excursion = bracket.start_excursion(bars.high[i], bars.low[i], i)
                 bracket.size_legs(legs, sizing, pending_bar)
                 for leg in range(n_legs):
                     legs.is_open[leg] = True

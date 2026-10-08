@@ -175,9 +175,13 @@ def validate_tp_multiplier(tp_multiplier: float, nt8_minimum: float | None = Non
         raise ValueError(msg)
 
 
+EARLY_EXIT_ATR_PERIOD = 14
+"""The ATR period the volatility and adverse-move exits read by default."""
+
+
 @runtime_checkable
 class EarlyExitParams(Protocol):
-    """The conditional early exit's nine fields and the hold cap it competes with, as one shape."""
+    """The conditional early exit's twenty-one fields and the hold cap it competes with, as one shape."""
 
     max_hold_bars: int
     early_exit_bars: int
@@ -189,6 +193,18 @@ class EarlyExitParams(Protocol):
     early_exit_on_trend: int
     early_exit_on_invalidation: bool
     early_exit_only_if_losing: bool
+    early_exit_counter_trend_bars: int
+    early_exit_stall_bars: int
+    early_exit_on_phase_change: bool
+    early_exit_on_higher_timeframe: bool
+    early_exit_on_thin_volume: bool
+    early_exit_on_heavy_against: bool
+    early_exit_atr_expansion: float
+    early_exit_adverse_closes: int
+    early_exit_adverse_atr: float
+    early_exit_atr_period: int
+    early_exit_give_back: float
+    early_exit_give_back_from_r: float
 
 
 def active_early_exits(params: EarlyExitParams) -> list[str]:
@@ -200,9 +216,34 @@ def active_early_exits(params: EarlyExitParams) -> list[str]:
         "early_exit_on_regime_change": params.early_exit_on_regime_change,
         "early_exit_on_trend": params.early_exit_on_trend != TREND_EXIT_OFF,
         "early_exit_on_invalidation": params.early_exit_on_invalidation,
+        "early_exit_stall_bars": params.early_exit_stall_bars > 0,
+        "early_exit_on_phase_change": params.early_exit_on_phase_change,
+        "early_exit_on_higher_timeframe": params.early_exit_on_higher_timeframe,
+        "early_exit_on_thin_volume": params.early_exit_on_thin_volume,
+        "early_exit_on_heavy_against": params.early_exit_on_heavy_against,
+        "early_exit_atr_expansion": params.early_exit_atr_expansion > 0.0,
+        "early_exit_adverse_closes": params.early_exit_adverse_closes > 0,
+        "early_exit_adverse_atr": params.early_exit_adverse_atr > 0.0,
+        "early_exit_give_back": params.early_exit_give_back > 0.0,
     }
 
     return [name for name, on in switched_on.items() if on]
+
+
+LOSING_OPTIONAL_EXITS = (
+    "early_exit_on_regime_change",
+    "early_exit_on_trend",
+    "early_exit_on_invalidation",
+    "early_exit_stall_bars",
+    "early_exit_on_higher_timeframe",
+    "early_exit_on_thin_volume",
+    "early_exit_on_heavy_against",
+    "early_exit_adverse_closes",
+    "early_exit_adverse_atr",
+    "early_exit_give_back",
+)
+"""The rules :attr:`DeadCatParams.early_exit_only_if_losing` applies to; the rest carry a condition on
+open profit of their own."""
 
 
 def _refuse_unread(reason: str, *settings: tuple[str, object, object]) -> None:
@@ -231,36 +272,72 @@ def validate_early_exit(params: EarlyExitParams) -> None:
             ("early_exit_measure", params.early_exit_measure, MEASURE_OPEN_PROFIT),
         )
 
-    reads_losing: bool = (
-        params.early_exit_on_regime_change
-        or params.early_exit_on_trend != TREND_EXIT_OFF
-        or params.early_exit_on_invalidation
-    )
-    if params.early_exit_only_if_losing and not reads_losing:
+    if params.early_exit_only_if_losing and not set(active) & set(LOSING_OPTIONAL_EXITS):
         msg = (
-            "early_exit_only_if_losing is set but none of the regime, trend or invalidation exits "
-            "is on to read it"
+            "early_exit_only_if_losing is set but none of the exits it applies to is on to read it: "
+            f"{', '.join(LOSING_OPTIONAL_EXITS)}"
         )
         raise ValueError(msg)
 
-    if 0 < params.max_hold_bars <= params.early_exit_bars:
-        msg = (
-            f"early_exit_bars of {params.early_exit_bars} can never fire under max_hold_bars of "
-            f"{params.max_hold_bars}: the hold cap closes the position on that bar or before it"
+    validate_early_exit_settings(params)
+    earliest_bars: dict[str, int] = {
+        "early_exit_bars": params.early_exit_bars,
+        "early_exit_stall_bars": params.early_exit_stall_bars,
+        "early_exit_adverse_closes": params.early_exit_adverse_closes,
+        "early_exit_adverse_atr": 1 if params.early_exit_adverse_atr > 0.0 else 0,
+    }
+    for name, earliest in earliest_bars.items():
+        if 0 < params.max_hold_bars <= earliest:
+            msg = (
+                f"{name} can never fire under max_hold_bars of {params.max_hold_bars}: it fires "
+                f"{earliest} bars after the entry bar at the earliest, and the hold cap closes the "
+                "position on that bar or before it"
+            )
+            raise ValueError(msg)
+
+
+def validate_early_exit_settings(params: EarlyExitParams) -> None:
+    """Refuse a counter-trend, ATR or give-back setting that nothing reads or that changes nothing."""
+    if params.early_exit_bars == 0:
+        _refuse_unread(
+            "early_exit_bars is 0, so the not-working exit in bars that reads it is off",
+            ("early_exit_counter_trend_bars", params.early_exit_counter_trend_bars, 0),
+        )
+
+    if params.early_exit_counter_trend_bars >= params.early_exit_bars > 0:
+        msg: str = (
+            f"early_exit_counter_trend_bars of {params.early_exit_counter_trend_bars} is not shorter than "
+            f"early_exit_bars of {params.early_exit_bars}, so a counter-trend entry gets no less time"
         )
         raise ValueError(msg)
+
+    if params.early_exit_atr_expansion == 0.0 and params.early_exit_adverse_atr == 0.0:
+        _refuse_unread(
+            "neither the volatility nor the adverse-move exit in ATRs is on to read it",
+            ("early_exit_atr_period", params.early_exit_atr_period, EARLY_EXIT_ATR_PERIOD),
+        )
+
+    if params.early_exit_give_back == 0.0:
+        _refuse_unread(
+            "early_exit_give_back is 0, so the give-back exit that reads it is off",
+            ("early_exit_give_back_from_r", params.early_exit_give_back_from_r, 1.0),
+        )
 
 
 def validate_early_exit_ranges(params: EarlyExitParams) -> None:
     """Refuse an early-exit field outside the values it can take."""
-    if params.early_exit_bars < 0:
-        msg: str = f"early_exit_bars must be >= 0, got {params.early_exit_bars}"
-        raise ValueError(msg)
+    for name in (
+        "early_exit_bars",
+        "early_exit_minutes",
+        "early_exit_counter_trend_bars",
+        "early_exit_stall_bars",
+        "early_exit_adverse_closes",
+    ):
+        if getattr(params, name) < 0:
+            msg: str = f"{name} must be >= 0, got {getattr(params, name)}"
+            raise ValueError(msg)
 
-    if params.early_exit_minutes < 0:
-        msg = f"early_exit_minutes must be >= 0, got {params.early_exit_minutes}"
-        raise ValueError(msg)
-
+    validate_later_early_exit_ranges(params)
     if params.early_exit_measure not in EARLY_EXIT_MEASURES:
         msg = (
             f"early_exit_measure must be one of {sorted(EARLY_EXIT_MEASURES)}, "
@@ -280,6 +357,30 @@ def validate_early_exit_ranges(params: EarlyExitParams) -> None:
         msg = (
             f"early_exit_on_trend must be one of {sorted(TREND_EXIT_FORMS)}, got {params.early_exit_on_trend}"
         )
+        raise ValueError(msg)
+
+
+def validate_later_early_exit_ranges(params: EarlyExitParams) -> None:
+    """Refuse a field of the ATR or give-back exits outside the values it can take."""
+    expansion: float = params.early_exit_atr_expansion
+    if not (expansion == 0.0 or 1.0 <= expansion < math.inf):
+        msg: str = f"early_exit_atr_expansion must be 0 or at least 1, and finite, got {expansion}"
+        raise ValueError(msg)
+
+    if not 0.0 <= params.early_exit_adverse_atr < math.inf:
+        msg = f"early_exit_adverse_atr must be >= 0 and finite, got {params.early_exit_adverse_atr}"
+        raise ValueError(msg)
+
+    if params.early_exit_atr_period < 1:
+        msg = f"early_exit_atr_period must be >= 1, got {params.early_exit_atr_period}"
+        raise ValueError(msg)
+
+    if not 0.0 <= params.early_exit_give_back <= 1.0:
+        msg = f"early_exit_give_back must be between 0 and 1, got {params.early_exit_give_back}"
+        raise ValueError(msg)
+
+    if not 0.0 < params.early_exit_give_back_from_r < math.inf:
+        msg = f"early_exit_give_back_from_r must be > 0 and finite, got {params.early_exit_give_back_from_r}"
         raise ValueError(msg)
 
 
@@ -757,7 +858,45 @@ class DeadCatParams:
     """Exit once a bar closes beyond the adverse extreme of the bar before the entry bar."""
 
     early_exit_only_if_losing: bool = False
-    """Let the regime, trend or invalidation exit fire only while the position is losing."""
+    """Let a label, invalidation, price or give-back exit fire only while the position is losing."""
+
+    early_exit_counter_trend_bars: int = 0
+    """:attr:`early_exit_bars` for a position entered against the trend label, shorter; off at ``0``."""
+
+    early_exit_stall_bars: int = 0
+    """Closes without a new best price after which the position exits, off at ``0``."""
+
+    early_exit_on_phase_change: bool = False
+    """Exit a losing position once the session phase differs from the one on the bar before the entry
+    bar."""
+
+    early_exit_on_higher_timeframe: bool = False
+    """Exit once the close turns to the far side of the higher-timeframe average from the position."""
+
+    early_exit_on_thin_volume: bool = False
+    """Exit on a ``THIN`` bar after an entry whose bar before was not."""
+
+    early_exit_on_heavy_against: bool = False
+    """Exit on a ``HEAVY`` bar whose close is worse than its open."""
+
+    early_exit_atr_expansion: float = 0.0
+    """Exit a losing position once the ATR is above this multiple of the one on the bar before the
+    entry bar; off at ``0``."""
+
+    early_exit_adverse_closes: int = 0
+    """Closes in a row, each worse than the one before, after which the position exits; off at ``0``."""
+
+    early_exit_adverse_atr: float = 0.0
+    """Exit once one close is worse than the one before by at least this many ATRs; off at ``0``."""
+
+    early_exit_atr_period: int = EARLY_EXIT_ATR_PERIOD
+    """The ATR period the volatility and adverse-move exits read."""
+
+    early_exit_give_back: float = 0.0
+    """The fraction of its best excursion a position may give back before it exits; off at ``0``."""
+
+    early_exit_give_back_from_r: float = 1.0
+    """The best excursion, in R, a position has to reach before the give-back exit is armed."""
 
     breakeven_at: float = 0.0
     """Open profit, in :attr:`breakeven_unit`, at which the stop moves to the entry; off at ``0``.
@@ -1040,7 +1179,19 @@ class PullBackAndGoParams:
     early_exit_on_trend: int = TREND_EXIT_OFF
     early_exit_on_invalidation: bool = False
     early_exit_only_if_losing: bool = False
-    """See :attr:`DeadCatParams.early_exit_bars` and the eight after it -- same rules, same defaults."""
+    early_exit_counter_trend_bars: int = 0
+    early_exit_stall_bars: int = 0
+    early_exit_on_phase_change: bool = False
+    early_exit_on_higher_timeframe: bool = False
+    early_exit_on_thin_volume: bool = False
+    early_exit_on_heavy_against: bool = False
+    early_exit_atr_expansion: float = 0.0
+    early_exit_adverse_closes: int = 0
+    early_exit_adverse_atr: float = 0.0
+    early_exit_atr_period: int = EARLY_EXIT_ATR_PERIOD
+    early_exit_give_back: float = 0.0
+    early_exit_give_back_from_r: float = 1.0
+    """See :attr:`DeadCatParams.early_exit_bars` and the twenty after it -- same rules, same defaults."""
 
     breakeven_at: float = 0.0
     breakeven_unit: int = BREAKEVEN_R
@@ -1327,7 +1478,19 @@ class EmaCrossoverParams:
     early_exit_on_trend: int = TREND_EXIT_OFF
     early_exit_on_invalidation: bool = False
     early_exit_only_if_losing: bool = False
-    """See :attr:`DeadCatParams.early_exit_bars` and the eight after it -- same rules, same defaults."""
+    early_exit_counter_trend_bars: int = 0
+    early_exit_stall_bars: int = 0
+    early_exit_on_phase_change: bool = False
+    early_exit_on_higher_timeframe: bool = False
+    early_exit_on_thin_volume: bool = False
+    early_exit_on_heavy_against: bool = False
+    early_exit_atr_expansion: float = 0.0
+    early_exit_adverse_closes: int = 0
+    early_exit_adverse_atr: float = 0.0
+    early_exit_atr_period: int = EARLY_EXIT_ATR_PERIOD
+    early_exit_give_back: float = 0.0
+    early_exit_give_back_from_r: float = 1.0
+    """See :attr:`DeadCatParams.early_exit_bars` and the twenty after it -- same rules, same defaults."""
 
     breakeven_at: float = 0.0
     breakeven_unit: int = BREAKEVEN_R
@@ -1590,7 +1753,19 @@ class InsideBarParams:
     early_exit_on_trend: int = TREND_EXIT_OFF
     early_exit_on_invalidation: bool = False
     early_exit_only_if_losing: bool = False
-    """See :attr:`DeadCatParams.early_exit_bars` and the eight after it -- same rules, same defaults."""
+    early_exit_counter_trend_bars: int = 0
+    early_exit_stall_bars: int = 0
+    early_exit_on_phase_change: bool = False
+    early_exit_on_higher_timeframe: bool = False
+    early_exit_on_thin_volume: bool = False
+    early_exit_on_heavy_against: bool = False
+    early_exit_atr_expansion: float = 0.0
+    early_exit_adverse_closes: int = 0
+    early_exit_adverse_atr: float = 0.0
+    early_exit_atr_period: int = EARLY_EXIT_ATR_PERIOD
+    early_exit_give_back: float = 0.0
+    early_exit_give_back_from_r: float = 1.0
+    """See :attr:`DeadCatParams.early_exit_bars` and the twenty after it -- same rules, same defaults."""
 
     breakeven_at: float = 0.0
     breakeven_unit: int = BREAKEVEN_R
@@ -2217,7 +2392,19 @@ class ElasticBandParams:
     early_exit_on_trend: int = TREND_EXIT_OFF
     early_exit_on_invalidation: bool = False
     early_exit_only_if_losing: bool = False
-    """See :attr:`DeadCatParams.early_exit_bars` and the eight after it -- same rules, same defaults."""
+    early_exit_counter_trend_bars: int = 0
+    early_exit_stall_bars: int = 0
+    early_exit_on_phase_change: bool = False
+    early_exit_on_higher_timeframe: bool = False
+    early_exit_on_thin_volume: bool = False
+    early_exit_on_heavy_against: bool = False
+    early_exit_atr_expansion: float = 0.0
+    early_exit_adverse_closes: int = 0
+    early_exit_adverse_atr: float = 0.0
+    early_exit_atr_period: int = EARLY_EXIT_ATR_PERIOD
+    early_exit_give_back: float = 0.0
+    early_exit_give_back_from_r: float = 1.0
+    """See :attr:`DeadCatParams.early_exit_bars` and the twenty after it -- same rules, same defaults."""
 
     breakeven_at: float = 0.0
     breakeven_unit: int = BREAKEVEN_R
@@ -2686,7 +2873,19 @@ class OpeningRangeParams:
     early_exit_on_trend: int = TREND_EXIT_OFF
     early_exit_on_invalidation: bool = False
     early_exit_only_if_losing: bool = False
-    """See :attr:`DeadCatParams.early_exit_bars` and the eight after it -- same rules, same defaults."""
+    early_exit_counter_trend_bars: int = 0
+    early_exit_stall_bars: int = 0
+    early_exit_on_phase_change: bool = False
+    early_exit_on_higher_timeframe: bool = False
+    early_exit_on_thin_volume: bool = False
+    early_exit_on_heavy_against: bool = False
+    early_exit_atr_expansion: float = 0.0
+    early_exit_adverse_closes: int = 0
+    early_exit_adverse_atr: float = 0.0
+    early_exit_atr_period: int = EARLY_EXIT_ATR_PERIOD
+    early_exit_give_back: float = 0.0
+    early_exit_give_back_from_r: float = 1.0
+    """See :attr:`DeadCatParams.early_exit_bars` and the twenty after it -- same rules, same defaults."""
 
     breakeven_at: float = 0.0
     breakeven_unit: int = BREAKEVEN_R
@@ -3092,7 +3291,19 @@ class EmaPullbackParams:
     early_exit_on_trend: int = TREND_EXIT_OFF
     early_exit_on_invalidation: bool = False
     early_exit_only_if_losing: bool = False
-    """See :attr:`DeadCatParams.early_exit_bars` and the eight after it -- same rules, same defaults."""
+    early_exit_counter_trend_bars: int = 0
+    early_exit_stall_bars: int = 0
+    early_exit_on_phase_change: bool = False
+    early_exit_on_higher_timeframe: bool = False
+    early_exit_on_thin_volume: bool = False
+    early_exit_on_heavy_against: bool = False
+    early_exit_atr_expansion: float = 0.0
+    early_exit_adverse_closes: int = 0
+    early_exit_adverse_atr: float = 0.0
+    early_exit_atr_period: int = EARLY_EXIT_ATR_PERIOD
+    early_exit_give_back: float = 0.0
+    early_exit_give_back_from_r: float = 1.0
+    """See :attr:`DeadCatParams.early_exit_bars` and the twenty after it -- same rules, same defaults."""
 
     breakeven_at: float = 0.0
     breakeven_unit: int = BREAKEVEN_R
@@ -3375,7 +3586,19 @@ class SqueezeBreakoutParams:
     early_exit_on_trend: int = TREND_EXIT_OFF
     early_exit_on_invalidation: bool = False
     early_exit_only_if_losing: bool = False
-    """See :attr:`DeadCatParams.early_exit_bars` and the eight after it -- same rules, same defaults."""
+    early_exit_counter_trend_bars: int = 0
+    early_exit_stall_bars: int = 0
+    early_exit_on_phase_change: bool = False
+    early_exit_on_higher_timeframe: bool = False
+    early_exit_on_thin_volume: bool = False
+    early_exit_on_heavy_against: bool = False
+    early_exit_atr_expansion: float = 0.0
+    early_exit_adverse_closes: int = 0
+    early_exit_adverse_atr: float = 0.0
+    early_exit_atr_period: int = EARLY_EXIT_ATR_PERIOD
+    early_exit_give_back: float = 0.0
+    early_exit_give_back_from_r: float = 1.0
+    """See :attr:`DeadCatParams.early_exit_bars` and the twenty after it -- same rules, same defaults."""
 
     breakeven_at: float = 0.0
     breakeven_unit: int = BREAKEVEN_R

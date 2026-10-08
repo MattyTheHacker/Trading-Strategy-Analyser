@@ -342,26 +342,74 @@ def early_exit(data: Dataset, params: EarlyExiting) -> bracket.EarlyExit:
         )
 
     trend_labels: LabelArray = bracket.NO_LABELS
-    if params.early_exit_on_trend != bracket.TREND_EXIT_OFF:
+    if params.early_exit_on_trend != bracket.TREND_EXIT_OFF or params.early_exit_counter_trend_bars > 0:
         trend_labels = data.trend_labels(params.trend_key, params.trend_min_agreement)
 
     clock: FloatArray = bracket.NO_SECONDS
     if params.early_exit_minutes > 0:
         clock = data.bar_seconds()
 
+    atr: FloatArray = bracket.NO_ATR
+    if params.early_exit_atr_expansion > 0.0 or params.early_exit_adverse_atr > 0.0:
+        atr = data.atr_values(params.early_exit_atr_period)
+
+    phase_labels, higher_timeframe_labels, volume_labels = _exit_labels(data, params)
+
     return bracket.EarlyExit(
         at_bar=int(params.early_exit_bars),
         at_minutes=float(params.early_exit_minutes),
+        counter_trend_bar=int(params.early_exit_counter_trend_bars),
         below_r=float(params.early_exit_below_r),
         measure=int(params.early_exit_measure),
         trend_form=int(params.early_exit_on_trend),
         only_if_losing=bool(params.early_exit_only_if_losing),
         on_invalidation=bool(params.early_exit_on_invalidation),
+        stall_bars=int(params.early_exit_stall_bars),
+        adverse_closes=int(params.early_exit_adverse_closes),
+        adverse_atr=float(params.early_exit_adverse_atr),
+        atr_expansion=float(params.early_exit_atr_expansion),
+        give_back=float(params.early_exit_give_back),
+        give_back_from_r=float(params.early_exit_give_back_from_r),
+        volume_form=_volume_exit_form(params),
         near_close=near_close,
         regime_labels=regime_labels,
         trend_labels=trend_labels,
+        phase_labels=phase_labels,
+        higher_timeframe_labels=higher_timeframe_labels,
+        volume_labels=volume_labels,
+        atr=atr,
         clock=clock,
     )
+
+
+def _volume_exit_form(params: EarlyExiting) -> int:
+    """Return which of :data:`nqbt.sim.bracket.VOLUME_EXIT_FORMS` the volume exit takes, off for neither."""
+    if params.early_exit_on_thin_volume:
+        return bracket.VOLUME_EXIT_THINNED
+
+    if params.early_exit_on_heavy_against:
+        return bracket.VOLUME_EXIT_HEAVY_AGAINST
+
+    return bracket.VOLUME_EXIT_OFF
+
+
+def _exit_labels(data: Dataset, params: EarlyExiting) -> tuple[LabelArray, LabelArray, LabelArray]:
+    """Return the phase, higher-timeframe and volume labels an early exit reads, empty where it reads none."""
+    phase_labels: LabelArray = bracket.NO_LABELS
+    if params.early_exit_on_phase_change:
+        phase_labels = data.phase_values()
+
+    higher_timeframe_labels: LabelArray = bracket.NO_LABELS
+    if params.early_exit_on_higher_timeframe:
+        higher_timeframe_labels = data.higher_timeframe_labels(params.higher_timeframe_key)
+
+    volume_labels: LabelArray = bracket.NO_LABELS
+    if params.early_exit_on_thin_volume or params.early_exit_on_heavy_against:
+        volume_labels = data.volume_labels(
+            params.volume_key, params.volume_thin_below, params.volume_heavy_above
+        )
+
+    return phase_labels, higher_timeframe_labels, volume_labels
 
 
 def breakeven(data: Dataset, params: BreakevenParams) -> bracket.Breakeven:

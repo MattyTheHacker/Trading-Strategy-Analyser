@@ -130,8 +130,9 @@ paths:
   may name several toggles and is dead where any one of them is inert everywhere -- EmaPullback's
   third-grid trail axes name `trail_ma_stop` and `trail_on_slow` -- or, named through
   `archetypes.AnyOf`, dead only where every one of them is: every archetype reads a label's axes
-  under its filter, its `size_on_*` label *or* an early exit on it (the regime and the trend
-  only), `archetypes.CONTEXT_GATES`. Each toggle is still compared against one value.
+  under its filter, its `size_on_*` label *or* an early exit on it (the regime, the trend, the
+  volume and the higher timeframe), `archetypes.CONTEXT_GATES`. Each toggle is still compared
+  against one value.
   `volume_rolling_bars` is inert while `volume_filter` admits everything *and*
   at every `volume_form` but `ROLLING`; only the first is caught. Sweeping the window under a per-bar form runs identical combinations. **Build the axes
   through `volume.key`** wherever a sweep crosses the form with the window — it drops the window
