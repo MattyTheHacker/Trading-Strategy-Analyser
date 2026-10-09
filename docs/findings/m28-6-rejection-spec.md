@@ -36,7 +36,7 @@ The rejection is the fade's level, the retest's order type and the breakout's la
 
 ## What it inherits, and what that costs
 
-Everything the retest's limit does: fills at its price or better, does not fill on a touch, takes no slippage, and **a marketable limit is refused** — the one OpeningRange rule that deviates from an *unmeasured* NT8 behaviour rather than from a measured one (§M28.2). A second mode now rests on it, which raises what the two-sided-range probe is worth rather than changing what it would settle.
+Everything the retest's limit does: fills at its price or better, does not fill on a touch, takes no slippage, and **a marketable limit is refused** — the one OpeningRange rule that deviates from an *unmeasured* NT8 behaviour rather than from a measured one (§M28.2). A second mode now rests on it, which raises what the two-sided-range probe is worth rather than changing what it would settle. [#454] has since settled it: NinjaTrader accepts the order, and the refusal stays as the archetype's own rule. It also measured the gapped fill, which is at the limit or the bar's nearest price rather than at the open — `docs/nt8-fidelity.md`, "A limit order the market has passed fills at the nearest price the bar traded".
 
 The signal is **dense** again, in the breakout's way rather than the fade's: no break gate thins it, so every armed bar resubmits, `randomentry.matched_random_signal` will refuse the draw below `MIN_DRAW_FREEDOM`, and `matched_random_ranges` is the null any gate 3 on it has to be drawn against — §M28.1 and §M28.2.
 
@@ -52,3 +52,4 @@ The two come from the fade's own campaign, which is what makes this a changed me
 **Nothing has been swept here, and §M28.5's verdict does not transfer.** That campaign bounded the fade's *bracket* and found the floor set by its entry — the bar that fills a fade is the bar the break is happening on, so the stop is inside it. § "Why the axis is monotone" states the prediction that follows for this mode and it stands as written: a limit fills as price comes *to* it rather than after price has traded through, so the bar that fills a rejection is not by construction the bar a move is happening on. That is the thing a campaign here would measure first.
 
 [#255]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/255
+[#454]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/454

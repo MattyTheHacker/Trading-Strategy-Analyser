@@ -142,8 +142,8 @@ def fill_prices(
     """Count limit fills at the limit's own price, at the bar's extreme nearest it, at the open, or elsewhere.
 
     The first two are the one rule, the limit's price clamped into its fill bar's range --
-    ``docs/nt8-fidelity.md``, "A target the market has passed fills at the nearest price the bar
-    traded". The open is counted apart -- ``tools/README.md`` § "reconcile_passed_target.py".
+    ``docs/nt8-fidelity.md``, "A limit order the market has passed fills at the nearest price the
+    bar traded". The open is counted apart -- ``tools/README.md`` § "reconcile_passed_target.py".
     """
     follows: BoolArray = fill == np.clip(limit, low, high)
     at_limit: BoolArray = fill == limit

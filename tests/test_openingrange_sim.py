@@ -484,8 +484,13 @@ def test_a_retest_limit_must_trade_through_and_not_merely_touch() -> None:
     assert len(run(rows, fill_limit_on_touch=True, **kwargs)) == 1  # type: ignore[arg-type]  # the keywords are run's own
 
 
-def test_a_retest_that_gaps_past_its_limit_fills_better_rather_than_worse() -> None:
-    """A limit fills at its price or better, which is the stop entry's rule reflected."""
+def test_a_retest_a_bar_gaps_past_fills_at_the_nearest_price_the_bar_traded() -> None:
+    """A gapped limit entry fills where a gapped target does, not at the open.
+
+    ``docs/nt8-fidelity.md``, "A limit order the market has passed fills at the nearest price the
+    bar traded".
+    """
+    # Opens at 105, under the 110 limit, and never trades back up past 106.
     rows = [BELOW, BREAKS, (105.0, 106.0, 104.0, 105.5)]
     trades = run(
         rows,
@@ -495,7 +500,14 @@ def test_a_retest_that_gaps_past_its_limit_fills_better_rather_than_worse() -> N
         slippage=4.0,
     )
 
-    assert trades["entry_price"].iloc[0] == 105.0
+    assert trades["entry_price"].iloc[0] == 106.0
+
+
+def test_a_retest_a_bar_gaps_past_and_trades_back_to_fills_at_its_limit() -> None:
+    rows = [BELOW, BREAKS, (105.0, 111.0, 104.0, 110.5)]
+    trades = run(rows, signal_at=(0, 1, 2), entry_mode=ORB_ENTRY_RETEST, stop_mode=ORB_STOP_FRACTION)
+
+    assert trades["entry_price"].iloc[0] == RANGE_HIGH
 
 
 def test_a_retest_limit_takes_no_slippage() -> None:
@@ -617,6 +629,21 @@ def test_a_short_rejection_sells_the_approach_to_the_range_high() -> None:
 
     assert trades["direction"].iloc[0] == SHORT
     assert trades["entry_price"].iloc[0] == RANGE_HIGH - 1.0
+
+
+def test_a_short_rejection_a_bar_gaps_past_fills_at_the_bars_low() -> None:
+    # Opens at 111, over the 109 limit, and never trades back down past 110.
+    gaps_over_the_limit = (111.0, 112.0, 110.0, 111.5)
+    trades = run(
+        [BELOW, gaps_over_the_limit],
+        signal_at=(0, 1),
+        direction=SHORT,
+        entry_mode=ORB_ENTRY_REJECTION,
+        stop_mode=ORB_STOP_FRACTION,
+        entry_offset_ticks=4.0,
+    )
+
+    assert trades["entry_price"].iloc[0] == 110.0
 
 
 # -- the targets ----------------------------------------------------------------

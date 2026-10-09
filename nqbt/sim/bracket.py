@@ -398,7 +398,7 @@ def resolve_brackets(  # noqa: C901, PLR0912 - one branch per NT8 exit rule, in 
 
     Order of resolution: the stop takes the whole position unless the ambiguity policy says the
     targets were reached first; targets fill with no slippage, at their own price or the nearest
-    one the bar traded (``target_fill``); anything still open after a targets-first bar leaves at
+    one the bar traded (``limit_fill_price``); anything still open after a targets-first bar leaves at
     the stop on that same bar; and force-flat is last.
     Called by both the in-position path and the entry-bar path.
     """
@@ -459,7 +459,9 @@ def resolve_brackets(  # noqa: C901, PLR0912 - one branch per NT8 exit rule, in 
                     trade,
                     legs,
                     leg,
-                    LegExit(i, target_fill(legs.target[leg], adverse_px, direction), EXIT_TARGET, ambiguous),
+                    LegExit(
+                        i, limit_fill_price(legs.target[leg], adverse_px, direction), EXIT_TARGET, ambiguous
+                    ),
                     excursion,
                     costs,
                 )
@@ -1199,16 +1201,17 @@ def limit_filled(favourable_px: float, limit: float, on_touch: bool, direction: 
 
 
 @njit(cache=True)
-def target_fill(target: float, adverse_px: float, direction: float) -> float:
-    """Return the price a filled target leaves at: its own, or the bar's adverse extreme beyond it.
+def limit_fill_price(limit: float, near_px: float, direction: float) -> float:
+    """Return the price a filled limit order fills at: its own, or the bar's extreme nearest it.
 
-    ``docs/nt8-fidelity.md``, "A target the market has passed fills at the nearest price the bar
-    traded".
+    ``direction`` is read as :func:`limit_filled` reads it, and ``near_px`` is the bar's other
+    extreme, its low for a sell limit and its high for a buy limit -- ``docs/nt8-fidelity.md``, "A
+    limit order the market has passed fills at the nearest price the bar traded".
     """
-    if direction * adverse_px > direction * target:
-        return adverse_px
+    if direction * near_px > direction * limit:
+        return near_px
 
-    return target
+    return limit
 
 
 @njit(cache=True)

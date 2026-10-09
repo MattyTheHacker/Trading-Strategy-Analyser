@@ -131,10 +131,11 @@ def break_confirmed(
 
 @njit(cache=True)
 def submittable(trigger: float, close: float, rules: OpeningRangeRules) -> bool:
-    """Return whether NT8 would accept this order at this bar's close.
+    """Return whether this order is sent at this bar's close.
 
-    A stop entry has to sit strictly beyond the market it is submitted into --
-    ``docs/nt8-fidelity.md`` §M18 -- and a limit entry strictly inside it -- §M28.2.
+    A stop entry has to sit strictly beyond the market it is submitted into, or NT8 refuses it --
+    ``docs/nt8-fidelity.md`` §M18. A limit entry is sent only strictly inside it, which is this
+    archetype's own rule rather than NT8's -- §M28.2.
     """
     if rules.entry_mode in ORB_LIMIT_ENTRIES:
         return rules.direction * trigger < rules.direction * close
@@ -148,18 +149,14 @@ def _limit_entry_fill(
 ) -> tuple[bool, float]:
     """Apply the limit test the retest and the rejection share.
 
-    A limit fills at its price or better, so a bar opening past it fills at the open, and it
-    takes no slippage. It rests against the direction traded, so :func:`bracket.limit_filled`
-    reads it at ``-direction``.
+    A limit fills as a target does, at its price or the nearest one the bar traded, and takes no
+    slippage. It rests against the direction traded, so :mod:`bracket` reads it at ``-direction``.
     """
-    if direction * bars.open_[i] <= direction * trigger:
-        return True, bars.open_[i]
+    near, favourable = bracket.sided(bars.low[i], bars.high[i], -direction)
+    if not bracket.limit_filled(favourable, trigger, fills.fill_limit_on_touch, -direction):
+        return False, 0.0
 
-    adverse, _ = bracket.sided(bars.low[i], bars.high[i], direction)
-    if bracket.limit_filled(adverse, trigger, fills.fill_limit_on_touch, -direction):
-        return True, trigger
-
-    return False, 0.0
+    return True, bracket.limit_fill_price(trigger, near, -direction)
 
 
 @njit(cache=True)

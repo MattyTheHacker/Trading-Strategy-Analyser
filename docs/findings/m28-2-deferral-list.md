@@ -45,7 +45,7 @@ Both wait for a break that already happened, which is one `bool` per session, re
 
 So `entry_level` is three lines and `break_confirmed` is one comparison, both sided through `bracket.sided` — the sign multiplier doing the work it was built for. **The retest is the only one that reaches new fill semantics**, and it reaches them at the entry for the first time: a limit fills at its price or better, does not fill on a touch, and takes no slippage. All three rules already existed for exits; `bracket.limit_filled` is the one implementation and the entry reads it at `-direction`.
 
-**One decision in there is a deviation rather than a port, and it is flagged as such.** NT8 refuses a stop entry at or through the market (§M18). What it does with a *marketable limit* — a buy limit submitted at or above the close — is unmeasured, and the likely answer is that it accepts and fills at market. The simulation refuses it, so a retest never enters at a price the market has already left. That is the conservative side of an unmeasured behaviour, and `docs/nt8-fidelity.md` §M28.2 books it against the two-sided-range probe §M28 already wants. **It is the one thing here that a trade list could contradict.**
+**One decision in there is a deviation rather than a port, and it is flagged as such.** NT8 refuses a stop entry at or through the market (§M18). What it does with a *marketable limit* — a buy limit submitted at or above the close — is unmeasured, and the likely answer is that it accepts and fills at market. The simulation refuses it, so a retest never enters at a price the market has already left. That is the conservative side of an unmeasured behaviour, and `docs/nt8-fidelity.md` §M28.2 books it against the two-sided-range probe §M28 already wants. **It is the one thing here that a trade list could contradict.** [#454] has since measured both: NinjaTrader accepts a marketable limit and fills it at the limit or the bar's nearest price rather than at market, and fills a limit a bar gaps past the same way rather than at the open. The refusal stays, now as the archetype's own rule — `docs/nt8-fidelity.md`, "A limit order the market has passed fills at the nearest price the bar traded".
 
 ## The anchor was free, and the divisor rule is why it stayed unbuilt
 
@@ -160,4 +160,5 @@ The **noise-area form**, which §M28 put on ElasticBand's thread and which stays
 
 [#237]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/237
 [#248]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/248
+[#454]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/454
 [#51]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/51

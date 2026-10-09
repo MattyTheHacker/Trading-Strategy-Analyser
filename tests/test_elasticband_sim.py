@@ -508,10 +508,10 @@ def test_a_nan_level_is_a_runner_with_no_target() -> None:
 def test_a_target_the_entry_bar_opened_past_fills_at_the_nearest_price_it_traded(
     basis: float, fill: float
 ) -> None:
-    """A target the market has passed fills at the nearest price the bar traded.
+    """A limit order the market has passed fills at the nearest price the bar traded.
 
-    ``docs/nt8-fidelity.md``, "A target the market has passed fills at the nearest price the bar
-    traded".
+    ``docs/nt8-fidelity.md``, "A limit order the market has passed fills at the nearest price the
+    bar traded".
     """
     # The entry bar opens at 100 and trades 99.5 to 100.5, so a basis of 99 is never traded and
     # leaves at the bar's low, and a basis of 100 is traded through and leaves at its own price.

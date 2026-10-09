@@ -324,8 +324,8 @@ def test_the_entry_bar_never_uses_the_gap_rule() -> None:
 
 
 def test_a_target_a_bar_gaps_past_fills_at_the_nearest_price_the_bar_traded() -> None:
-    # -- ``docs/nt8-fidelity.md``, "A target the market has passed fills at the nearest price
-    # the bar traded". Neither the target nor the open: the bar never traded at the one, and
+    # -- ``docs/nt8-fidelity.md``, "A limit order the market has passed fills at the nearest
+    # price the bar traded". Neither the target nor the open: the bar never traded at the one, and
     # traded nearer it than the other.
     trades = run(
         [
@@ -397,7 +397,7 @@ def test_a_target_the_entry_bar_opened_past_fills_on_that_bar_at_its_nearest_pri
 def test_a_target_fills_at_its_price_unless_the_whole_bar_lies_past_it(
     target: float, adverse: float, direction: float, expected: float
 ) -> None:
-    assert bracket.target_fill(target, adverse, direction) == expected
+    assert bracket.limit_fill_price(target, adverse, direction) == expected
 
 
 def test_session_close_flattens_whatever_is_left() -> None:

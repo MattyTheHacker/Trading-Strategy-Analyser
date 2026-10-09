@@ -120,7 +120,7 @@ That also says why the stored exports cannot settle it. Across all five NT8 trad
 
 Until it is settled `tools/campaign_review.py` takes `--price-tolerance`, defaulting to the run's own slippage and printing any widening. The numbers above were taken at 20 points, which admits every one of the 23 and is still two orders of magnitude below the offset a back-adjusted series would show — the guard survives the widening, which is the only reason it is acceptable. **The better fix is to start a review after the first roll rather than to widen anything**, and it is not taken here because §M27's windows are shares of the whole series and moving them would make this section's numbers incomparable with §M27.4's.
 
-**[#452] has since settled it**: NinjaTrader fills such a target at the nearest price its bar traded, so the simulator no longer puts one outside its bar and `--price-tolerance` is gone. The numbers above were taken before that change — `docs/nt8-fidelity.md`, "A target the market has passed fills at the nearest price the bar traded".
+**[#452] has since settled it**: NinjaTrader fills such a target at the nearest price its bar traded, so the simulator no longer puts one outside its bar and `--price-tolerance` is gone. The numbers above were taken before that change — `docs/nt8-fidelity.md`, "A limit order the market has passed fills at the nearest price the bar traded".
 
 ## What the clock does not settle
 

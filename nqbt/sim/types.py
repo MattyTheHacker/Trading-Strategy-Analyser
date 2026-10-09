@@ -2765,8 +2765,8 @@ class OpeningRangeParams:
     """Ticks *inside* the broken level the limit sits at, read under
     :data:`ORB_ENTRY_RETEST` alone.
 
-    At ``0`` the limit sits on the level itself. It fills at its price or better and takes no
-    slippage -- ``docs/nt8-fidelity.md`` §M28.2."""
+    At ``0`` the limit sits on the level itself. It fills at its price or the nearest one the bar
+    traded and takes no slippage -- ``docs/nt8-fidelity.md`` §M28.2."""
 
     max_entries_per_session: int = 1
     """How many entries one session may fill, uncapped at ``0``; one-shot by default --

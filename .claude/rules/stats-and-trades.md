@@ -51,12 +51,13 @@ paths:
 - **Every annotated fill price is checked against its bar's range**, because that is the only
   thing that catches a back-adjusted series — the lookup succeeds and every comparison is out by
   the roll offset. `price_tolerance` admits a simulated run's slippage and nothing wider.
-- **A simulated fill lands within its bar plus the run's slippage.** A target fills at the
+- **A simulated fill lands within its bar plus the run's slippage.** A limit fills at the
   nearest price its bar traded, so it never lands outside, and every other fill moves by the
   slippage alone. So the campaign tools check at the run's slippage with no flag to widen it,
   and a fill further out is a back-adjusted series or a log stored before #452, which a re-run
-  replaces. `docs/nt8-fidelity.md`, "A target the market has passed fills at the nearest price
-  the bar traded".
+  replaces. The one known exception is a limit entry gapping past its own stop, whose stop
+  exits outside the entry bar (#455). `docs/nt8-fidelity.md`, "A limit order the market has passed fills at the nearest
+  price the bar traded".
 - **A prop-account replay defines no performance statistic, exactly as a review does not.** Every
   figure about the *trades* is a `stats.summarise` field over the trades one account took; the
   fields `propaccount` owns are about the *account* — where the floor sat, what was withdrawn,
