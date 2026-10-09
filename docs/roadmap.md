@@ -734,6 +734,10 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 **Both recommended midday cells paid back their fees on every Apex and TopStep preset before [#440]; re-run through each firm's 2026 evaluation linked to its funded account, InsideBarTrailing still leads and TopStep 50K is still its account at about 70% of the net, LucidFlex 50K is second for both, and Apex pays only on its 50K end-of-day account. Linked to its PRO, TakeProfitTrader loses money on both, so every Test-alone figure before it overstated that firm; and the registry's default shortlists mostly never pay back, at most 22% on any one preset.** Moved to [`docs/findings/m51-prop-payback-timing.md`](findings/m51-prop-payback-timing.md).
 
+### M52 — the conditional early exit's third tier ([#369])
+
+**Pre-registered, not yet run: 36 arms of #369's third tier over every archetype's stored grid, at 5, 10 and 15 minutes, read with §M48's and §M50's bar over a family of 33 cells.** Pre-registered in [`docs/findings/m52-early-exit-tier-3-preregistration.md`](findings/m52-early-exit-tier-3-preregistration.md); the rules and the NinjaScript each would be written as are [`nt8-fidelity.md`](nt8-fidelity.md), "The conditional early exit".
+
 ### Do the shortlists travel? ([#330])
 
 **Most of what a shortlist loses is selection rather than instrument — the drop from selection window to own holdout is two to five times the further drop to a market never seen — and the two inside-bar archetypes travel with almost no additional cost, while nothing clears a profit factor of 1.1 anywhere.** Moved to [`docs/findings/cross-root-transfer.md`](findings/cross-root-transfer.md).
