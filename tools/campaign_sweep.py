@@ -78,6 +78,7 @@ from nqbt.sim.types import (
     STOP_BAND,
     STOP_CATASTROPHE,
     STOP_SWING,
+    TARGET_R,
     TARGET_STRETCH,
     TOUCH_ANY,
     TOUCH_CLOSE,
@@ -179,6 +180,7 @@ ELASTIC_VOLUME = "elastic-volume"
 ELASTIC_CHANNEL = "elastic-channel"
 ELASTIC_RECOVERY = "elastic-recovery"
 ELASTIC_BAND_STOP = "elastic-band-stop"
+ELASTIC_INVERT = "elastic-invert"
 EMAPULLBACK_TRAIL = "emapullback-trail"
 EMAPULLBACK_CONFIRM = "emapullback-confirm"
 IBT_SIZING = "ibt-sizing"
@@ -457,6 +459,7 @@ STRATUM_SETS: dict[str, tuple[str, ...]] = {
     ELASTIC_CHANNEL: (UNFILTERED, VOLUME_FORMS),
     ELASTIC_RECOVERY: (UNFILTERED,),
     ELASTIC_BAND_STOP: (UNFILTERED,),
+    ELASTIC_INVERT: EVERY_DIMENSION,
     EMAPULLBACK_TRAIL: EVERY_DIMENSION,
     EMAPULLBACK_CONFIRM: EVERY_DIMENSION,
     IBT_SIZING: (UNFILTERED, MIDDAY),
@@ -751,8 +754,12 @@ ELASTIC_LADDERS: dict[str, tuple[float, ...]] = {
     "target=+1.0s": (1.0, NAN),
     "target=+2.0s": (2.0, NAN),
 }
-"""Where the scaled-out leg exits, in standard deviations from the basis, signed towards the
-trade. A variant each because a tuple is not a sweepable axis -- ``docs/roadmap.md`` §M26."""
+"""Where the scaled-out leg exits, in standard deviations from the basis signed towards the trade,
+or past the signal bar's close under the inverted signal. A variant each because a tuple is not a
+sweepable axis -- ``docs/roadmap.md`` §M26 and ``docs/nt8-fidelity.md`` §M26.7."""
+
+ELASTIC_TARGET_R = "target=R"
+"""The name token of an ElasticBand variant on R targets, which runs the default R ladder."""
 
 
 def elastic_ladder(variant: str) -> tuple[float, ...]:
@@ -766,6 +773,15 @@ def elastic_ladder(variant: str) -> tuple[float, ...]:
             return ELASTIC_LADDERS[token]
 
     msg = f"no target ladder in the ElasticBand variant name {variant!r}; known: {sorted(ELASTIC_LADDERS)}"
+    raise KeyError(msg)
+
+
+def elastic_r_ladder(variant: str) -> tuple[float, ...]:
+    """Return the R ladder an ElasticBand variant on R targets ran: the default, named ``target=R``."""
+    if ELASTIC_TARGET_R in variant.split():
+        return ElasticBandParams().target_r_multiples
+
+    msg = f"no {ELASTIC_TARGET_R} token in the ElasticBand variant name {variant!r}, which runs on R targets"
     raise KeyError(msg)
 
 
@@ -1020,6 +1036,51 @@ def elasticband_band_stop_variants(root: str) -> list[Variant]:
         for arm, (stop_mode, depth) in ELASTIC_BAND_STOP_ARMS.items()
         for shape_name, shape in ELASTIC_BAND_STOP_SHAPES.items()
     ]
+
+
+ELASTIC_INVERT_ARMS: tuple[tuple[bool, str], ...] = (
+    (False, ELASTIC_TARGET_R),
+    (True, ELASTIC_TARGET_R),
+    (False, "target=0.0s"),
+    (True, "target=+1.0s"),
+    (True, "target=+2.0s"),
+)
+"""Whether the signal is inverted, and its target: both sides on R, then each on its own ladder --
+``docs/nt8-fidelity.md`` §M26.7."""
+
+ELASTIC_INVERT_AXES: dict[str, list[AxisValue]] = {
+    "entry_std": [2.0, 2.5, 3.0],
+    "min_bars_outside": [1, 2],
+    "stop_mode": [STOP_ATR, STOP_SWING, STOP_CATASTROPHE],
+    "max_hold_bars": [0, 30],
+}
+"""The bracket every arm shares -- ``docs/findings/m26-7-inverted-signal-preregistration.md``."""
+
+
+def elasticband_invert_variants(root: str) -> list[Variant]:
+    """Build §M26.7's run: the fade and the inverted signal on the same bars, each on R and its own ladder."""
+    return [
+        Variant(
+            name=f"invert={'on' if invert else 'off'} {target}",
+            archetype=archetypes.ELASTICBAND,
+            base=_costed(_invert_base(invert=invert, target=target), root),
+            axes=dict(ELASTIC_INVERT_AXES),
+        )
+        for invert, target in ELASTIC_INVERT_ARMS
+    ]
+
+
+def _invert_base(*, invert: bool, target: str) -> ElasticBandParams:
+    """Return §M26.5's channel with the signal inverted or not, on R targets or one stretch ladder."""
+    if target == ELASTIC_TARGET_R:
+        return ElasticBandParams(band_source=BAND_VWAP, invert_signal=invert, target_mode=TARGET_R)
+
+    return ElasticBandParams(
+        band_source=BAND_VWAP,
+        invert_signal=invert,
+        target_mode=TARGET_STRETCH,
+        target_stretch_levels=ELASTIC_LADDERS[target],
+    )
 
 
 ORB_WINDOWS = (5, 15, 30)
@@ -1667,6 +1728,11 @@ ELASTIC_BAND_STOP_VARIANTS: VariantBuilders = {"ElasticBand": elasticband_band_s
 """The §M26.8 run: the stop on the band itself against the three stops that are not, over one
 entry pair. The names carry a ``stop=`` token where every stored ElasticBand row carries none,
 so the two runs cannot collide in one database -- ``docs/roadmap.md`` §M26.8."""
+
+ELASTIC_INVERT_VARIANTS: VariantBuilders = {"ElasticBand": elasticband_invert_variants}
+"""The §M26.7 run: the inverted signal against the fade on the same bars, in every stratum. The
+names carry an ``invert=`` token no stored ElasticBand row carries --
+``docs/findings/m26-7-inverted-signal-preregistration.md``."""
 
 HOLD_BARS = (0, 5, 10, 20, 40, 80)
 """Maximum hold times in bars, ``0`` being the uncapped arm every stored campaign ran."""
@@ -2562,6 +2628,7 @@ VARIANT_SETS = {
     EARLY_EXIT_2,
     EARLY_EXIT_3,
     ELASTIC_BAND_STOP,
+    ELASTIC_INVERT,
     EMAPULLBACK_CONFIRM,
     EMAPULLBACK_TRAIL,
     ELASTIC_CHANNEL,
@@ -2595,6 +2662,7 @@ def variants_for(which: str) -> VariantBuilders:
         EARLY_EXIT_2: EARLY_EXIT_2_VARIANTS,
         EARLY_EXIT_3: EARLY_EXIT_3_VARIANTS,
         ELASTIC_BAND_STOP: ELASTIC_BAND_STOP_VARIANTS,
+        ELASTIC_INVERT: ELASTIC_INVERT_VARIANTS,
         EMAPULLBACK_CONFIRM: EMAPULLBACK_CONFIRM_VARIANTS,
         EMAPULLBACK_TRAIL: EMAPULLBACK_TRAIL_VARIANTS,
         ELASTIC_CHANNEL: ELASTIC_CHANNEL_VARIANTS,
