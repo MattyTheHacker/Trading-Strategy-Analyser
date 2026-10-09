@@ -10,13 +10,14 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import math
 from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import archetypes, context, splice, stats, sweep, trades, trend
+from nqbt import archetypes, context, propaccount, splice, stats, sweep, trades, trend
 from nqbt.instruments import MNQ
 from nqbt.sim import bracket, insidebar, insidebartrailing, runner, squeeze
 from nqbt.sim.types import (
@@ -30,23 +31,32 @@ from nqbt.sim.types import (
 from nqbt.trades import C_QUANTITY, LONG, SHORT
 from tests.test_insidebartrailing_sim import walk_bars
 from tools import campaign_sizing, campaign_sweep
+from tools.campaign_propaccount import CONTRACTS, DEFAULT_PRESETS, contracts_per_trade, uncapped
 from tools.campaign_sizing import (
     EARLY_QUANTILE,
     MAX_FAVOURABLE_SHARE,
     MAX_STEP_SHARE,
     MIN_FAVOURABLE_SHARE,
+    OBSERVED,
+    against,
     age_at,
     extension_at,
     fit,
     fit_cut,
     kept_labels,
     label_shares,
+    legs_log,
     permuted_sizing,
+    placed_draws,
     probe_params,
-    recomputed_null,
+    prop_draws,
+    prop_null_by_configuration,
+    prop_null_pooled,
+    recomputed_legs,
     resized,
     same_trades,
     selection_window,
+    shuffled_legs,
     shuffled_null,
     symmetric_kept_labels,
     trade_rows,
@@ -645,7 +655,7 @@ def test_the_null_is_refused_where_the_size_moved_a_trade(short_walk: pd.DataFra
     params = sized_insidebar()
     data = prepared_as(short_walk, params, archetypes.INSIDEBAR)
     with pytest.raises(RuntimeError, match="moved a trade"):
-        recomputed_null(data, params, MNQ, moving, by="profit_factor", draws=1, seed=0)
+        recomputed_legs(data, params, MNQ, moving, draws=1, seed=0)
 
 
 def test_a_trade_at_a_size_its_table_does_not_hold_is_refused(short_walk: pd.DataFrame) -> None:
@@ -720,4 +730,130 @@ def test_the_null_is_refused_where_recomputing_the_sizes_taken_misses_the_simula
 
     monkeypatch.setattr(campaign_sizing, "resized", off_by_a_dollar)
     with pytest.raises(RuntimeError, match="did not reproduce"):
-        recomputed_null(data, params, MNQ, archetypes.INSIDEBAR, by="profit_factor", draws=1, seed=0)
+        recomputed_legs(data, params, MNQ, archetypes.INSIDEBAR, draws=1, seed=0)
+
+
+# -- the prop null: every shuffle through the accounts ------------------------------------------
+
+
+def accounts() -> list[propaccount.Account]:
+    return [propaccount.account_named(name) for name in DEFAULT_PRESETS]
+
+
+def test_a_shuffles_log_is_the_log_a_sweep_writes(short_walk: pd.DataFrame) -> None:
+    params = sized()
+    data = prepared(short_walk, params)
+    legs = insidebartrailing.insidebartrailing_legs(data, params, MNQ)
+    _, log = sweep.run_combination(data, params, MNQ, archetypes.INSIDEBARTRAILING)
+    assert log is not None
+    pd.testing.assert_frame_equal(legs_log(legs, data, MNQ), log)
+
+
+def test_the_prop_draws_open_on_the_own_replay_and_number_every_shuffle(short_walk: pd.DataFrame) -> None:
+    params = sized()
+    data = prepared(short_walk, params)
+    table = prop_draws(data, params, MNQ, accounts(), draws=3, seed=0)
+    assert sorted(set(table["draw"])) == [OBSERVED, 0, 1, 2]
+    assert len(table) == 4 * len(DEFAULT_PRESETS)
+    own = table[table["draw"] == OBSERVED].reset_index(drop=True)
+    log = legs_log(insidebartrailing.insidebartrailing_legs(data, params, MNQ), data, MNQ)
+    for position, account in enumerate(accounts()):
+        replay = propaccount.replay(log, account, max_accounts=uncapped(log))
+        assert own.loc[position, "account_name"] == account.name
+        assert own.loc[position, "passes"] == replay.passes
+        assert own.loc[position, "attempts"] == replay.attempts
+        assert own.loc[position, "net"] == replay.net
+        assert own.loc[position, CONTRACTS] == contracts_per_trade(log)
+
+
+def test_the_prop_draws_replay_exactly_the_shuffles_the_null_draws(short_walk: pd.DataFrame) -> None:
+    params = sized()
+    data = prepared(short_walk, params)
+    table = prop_draws(data, params, MNQ, accounts()[:1], draws=4, seed=6)
+    _, shuffles = shuffled_legs(data, params, MNQ, draws=4, seed=6)
+    contracts = [contracts_per_trade(legs_log(legs, data, MNQ)) for legs in shuffles]
+    assert list(table.loc[table["draw"] != OBSERVED, CONTRACTS]) == contracts
+    assert len(set(contracts)) > 1, "every shuffle put on the same contracts, so this pins nothing"
+
+
+def test_a_fixed_size_is_its_own_null_through_the_accounts(short_walk: pd.DataFrame) -> None:
+    params = unsized(sized())
+    data = prepared(short_walk, params)
+    table = prop_draws(data, params, MNQ, accounts(), draws=2, seed=0).assign(sweep_id=1, combo_id=2)
+    placed_on = prop_null_by_configuration(table, [])
+    assert len(placed_on) == len(DEFAULT_PRESETS)
+    assert (placed_on["net_p"] == 1.0).all()
+    assert (placed_on["net_observed"] == placed_on["net_null_median"]).all()
+    assert (placed_on["pass_rate_p"] == 1.0).all()
+
+
+def a_block(passes: list[int], attempts: list[int], nets: list[float]) -> pd.DataFrame:
+    """Build one configuration on one rule set: the first row its own replay, the rest its shuffles."""
+    return pd.DataFrame(
+        {
+            "draw": list(range(OBSERVED, len(passes) - 1)),
+            "passes": passes,
+            "attempts": attempts,
+            "net": nets,
+            CONTRACTS: [4.0] + [3.5] * (len(passes) - 1),
+        },
+    )
+
+
+def test_a_draw_is_placed_by_the_share_of_shuffles_at_least_as_high() -> None:
+    placed_on = placed_draws(a_block([2, 1, 3, 2], [10, 10, 10, 10], [500.0, -100.0, 900.0, 0.0]))
+    assert placed_on["draws"] == 3
+    assert placed_on["pass_rate_observed"] == pytest.approx(0.2)
+    assert placed_on["pass_rate_p"] == pytest.approx((1 + 2) / (1 + 3)), "0.3 and the tied 0.2 count"
+    assert placed_on["net_null_median"] == 0.0
+    assert placed_on["net_p"] == pytest.approx((1 + 1) / (1 + 3))
+    assert (placed_on[CONTRACTS], placed_on[f"{CONTRACTS}_null_median"]) == (4.0, 3.5)
+
+
+def test_a_block_read_back_from_several_files_is_placed_by_position() -> None:
+    """Tables concatenated without a fresh index repeat their row labels."""
+    block = a_block([2, 1, 3, 2], [10, 10, 10, 10], [500.0, -100.0, 900.0, 0.0])
+    repeated = block.set_axis([0, 0, 1, 1])
+    assert placed_draws(repeated) == placed_draws(block)
+
+
+def test_a_replay_with_no_attempts_has_no_pass_rate_to_place() -> None:
+    placed_on = placed_draws(a_block([0, 1, 0], [0, 4, 4], [0.0, 10.0, -10.0]))
+    assert np.isnan(placed_on["pass_rate_observed"])
+    assert np.isnan(placed_on["pass_rate_p"]), "an undefined rate read as the strongest result"
+    assert placed_on["net_p"] == pytest.approx((1 + 1) / (1 + 2))
+
+
+@pytest.mark.parametrize("draws", [[OBSERVED, OBSERVED, 0], [0, 1, 2], [OBSERVED]])
+def test_a_block_without_one_own_draw_and_a_shuffle_is_refused(draws: list[int]) -> None:
+    block = pd.DataFrame(
+        {"draw": draws, "passes": 1, "attempts": 2, "net": 1.0, CONTRACTS: 1.0},
+    )
+    with pytest.raises(ValueError, match="one observed row and at least one shuffle"):
+        placed_draws(block)
+
+
+def test_a_shortlist_is_pooled_draw_by_draw_across_its_configurations() -> None:
+    """Passes and attempts are summed and net is the median, which a mean of rates or of nets is not."""
+    blocks = [
+        a_block([2, 0, 1], [10, 10, 10], [100.0, -50.0, 20.0]),
+        a_block([3, 1, 3], [5, 10, 5], [300.0, 10.0, 40.0]),
+        a_block([0, 2, 0], [5, 5, 5], [1000.0, 60.0, -30.0]),
+    ]
+    table = pd.concat(
+        [block.assign(sweep_id=1, combo_id=combo) for combo, block in enumerate(blocks)], ignore_index=True
+    ).assign(account_name="A", stratum="unfiltered")
+    (pooled,) = prop_null_pooled(table, ["stratum"]).to_dict("records")
+    assert pooled["pass_rate_observed"] == pytest.approx(5 / 20)
+    assert pooled["pass_rate_null_median"] == pytest.approx((3 / 25 + 4 / 20) / 2)
+    assert pooled["pass_rate_p"] == pytest.approx(1 / 3)
+    assert pooled["net_observed"] == 300.0
+    assert pooled["net_null_median"] == pytest.approx((10.0 + 20.0) / 2)
+    assert pooled[CONTRACTS] == 4.0
+    by_configuration = prop_null_by_configuration(table, ["stratum"])
+    assert list(by_configuration["combo_id"]) == [0, 1, 2]
+
+
+def test_an_infinite_observation_is_placed_and_an_undefined_one_is_not() -> None:
+    assert against(math.inf, np.array([1.0, math.inf]))["p"] == pytest.approx(2 / 3)
+    assert np.isnan(against(math.nan, np.array([1.0, 2.0]))["p"])

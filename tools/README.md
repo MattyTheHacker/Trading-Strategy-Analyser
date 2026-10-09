@@ -482,6 +482,8 @@ uv run tools/campaign_sizing.py null --strategy ElasticBand --root MNQ --resolut
 
 **The shuffled-size null is the control a confluence size needs**, and a matched random entry is not: the entries are the rule's own and only which size each signal took is permuted, so it measures whether the count put the larger sizes on the better trades. On InsideBarTrailing a size moves the trades, so each shuffle is re-simulated across the signals. Everywhere else it moves only the dollars -- `docs/findings/m46-registry-size-ladder.md` -- so each shuffle permutes the sizes across the trades actually taken and recomputes their money exactly, and both halves of that premise are checked on every configuration before a shuffle is drawn.
 
+**The same shuffles go through the prop accounts** with `campaign_gates.py --reads prop-null`, which asks whether a size passes more accounts than its own sizes put on at random rather than whether it raises profit factor. Each configuration's shuffles are drawn at the seed the profit-factor null uses, so both reads see the same draws, and every draw is kept, the configuration's own as draw −1. On InsideBarTrailing what is matched is the sizes shuffled across the signals, not the contracts traded: a re-run takes slightly different trades, so a shuffle's contracts per trade differ a little from the configuration's, and both are kept. `prop_null_by_configuration` places each configuration's pass rate and net on each account against its own shuffles; `prop_null_pooled` pools a shortlist draw by draw as §M47.1's account table read one, passes and attempts summed and net the median -- `docs/findings/m47-1-confluence-sizing-5.md` § "InsideBarTrailing's midday cell through the accounts".
+
 ### geometry_contribution.py
 
 Splits each bracket geometry's result into what the geometry does and what the entry adds.
@@ -501,6 +503,7 @@ Runs every per-cell read of a swept variant set over every cell, from one load p
 ```bash
 uv run tools/campaign_gates.py --variants ibt-sizing --resolutions 5 --out <dir> --n-jobs 6
 uv run tools/campaign_gates.py --variants ibt-sizing --resolutions 5 --out <dir> --reads gate4 --cells <csv of strategy, root, resolution, variant and stratum>
+uv run tools/campaign_gates.py --variants ibt-sizing --resolutions 5 --out <dir> --reads prop-null --prop-strata phase=MIDDAY
 ```
 
 It loads the variant set's rows once per archetype, re-runs each shortlisted configuration once on the bars it was swept on, and hands that one log to every read. **The reads are the per-cell tools' own functions**, given what their command lines give them for one arm, root, resolution and stratum, so a cell read here and read there agree wherever both run on the same bars:
@@ -509,7 +512,8 @@ It loads the variant set's rows once per archetype, re-runs each shortlisted con
 - `paired`: `campaign_paired.paired` held out, stratum by stratum, over the pairs `controls` reads off the arms' names;
 - `null`: `campaign_sizing.shuffled_null` on the held-out shortlist of every arm whose base sizes on a confluence count;
 - `gate4`: `campaign_montecarlo.resample_row`, `campaign_exits.measure_row` and `campaign_walkforward.run_resolution`, on the cells `--gate4-strata` and `--cells` name;
-- `prop`: `campaign_propaccount.replay_shortlist` over its four default linked pairs, on the cells `--prop-strata` names.
+- `prop`: `campaign_propaccount.replay_shortlist` over its four default linked pairs, on the cells `--prop-strata` names;
+- `prop-null`: `campaign_sizing.prop_draws` on the arms `null` reads, on the cells `--prop-strata` names: each configuration's own log and every shuffle `null` draws for it, through the same four pairs, a row per draw. **It runs only when `--reads` names it**, because it replays every shuffle through every account: about a second a shuffle on InsideBarTrailing's midday cell, so 200 shuffles of a shortlist of twenty is over an hour per arm and root.
 
 Every re-run also writes what it reproduced of its stored row, and on which bars, which is read before anything else -- `campaign_swept.reconciliation`. The archive is cut back at the newest bar the task's rows were swept on, where the per-cell tools cut at the newest their root stored anywhere: the same bars unless one database holds campaigns swept on archives of different lengths.
 
