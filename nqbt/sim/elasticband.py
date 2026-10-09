@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, NamedTuple
 import numpy as np
 from numba import njit
 
-from nqbt import conditions, trades
+from nqbt import conditions, indicators, trades
 from nqbt.instruments import MNQ, Instrument
 from nqbt.sim import bracket, filters
 from nqbt.sim.types import (
@@ -192,6 +192,38 @@ def _leg_target(
 
 
 @njit(cache=True)
+def _fill_passed_targets(
+    out: FloatArray,
+    written: int,
+    trade: bracket.OpenTrade,
+    legs: bracket.Legs,
+    open_price: float,
+    i: int,
+    costs: bracket.Costs,
+) -> int:
+    """Close every leg whose target the entry bar opened at or past, at that open.
+
+    Returns the new write count, or ``-1`` if ``out`` is full -- ``docs/nt8-fidelity.md`` §M26.7.
+    """
+    at_open = bracket.start_excursion(open_price, open_price, i)
+    for leg in range(legs.is_open.size):
+        if not legs.is_open[leg] or np.isnan(legs.target[leg]):
+            continue
+
+        if trade.direction * (legs.target[leg] - open_price) > 0.0:
+            continue
+
+        leg_exit = bracket.LegExit(i, open_price, trades.EXIT_TARGET, False)
+        written = bracket.write_leg(out, written, trade, legs, leg, leg_exit, at_open, costs)
+        if written < 0:
+            return -1
+
+        legs.is_open[leg] = False
+
+    return written
+
+
+@njit(cache=True)
 def simulate_elasticband(  # noqa: C901, PLR0912, PLR0915 - one branch per rule, in bar order
     bars: bracket.Bars,
     signal: BoolArray,
@@ -320,6 +352,10 @@ def simulate_elasticband(  # noqa: C901, PLR0912, PLR0915 - one branch per rule,
                         legs.target[leg] = (
                             bracket.round_to_tick(raw, costs.tick_size) if fills.round_targets else raw
                         )
+                written = _fill_passed_targets(out, written, trade, legs, bars.open_[i], i, costs)
+                if written < 0:
+                    return -1
+
                 written, in_position = bracket.resolve_brackets(
                     out,
                     written,
@@ -401,27 +437,38 @@ def lagged(series: FloatArray, lag: int) -> FloatArray:
     return out
 
 
+def against_lagged_band(
+    close: FloatArray, basis: FloatArray, stddev: FloatArray, lag: int
+) -> tuple[FloatArray, FloatArray, FloatArray]:
+    """Return a band ``lag`` bars old and each bar's own close measured against it.
+
+    The extension is ``nan`` where the lagged band is, so a bar with no band cannot signal.
+    """
+    old_basis: FloatArray = lagged(basis, lag)
+    old_stddev: FloatArray = lagged(stddev, lag)
+    stretch: FloatArray = indicators.band_stretch(close, old_basis, old_stddev)
+    stretch[np.isnan(old_stddev)] = np.nan
+
+    return old_basis, old_stddev, stretch
+
+
 def band_series(data: Dataset, params: ElasticBandParams) -> tuple[FloatArray, FloatArray, FloatArray]:
     """Return the basis, dispersion and extension this combination reads, at its band lag.
 
     One coordinate system, two windows: a rolling ``band_period`` under :data:`BAND_BOLLINGER`
-    and the session so far under :data:`BAND_VWAP`.
+    and the session so far under :data:`BAND_VWAP`. The lag moves the band and never the close
+    -- ``docs/nt8-fidelity.md`` §M26.
     """
-    lag: int = params.band_lag
     if params.band_source == BAND_VWAP:
-        return (
-            lagged(data.vwap_band_basis(), lag),
-            lagged(data.vwap_band_stddev(), lag),
-            lagged(data.vwap_band_stretch(), lag),
-        )
+        basis, stddev, stretch = data.vwap_band_basis(), data.vwap_band_stddev(), data.vwap_band_stretch()
+    else:
+        period: int = params.band_period
+        basis, stddev, stretch = data.band_basis(period), data.band_stddev(period), data.band_stretch(period)
 
-    period: int = params.band_period
+    if params.band_lag == 0:
+        return basis, stddev, stretch
 
-    return (
-        lagged(data.band_basis(period), lag),
-        lagged(data.band_stddev(period), lag),
-        lagged(data.band_stretch(period), lag),
-    )
+    return against_lagged_band(np.asarray(data.close, dtype=np.float64), basis, stddev, params.band_lag)
 
 
 def vwap_band_warmed_up(data: Dataset, params: ElasticBandParams) -> BoolArray:

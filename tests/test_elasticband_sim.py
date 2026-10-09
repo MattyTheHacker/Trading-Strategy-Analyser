@@ -18,6 +18,7 @@ from nqbt import archetypes, conditions, sweep
 from nqbt.instruments import MNQ, NQ, Instrument
 from nqbt.sim import bracket, elasticband
 from nqbt.sim.elasticband import (
+    against_lagged_band,
     beyond_band,
     closed_off_extreme,
     elasticband_long_side,
@@ -81,7 +82,7 @@ def simulate(  # noqa: PLR0913 - one keyword per simulated NT8 property
     extremes: PerBar | None = None,
     force_flat_at: Sequence[int] = (),
     quantities: Sequence[int] = (1,),
-    levels: Sequence[float] = (0.0,),
+    levels: Sequence[float] = (np.nan,),
     stop_mode: int = STOP_CATASTROPHE,
     swing_lookback: int = 1,
     atr_stop_multiple: float = 1.0,
@@ -350,7 +351,7 @@ def test_the_band_stop_mirrors_on_the_short_side() -> None:
         stop_mode=STOP_BAND,
         entry_std=2.0,
         band_stop_std=1.0,
-        levels=(0.0,),
+        levels=(np.nan,),
     )
     assert trades["initial_stop"].iloc[0] == pytest.approx(106.0)
 
@@ -499,8 +500,60 @@ def test_an_r_multiple_target_short_of_the_basis_is_left_alone() -> None:
 
 
 def test_a_nan_level_is_a_runner_with_no_target() -> None:
-    trades = run(FLAT, signal_at=[0], levels=(0.0, np.nan), quantities=(1, 1))
+    trades = run(FLAT, signal_at=[0], levels=(0.0, np.nan), quantities=(1, 1), basis=104.0)
     assert np.isnan(trades["target_price"].iloc[-1])
+
+
+def test_a_target_the_entry_bar_opened_past_fills_at_that_open() -> None:
+    """A marketable limit fills at the market -- ``docs/nt8-fidelity.md`` §M26.7."""
+    # The basis is 99 and 100, and the entry bar opens at 100, so each target is already reached.
+    for basis in (99.0, 100.0):
+        trades = run(FLAT, signal_at=[0], basis=basis, levels=(0.0,))
+        assert trades["exit_reason"].tolist() == ["target"]
+        assert trades["exit_bar"].tolist() == [1]
+        assert trades["exit_price"].iloc[0] == pytest.approx(100.0)
+        assert trades["target_price"].iloc[0] == pytest.approx(basis)
+        assert trades["mae_points"].iloc[0] == 0.0
+        assert trades["mfe_points"].iloc[0] == 0.0
+
+
+def test_a_passed_target_pays_the_entrys_slippage_and_both_commissions() -> None:
+    trades = run(FLAT, signal_at=[0], basis=99.0, levels=(0.0,), slippage=1.0, commission=1.5)
+    assert trades["entry_price"].iloc[0] == pytest.approx(100.25)
+    assert trades["exit_price"].iloc[0] == pytest.approx(100.0)
+    assert trades["net_pnl"].iloc[0] < trades["gross_pnl"].iloc[0] < 0.0
+
+
+def test_a_target_a_tick_past_the_open_rests_whatever_the_slippage() -> None:
+    """The open decides it rather than the fill, so slippage moves the cost and not the trades."""
+    for slippage in (0.0, 1.0):
+        trades = run(FLAT, signal_at=[0], basis=100.25, levels=(0.0,), slippage=slippage)
+        assert trades["exit_price"].iloc[0] == pytest.approx(100.25)
+
+
+def test_only_the_legs_whose_target_was_passed_leave_at_the_open() -> None:
+    # Basis 99.5, sigma 2: the first leg targets 101.5 and rests; the second's basis is passed.
+    trades = run(FLAT, signal_at=[0], basis=99.5, levels=(1.0, 0.0), quantities=(1, 1))
+    by_leg = trades.set_index("leg")
+    assert by_leg.loc[2, "exit_reason"] == "target"
+    assert by_leg.loc[2, "exit_bar"] == 1
+    assert by_leg.loc[2, "exit_price"] == pytest.approx(100.0)
+    assert by_leg.loc[1, "exit_reason"] == "end_of_data"
+
+
+def test_an_r_target_capped_at_a_basis_the_entry_bar_opened_past_fills_at_that_open() -> None:
+    trades = run(
+        FLAT,
+        signal_at=[0],
+        target_mode=TARGET_R,
+        levels=(1.0,),
+        basis=99.0,
+        stop_mode=STOP_CATASTROPHE,
+        catastrophe_stop_ticks=40.0,
+    )
+    assert trades["target_price"].iloc[0] == pytest.approx(99.0)
+    assert trades["exit_price"].iloc[0] == pytest.approx(100.0)
+    assert trades["exit_bar"].iloc[0] == 1
 
 
 def test_the_band_is_read_from_the_signal_bar_not_the_fill_bar() -> None:
@@ -765,16 +818,33 @@ def test_lagging_the_band_shifts_it_and_leaves_no_readable_head() -> None:
     assert np.isnan(lagged(series, 9)).all()
 
 
-def test_the_band_lag_makes_the_signal_read_the_previous_bars_band() -> None:
-    rng = np.random.default_rng(19)
-    close = 18000.0 + np.cumsum(rng.normal(0.0, 2.0, 600))
-    live = ElasticBandParams(band_period=20, bars_required_to_trade=30)
-    lag = ElasticBandParams(band_period=20, band_lag=1, bars_required_to_trade=30)
-    data = dataset(close, live)
-    assert np.array_equal(
-        elasticband_signal(data, lag)[1:],
-        elasticband_signal(data, live)[:-1],
-    )
+def test_a_lagged_band_is_read_against_each_bars_own_close() -> None:
+    close = np.array([10.0, 11.0, 12.0, 13.0])
+    basis, stddev, stretch = against_lagged_band(close, np.full(4, 10.0), np.array([1.0, 1.0, 2.0, 2.0]), 1)
+    assert np.isnan(basis[0])
+    assert np.isnan(stddev[0])
+    assert np.isnan(stretch[0])
+    assert basis[1:].tolist() == [10.0, 10.0, 10.0]
+    assert stretch[1:].tolist() == [1.0, 2.0, 1.5]
+
+
+def test_the_band_lag_tests_the_previous_bars_band_against_this_bars_close() -> None:
+    """The ``[1]`` index on the band and never on ``Close[0]`` -- ``docs/nt8-fidelity.md`` §M26."""
+    lag = shape_params(band_lag=1)
+    data = dataset(walk(19, periods=600), lag)
+    _, _, stretch = elasticband.band_series(data, lag)
+    # From bar 30, past the warm-up, against the band one bar before each.
+    expected = (data.close[30:] - data.band_basis(20)[29:-1]) / data.band_stddev(20)[29:-1]
+    assert stretch[30:] == pytest.approx(expected)
+    signal = elasticband_signal(data, lag)
+    assert signal.any()
+    assert np.array_equal(signal[30:], np.abs(expected) >= 2.0)
+
+
+def test_a_lagged_signal_is_not_the_live_signal_one_bar_late() -> None:
+    live, lag = shape_params(), shape_params(band_lag=1)
+    data = dataset(walk(19, periods=600), live)
+    assert not np.array_equal(elasticband_signal(data, lag)[1:], elasticband_signal(data, live)[:-1])
 
 
 # -- what the signal bar itself looks like ----------------------------------------
@@ -1482,6 +1552,34 @@ def test_the_inverted_band_stop_is_measured_back_from_the_threshold_whatever_it_
         assert trades["initial_stop"].iloc[0] == pytest.approx(90.0 + (entry_std - 0.5) * 2.0)
 
 
+def test_an_inverted_target_the_entry_bar_gapped_past_fills_at_that_open() -> None:
+    # The signal closes at 100 and +1 sigma is 102, but the next bar opens at 103.
+    rows = [(100.0, 100.5, 99.5, 100.0), (103.0, 103.5, 102.5, 103.0), *FLAT]
+    passed = run(rows, signal_at=[0], invert_signal=True, basis=96.0, levels=(1.0,))
+    resting = run(rows, signal_at=[0], invert_signal=True, basis=96.0, levels=(2.0,))
+    assert passed["exit_price"].iloc[0] == pytest.approx(103.0)
+    assert passed["exit_bar"].iloc[0] == 1
+    assert resting["target_price"].iloc[0] == pytest.approx(104.0)
+    assert resting["exit_reason"].iloc[0] != "target"
+
+
+def test_an_inverted_band_stop_may_sit_on_the_threshold_the_close_broke_out_through() -> None:
+    trades = run(
+        FLAT,
+        signal_at=[0],
+        invert_signal=True,
+        stop_mode=STOP_BAND,
+        basis=90.0,
+        entry_std=2.0,
+        band_stop_std=0.0,
+        levels=(np.nan,),
+    )
+    assert trades["initial_stop"].iloc[0] == pytest.approx(94.0)
+    assert inverted_params(stop_mode=STOP_BAND, band_stop_std=0.0).band_stop_std == 0.0
+    with pytest.raises(ValueError, match="how far back inside entry_std an inverted stop sits"):
+        inverted_params(stop_mode=STOP_BAND, band_stop_std=-0.5)
+
+
 def test_an_inverted_band_stop_at_or_above_the_fill_skips_the_entry() -> None:
     """The minimum-risk refusal every stop here shares -- ``docs/nt8-fidelity.md`` §M18."""
     assert run(
@@ -1497,7 +1595,7 @@ def test_an_inverted_band_stop_at_or_above_the_fill_skips_the_entry() -> None:
 
 
 def test_every_inverted_entry_whose_fill_clears_the_base_of_its_run_is_taken_with_the_stop_there() -> None:
-    params = inverted_params(stop_mode=STOP_EXCURSION, max_hold_bars=10)
+    params = inverted_params(stop_mode=STOP_EXCURSION, max_hold_bars=10, target_stretch_levels=(np.nan,))
     data = dataset(walk(137, periods=3000, step=3.0), params)
     candidates = elasticband_signal(data, params)
     candidates[-1] = False
