@@ -4,13 +4,14 @@ Each price check runs against three readings -- the measured rule, the target's 
 open -- and each trial set holds a long and a short.
 """
 
+import logging
 from typing import TYPE_CHECKING
 
 import pandas as pd
 import pytest
 
 from tools import reconcile_passed_target as rpt
-from tools.reconcile_order_lifetime import EXECUTION, ORDER_UPDATE, read_run
+from tools.reconcile_order_lifetime import EXECUTION, ORDER_UPDATE, SUBMIT, read_run
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -108,7 +109,13 @@ def target_set(trial: int, at_bar: int, entry: str, price: float) -> dict[str, o
 
 def entry_fill(trial: int, reported_bar: int, entry: str, price: float) -> dict[str, object]:
     return event(
-        EXECUTION, trial, reported_bar, signal_name=entry, order_state="Filled", execution_price=price
+        EXECUTION,
+        trial,
+        reported_bar,
+        signal_name=entry,
+        order_type="Market",
+        order_state="Filled",
+        execution_price=price,
     )
 
 
@@ -181,7 +188,7 @@ def entry_bar_events(reading: str = "rule", *, lag: int = 1, target_lag: int = 0
 
 
 @pytest.mark.parametrize(
-    ("reading", "key"), [("rule", "at_bar_extreme"), ("target", "other"), ("open", "other")]
+    ("reading", "key"), [("rule", "at_bar_extreme"), ("target", "other"), ("open", "at_open")]
 )
 def test_a_target_passed_at_the_entry_is_read_at_the_price_it_filled_at(
     tmp_path: Path, reading: str, key: str
@@ -199,7 +206,7 @@ def test_a_passed_target_its_bar_reaches_fills_at_its_own_price(tmp_path: Path) 
     bars = [bar(0, 100.0, 100.0), bar(1, 100.25, 100.5, low=98.75), bar(2, 100.5, 100.75, high=101.75)]
     run = read_run(write_run(tmp_path, entry_bar_events("target"), bars))
     counts = rpt.passed_at_entry(rpt.trials(run), run.bars)
-    assert counts["on_entry_bar"] == {"at_target": 2, "at_bar_extreme": 0, "other": 0}
+    assert counts["on_entry_bar"] == {"at_limit": 2, "at_bar_extreme": 0, "at_open": 0, "other": 0}
 
 
 @pytest.mark.parametrize(("reading", "follows"), [("rule", True), ("target", False), ("open", False)])
@@ -216,7 +223,7 @@ def test_a_passed_target_filling_a_bar_later_is_told_from_one_filling_on_the_ent
     run = read_run(write_run(tmp_path, entry_bar_events(target_lag=1), ENTRY_BAR_BARS))
     counts = rpt.passed_at_entry(rpt.trials(run), run.bars)
     assert sum(counts["on_entry_bar"].values()) == 0
-    assert counts["on_a_later_bar"] == {"at_target": 0, "at_bar_extreme": 2, "other": 0}
+    assert counts["on_a_later_bar"] == {"at_limit": 0, "at_bar_extreme": 2, "at_open": 0, "other": 0}
 
 
 def test_a_passed_target_filling_later_is_not_read_as_a_resting_one(tmp_path: Path) -> None:
@@ -224,8 +231,8 @@ def test_a_passed_target_filling_later_is_not_read_as_a_resting_one(tmp_path: Pa
     run = read_run(write_run(tmp_path, entry_bar_events(target_lag=1), ENTRY_BAR_BARS))
     resting = rpt.gapped_while_resting(rpt.trials(run), run.bars)
     assert resting == {
-        "gapped": {"at_target": 0, "at_bar_extreme": 0, "other": 0},
-        "control": {"at_target": 0, "at_bar_extreme": 0, "other": 0},
+        "gapped": {"at_limit": 0, "at_bar_extreme": 0, "at_open": 0, "other": 0},
+        "control": {"at_limit": 0, "at_bar_extreme": 0, "at_open": 0, "other": 0},
     }
 
 
@@ -308,7 +315,7 @@ def test_a_target_in_a_trial_with_no_entry_is_caught(tmp_path: Path) -> None:
 
 def test_the_lag_is_a_clean_plus_one_when_every_entry_is_the_next_bars_open(tmp_path: Path) -> None:
     run = read_run(write_run(tmp_path, entry_bar_events(), ENTRY_BAR_BARS))
-    counts = rpt.measure_entry_lag(run)
+    counts = rpt.measure_lag(run)
     assert counts == {"fills": 2, "reported": 0, "reported_plus_one": 2, "both": 0, "neither": 0}
     assert rpt.lag_is_clean(counts)
 
@@ -316,7 +323,7 @@ def test_the_lag_is_a_clean_plus_one_when_every_entry_is_the_next_bars_open(tmp_
 def test_a_callback_naming_the_bar_it_filled_on_is_not_read_as_lagging(tmp_path: Path) -> None:
     """The other candidate reading, which must not pass as a clean +1."""
     run = read_run(write_run(tmp_path, entry_bar_events(lag=0), ENTRY_BAR_BARS))
-    counts = rpt.measure_entry_lag(run)
+    counts = rpt.measure_lag(run)
     assert counts["reported"] == 2
     assert not rpt.lag_is_clean(counts)
     assert rpt.report(run) is False
@@ -325,14 +332,14 @@ def test_a_callback_naming_the_bar_it_filled_on_is_not_read_as_lagging(tmp_path:
 def test_an_entry_two_equal_opens_explain_decides_nothing(tmp_path: Path) -> None:
     bars = [bar(0, 100.25, 100.0), bar(1, 100.25, 100.5)]
     run = read_run(write_run(tmp_path, [entry_fill(1, 0, LONG, 100.25)], bars))
-    counts = rpt.measure_entry_lag(run)
+    counts = rpt.measure_lag(run)
     assert counts["both"] == 1
     assert not rpt.lag_is_clean(counts)
 
 
 def test_an_entry_no_open_explains_fails_the_lag_check(tmp_path: Path) -> None:
     run = read_run(write_run(tmp_path, [entry_fill(1, 0, LONG, 100.125)], ENTRY_BAR_BARS))
-    counts = rpt.measure_entry_lag(run)
+    counts = rpt.measure_lag(run)
     assert counts["neither"] == 1
     assert not rpt.lag_is_clean(counts)
 
@@ -340,7 +347,7 @@ def test_an_entry_no_open_explains_fails_the_lag_check(tmp_path: Path) -> None:
 def test_a_run_with_no_entry_fills_does_not_pass_the_lag_check(tmp_path: Path) -> None:
     """A probe that traded nothing has measured nothing, and must not read as clean."""
     run = read_run(write_run(tmp_path, [target_set(1, 0, LONG, LONG_TARGET)], ENTRY_BAR_BARS))
-    assert not rpt.lag_is_clean(rpt.measure_entry_lag(run))
+    assert not rpt.lag_is_clean(rpt.measure_lag(run))
 
 
 # Scenario 2. A long entered at bar 1's open has its target moved to a tick over bar 1's close;
@@ -376,7 +383,7 @@ def resting_events(reading: str = "rule") -> list[dict[str, object]]:
 
 
 @pytest.mark.parametrize(
-    ("reading", "key"), [("rule", "at_bar_extreme"), ("target", "other"), ("open", "other")]
+    ("reading", "key"), [("rule", "at_bar_extreme"), ("target", "other"), ("open", "at_open")]
 )
 def test_a_gapped_through_target_is_read_at_the_price_it_filled_at(
     tmp_path: Path, reading: str, key: str
@@ -385,14 +392,14 @@ def test_a_gapped_through_target_is_read_at_the_price_it_filled_at(
     resting = rpt.gapped_while_resting(rpt.trials(run), run.bars)
     assert resting["gapped"][key] == 1
     assert sum(resting["gapped"].values()) == 1
-    assert resting["control"] == {"at_target": 1, "at_bar_extreme": 0, "other": 0}
+    assert resting["control"] == {"at_limit": 1, "at_bar_extreme": 0, "at_open": 0, "other": 0}
 
 
 def test_a_gapped_through_target_its_bar_trades_back_to_fills_at_its_own_price(tmp_path: Path) -> None:
     bars = [*RESTING_BARS[:2], bar(2, 101.0, 101.0, low=100.0), *RESTING_BARS[3:]]
     run = read_run(write_run(tmp_path, resting_events("target"), bars))
     gapped = rpt.gapped_while_resting(rpt.trials(run), run.bars)["gapped"]
-    assert gapped == {"at_target": 1, "at_bar_extreme": 0, "other": 0}
+    assert gapped == {"at_limit": 1, "at_bar_extreme": 0, "at_open": 0, "other": 0}
 
 
 def test_a_control_fill_outside_its_bar_fails_the_report(tmp_path: Path) -> None:
@@ -400,7 +407,7 @@ def test_a_control_fill_outside_its_bar_fails_the_report(tmp_path: Path) -> None
     bars = [*RESTING_BARS[:4], bar(4, 100.5, 100.75, low=100.5)]
     run = read_run(write_run(tmp_path, resting_events(), bars))
     control = rpt.gapped_while_resting(rpt.trials(run), run.bars)["control"]
-    assert control == {"at_target": 0, "at_bar_extreme": 0, "other": 1}
+    assert control == {"at_limit": 0, "at_bar_extreme": 0, "at_open": 0, "other": 1}
     assert rpt.report(run) is False
 
 
@@ -412,10 +419,17 @@ def test_an_out_of_reach_target_at_the_entry_is_not_read_as_passed(tmp_path: Pat
 @pytest.mark.parametrize(
     ("counts", "expected"),
     [
-        ({"at_target": 0, "at_bar_extreme": 0, "other": 0}, "no instances in this run"),
-        ({"at_target": 2, "at_bar_extreme": 1, "other": 0}, "all 3 at the nearest price the bar traded"),
-        ({"at_target": 0, "at_bar_extreme": 3, "other": 0}, "all 3 at the nearest price the bar traded"),
-        ({"at_target": 0, "at_bar_extreme": 2, "other": 1}, "1 of 3 break the rule"),
+        ({"at_limit": 0, "at_bar_extreme": 0, "at_open": 0, "other": 0}, "no instances in this run"),
+        (
+            {"at_limit": 2, "at_bar_extreme": 1, "at_open": 0, "other": 0},
+            "all 3 at the nearest price the bar traded",
+        ),
+        (
+            {"at_limit": 0, "at_bar_extreme": 3, "at_open": 0, "other": 0},
+            "all 3 at the nearest price the bar traded",
+        ),
+        ({"at_limit": 0, "at_bar_extreme": 2, "at_open": 0, "other": 1}, "1 of 3 break the rule"),
+        ({"at_limit": 1, "at_bar_extreme": 0, "at_open": 2, "other": 0}, "2 of 3 break the rule"),
     ],
 )
 def test_the_verdict_passes_a_set_only_when_every_fill_follows_the_rule(
@@ -442,3 +456,191 @@ def test_main_returns_zero_on_a_run_whose_lag_is_clean(tmp_path: Path) -> None:
 def test_main_returns_one_on_a_run_whose_lag_is_not(tmp_path: Path) -> None:
     path = write_run(tmp_path, entry_bar_events(lag=0), ENTRY_BAR_BARS)
     assert rpt.main(["reconcile_passed_target.py", str(path)]) == 1
+
+
+# Scenarios 3 and 4, the limit entries. A buy limit a tick under bar 0's close meets bar 1
+# opening below it and never trading back up, so the rule fills it at bar 1's high. Its exit
+# fills at bar 2's open. A sell limit a tick over bar 2's close is then left for bar 3 to trade
+# up through, which is the control, and its exit fills at bar 4's open.
+LIMIT_BARS = [
+    bar(0, 100.0, 100.0),
+    bar(1, 99.25, 99.5, high=99.5),
+    bar(2, 99.5, 99.75),
+    bar(3, 99.75, 100.25, high=100.5),
+    bar(4, 100.0, 100.0),
+]
+GAPPED_LIMIT_FILLS = {"rule": 99.5, "limit": 99.75, "open": 99.25}
+
+
+def limit_sent(trial: int, at_bar: int, entry: str, price: float) -> list[dict[str, object]]:
+    """Build a limit entry's submission and the order update that acknowledges it."""
+    return [
+        event(SUBMIT, trial, at_bar, signal_name=entry, order_type="Limit", limit_price=price),
+        event(ORDER_UPDATE, trial, at_bar, signal_name=entry, order_type="Limit", order_state="Working"),
+    ]
+
+
+def limit_fill(trial: int, reported_bar: int, entry: str, limit: float, price: float) -> dict[str, object]:
+    return event(
+        EXECUTION,
+        trial,
+        reported_bar,
+        signal_name=entry,
+        order_type="Limit",
+        limit_price=limit,
+        order_state="Filled",
+        execution_price=price,
+    )
+
+
+def probe_exit(trial: int, reported_bar: int, price: float) -> dict[str, object]:
+    return event(
+        EXECUTION,
+        trial,
+        reported_bar,
+        signal_name=rpt.PROBE_EXIT,
+        order_type="Market",
+        order_state="Filled",
+        execution_price=price,
+    )
+
+
+def limit_entry_events(reading: str = "rule") -> list[dict[str, object]]:
+    """Build the two limit-entry trials, the gapped one filling at the price ``reading`` names."""
+    return [
+        *limit_sent(1, 0, LONG, 99.75),
+        limit_fill(1, 0, LONG, 99.75, GAPPED_LIMIT_FILLS[reading]),
+        probe_exit(1, 1, 99.5),
+        *limit_sent(2, 2, SHORT, 100.0),
+        limit_fill(2, 2, SHORT, 100.0, 100.0),
+        probe_exit(2, 3, 100.0),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("reading", "key"), [("rule", "at_bar_extreme"), ("limit", "other"), ("open", "at_open")]
+)
+def test_a_limit_entry_a_bar_opens_past_is_read_at_the_price_it_filled_at(
+    tmp_path: Path, reading: str, key: str
+) -> None:
+    run = read_run(write_run(tmp_path, limit_entry_events(reading), LIMIT_BARS))
+    entries = rpt.limit_entry_fills(rpt.limit_entries(run), run.bars)
+    assert entries["gapped"]["sent"] == 1
+    assert entries["gapped"][key] == 1
+    assert entries["resting"]["at_limit"] == 1  # the short is resting only if its side is read
+    assert entries["marketable"]["sent"] == 0
+
+
+@pytest.mark.parametrize(("reading", "follows"), [("rule", True), ("limit", False), ("open", False)])
+def test_report_holds_limit_entries_to_the_rule(tmp_path: Path, reading: str, *, follows: bool) -> None:
+    run = read_run(write_run(tmp_path, limit_entry_events(reading), LIMIT_BARS))
+    assert rpt.report(run) is follows
+
+
+def test_the_lag_is_measured_on_the_probes_exits_where_no_entry_is_a_market_order(tmp_path: Path) -> None:
+    run = read_run(write_run(tmp_path, limit_entry_events(), LIMIT_BARS))
+    counts = rpt.measure_lag(run)
+    assert counts["fills"] == 2
+    assert rpt.lag_is_clean(counts)
+
+
+@pytest.mark.parametrize(("low", "key"), [(99.75, "touched_unfilled"), (99.5, "through_unfilled")])
+def test_a_resting_limit_entry_left_unfilled_is_told_by_how_far_its_bar_reached(
+    tmp_path: Path, low: float, key: str
+) -> None:
+    bars = [*LIMIT_BARS, bar(5, 100.0, 100.0, low=low)]
+    events = [*limit_entry_events(), *limit_sent(3, 4, LONG, 99.75)]
+    run = read_run(write_run(tmp_path, events, bars))
+    entries = rpt.limit_entry_fills(rpt.limit_entries(run), run.bars)
+    assert entries["resting"][key] == 1
+    assert rpt.report(run) is (key == "touched_unfilled")
+
+
+def test_a_gapped_limit_entry_left_unfilled_fails_the_report(tmp_path: Path) -> None:
+    events = [e for e in limit_entry_events() if not (e["trial"] == 1 and e["kind"] == EXECUTION)]
+    run = read_run(write_run(tmp_path, events, LIMIT_BARS))
+    assert rpt.limit_entry_fills(rpt.limit_entries(run), run.bars)["gapped"]["through_unfilled"] == 1
+    assert rpt.report(run) is False
+
+
+def test_a_rejected_limit_entry_a_bar_trades_through_is_not_read_as_left_unfilled(tmp_path: Path) -> None:
+    bars = [*LIMIT_BARS, bar(5, 100.0, 100.0, low=99.5)]
+    rejection = event(ORDER_UPDATE, 3, 4, signal_name=LONG, order_type="Limit", order_state=rpt.REJECTED)
+    run = read_run(
+        write_run(tmp_path, [*limit_entry_events(), *limit_sent(3, 4, LONG, 99.75), rejection], bars)
+    )
+    resting = rpt.limit_entry_fills(rpt.limit_entries(run), run.bars)["resting"]
+    assert resting["rejected"] == 1
+    assert resting["through_unfilled"] == 0
+    assert rpt.report(run) is True
+
+
+def test_a_limit_entry_filled_on_a_touch_is_counted(tmp_path: Path) -> None:
+    bars = [*LIMIT_BARS, bar(5, 100.0, 100.0, low=99.75)]
+    events = [*limit_entry_events(), *limit_sent(3, 4, LONG, 99.75), limit_fill(3, 4, LONG, 99.75, 99.75)]
+    run = read_run(write_run(tmp_path, events, bars))
+    assert rpt.limit_entry_fills(rpt.limit_entries(run), run.bars)["resting"]["touched_filled"] == 1
+
+
+def test_a_limit_entry_filled_off_the_bar_it_was_live_on_fails_the_report(tmp_path: Path) -> None:
+    events = limit_entry_events()
+    events[2]["bar"] = 1
+    run = read_run(write_run(tmp_path, events, LIMIT_BARS))
+    assert rpt.limit_entry_fills(rpt.limit_entries(run), run.bars)["checks"]["filled_off_the_live_bar"] == 1
+    assert rpt.report(run) is False
+
+
+# A buy limit a point over bar 0's close is marketable when sent. Bar 1 opens at 100 and never
+# trades up to it, so the rule fills it at bar 1's high and the market would fill it at the open.
+MARKETABLE_BARS = [bar(0, 100.0, 100.0), bar(1, 100.0, 100.25, high=100.5), bar(2, 100.25, 100.25)]
+
+
+@pytest.mark.parametrize(("price", "key"), [(100.5, "at_bar_extreme"), (100.0, "at_open"), (101.0, "other")])
+def test_a_marketable_limit_entry_is_read_at_the_price_it_filled_at(
+    tmp_path: Path, price: float, key: str
+) -> None:
+    events = [*limit_sent(1, 0, LONG, 101.0), limit_fill(1, 0, LONG, 101.0, price), probe_exit(1, 1, 100.25)]
+    run = read_run(write_run(tmp_path, events, MARKETABLE_BARS))
+    marketable = rpt.limit_entry_fills(rpt.limit_entries(run), run.bars)["marketable"]
+    assert marketable["sent"] == marketable["acknowledged"] == marketable["filled"] == 1
+    assert marketable[key] == 1
+
+
+def test_a_marketable_limit_entry_ninjatrader_never_acknowledged_is_counted(tmp_path: Path) -> None:
+    events = [event(SUBMIT, 1, 0, signal_name=LONG, order_type="Limit", limit_price=101.0)]
+    run = read_run(write_run(tmp_path, events, MARKETABLE_BARS))
+    marketable = rpt.limit_entry_fills(rpt.limit_entries(run), run.bars)["marketable"]
+    assert marketable["sent"] == 1
+    assert marketable["acknowledged"] == 0
+    assert marketable["filled"] == 0
+
+
+def test_a_run_whose_every_entry_was_rejected_still_reports_what_was_sent(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """With nothing filled there is no lag to measure, and the rejections are the answer."""
+    events = [
+        *limit_sent(1, 0, LONG, 101.0),
+        event(ORDER_UPDATE, 1, 0, signal_name=LONG, order_type="Limit", order_state=rpt.REJECTED),
+    ]
+    run = read_run(write_run(tmp_path, events, MARKETABLE_BARS))
+    with caplog.at_level(logging.INFO):
+        assert rpt.report(run) is False
+    assert "'marketable': {'sent': 1, 'acknowledged': 1, 'rejected': 1}" in caplog.text
+
+
+def test_a_rejected_marketable_limit_entry_is_counted(tmp_path: Path) -> None:
+    events = [
+        *limit_sent(1, 0, LONG, 101.0),
+        event(ORDER_UPDATE, 1, 0, signal_name=LONG, order_type="Limit", order_state=rpt.REJECTED),
+    ]
+    run = read_run(write_run(tmp_path, events, MARKETABLE_BARS))
+    assert rpt.limit_entry_fills(rpt.limit_entries(run), run.bars)["marketable"]["rejected"] == 1
+
+
+def test_a_run_with_no_limit_entries_reports_none(tmp_path: Path) -> None:
+    """The target scenarios send market entries, which must not be read as limit entries."""
+    run = read_run(write_run(tmp_path, entry_bar_events(), ENTRY_BAR_BARS))
+    entries = rpt.limit_entry_fills(rpt.limit_entries(run), run.bars)
+    assert all(entries[group]["sent"] == 0 for group in rpt.ENTRY_GROUPS)
+    assert entries["checks"]["filled_off_the_live_bar"] == 0
