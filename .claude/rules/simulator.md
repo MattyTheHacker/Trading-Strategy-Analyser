@@ -261,6 +261,17 @@ below and is what you quote; this file is the index, not the record.
   a band level is a statistic about the bars. It is also the one stop here that needs no lag
   under `TRIGGER_RECOVERY`: the basis and the dispersion are defined on every bar, where
   `run_extreme` is `nan` inside the band. `docs/nt8-fidelity.md` §M26.8.
+- **ElasticBand's inverted signal flips the side and never the bars.** Every signal rule reads
+  `fade_direction`, so an `invert_signal` arm signals on its fade's bars and `trade_long` names
+  the side traded; the legs read `trade_direction`. **Four exit reads follow the side, and two
+  fail silently if they do not**: `run_extreme` read off the fade's side puts the excursion stop
+  beyond the fill and *declines every entry*, and an R target capped at the basis sits behind it.
+  The band stop moves back inside the threshold, and a stretch target is measured past the
+  signal bar's own close rather than past `entry_std`, which a close is often already beyond,
+  and never rebuilt as `basis + stretch * sigma`, which under a band lag is an earlier bar's
+  close. A target behind the fill fills at its own price, without an error. Under the recovery
+  trigger the inverted excursion stop and invalidation exit read a base the close has often
+  already passed. `docs/nt8-fidelity.md` §M26.7.
 - **`ratchet_offset_ticks` is separate from `stop_offset_ticks`**, and `above_series` is not
   `~below_series` — each C# treats its own equality boundary as a pass, so the two overlap at
   `close == ma` rather than partition it. `docs/nt8-fidelity.md`.
