@@ -11,7 +11,7 @@ The four files at the top level are **nqbt's own output**, not NinjaTrader's —
 | `explain_2024Q1.csv`               | Per-trade audit trail. **Also a pre-fix run — its trigger arithmetic is wrong.** |
 | `ratchet_2024Q1.csv`               | Bar-by-bar stop ratchet for one trade                                            |
 
-Four of the five folders hold **NinjaTrader's output**:
+Five of the six folders hold **NinjaTrader's output**:
 
 | file                                                               | what it is                                                                                                                                                                                          |
 | ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -23,11 +23,13 @@ Four of the five folders hold **NinjaTrader's output**:
 | `nt8_trades/nt8_trades_MNQ_03-24_insidebartrailing_ported.csv`     | The ported midday configuration's export — `docs/nt8-fidelity.md` § "Reconciliation result — InsideBarTrailing with the trading window (#349)"                                                      |
 | `nt8_trades/nt8_trades_MNQ_06-24_pullback.csv`                     | PullBackAndGo's export on its second contract — `docs/nt8-fidelity.md` § "Reconciliation result — PullBackAndGo on a second contract (#92)"                                                         |
 | `nt8_trades/nt8_trades_NQ_03-24_deadcat.csv`                       | DeadCatBounce's NQ export — `docs/nt8-fidelity.md` § "Reconciliation result — NQ, the second instrument (#66)"                                                                                      |
+| `nt8_trades/nt8_trades_MNQ_03-24_passedtarget_s1.csv` to `_s4.csv` | The Trades exports of the four `NqbtPassedTargetProbe` runs, scenarios 1 to 4 — `docs/nt8-fidelity.md` § "A limit order the market has passed fills at the nearest price the bar traded"            |
 | `nt8_order_lifetime/<stem>_events.csv`, `_bars.csv`, `_config.csv` | One `NqbtOrderLifetimeProbe` run per stem — `docs/nt8-fidelity.md` § "Order lifetime and the session edge (#67)"                                                                                    |
+| `nt8_passed_target/<stem>_events.csv`, `_bars.csv`, `_config.csv`  | One `NqbtPassedTargetProbe` run per stem — `docs/nt8-fidelity.md` § "A limit order the market has passed fills at the nearest price the bar traded"                                                 |
 | `nt8_indicators/MNQ-03-24_1min_20231206_20240310.csv`              | NT8's own indicator values, one row per bar, from `NqbtIndicatorProbe` — `docs/nt8-fidelity.md` § "M16 — ATR, StdDev, Bollinger and Keltner, read out of NT8"                                       |
 | `nt8_higher_timeframe/<stem>_primary.csv`, `_coarse.csv`           | One `NqbtHigherTimeframeProbe` run: the 1-minute bars with the 60-minute series beside them, and the 60-minute bars alone — `docs/nt8-fidelity.md` § "And so is the higher-timeframe average (#73)" |
 
-The fifth, `gate-263b/`, is **nqbt's output** again: a `tools/capture_trade_logs.py` capture taken `before/` and `after/` one change, 14 files each and byte-identical between the two. No doc names it; its name and its date, 2026-09-09, match #263, which #268 closed that day.
+The sixth, `gate-263b/`, is **nqbt's output** again: a `tools/capture_trade_logs.py` capture taken `before/` and `after/` one change, 14 files each and byte-identical between the two. No doc names it; its name and its date, 2026-09-09, match #263, which #268 closed that day.
 
 ## The reconciliation file is mislabelled, deliberately kept
 

@@ -15,6 +15,13 @@ below and is what you quote; this file is the index, not the record.
 - The DeadCatBounce trigger is **`min(Low[0], Close[0] - 2 ticks)`**, not the bar's low. It binds on ~1/3 of signals.
 - `IsFillLimitOnTouch = false`: a limit must trade **through**, so targets need `low < target`,
   not `<=`.
+- **A limit order the market has passed fills at the nearest price its bar traded**: its own
+  price if the bar reached it, otherwise the bar's low for a sell limit or high for a buy limit.
+  **Not the open** -- that is the gapped *stop*'s rule. It covers targets and limit entries
+  alike, whether the entry bar opened past the limit, a later bar gapped through it or it was
+  sent on the wrong side of the market, and `bracket.limit_fill_price` is the one place, so **do
+  not fork it**. `docs/nt8-fidelity.md`, "A limit order the market has passed fills at the
+  nearest price the bar traded".
 - **Ambiguous bars** (stop and target both in range) resolve to whichever is **nearer the
   open**. A blanket worst case is *more* pessimistic than NT8, not equal to it, and a blanket
   best case is the other end; both exist only so `nqbt/disambiguate.py` has the two outcomes to
@@ -186,10 +193,10 @@ below and is what you quote; this file is the index, not the record.
   `ORB_LIMIT_ENTRIES` are membership tests rather than a comparison per mode, and `entry_level`
   and `break_confirmed` are both sided through `bracket.sided`. **Do not fork the loop for a
   mode.** The registry's **only limit entries** are both here: they fill at their price or
-  better, do not fill on a touch, and **take no slippage** — three rules that already existed
-  for exits, reaching an entry for the first time. They read `bracket.limit_filled` at
-  `-direction`, because the limit is favourable from the other side. `docs/nt8-fidelity.md`
-  §M28.2 and §M28.6.
+  the nearest one the bar traded, do not fill on a touch, and **take no slippage** — three rules
+  that already existed for exits, measured on entries by #454. They read `bracket.limit_filled`
+  and `bracket.limit_fill_price` at `-direction`, because the limit is favourable from the other
+  side. `docs/nt8-fidelity.md` §M28.2 and §M28.6.
 - **A narrow bracket on a limit entry measures `ambiguity_policy`, not the strategy.** The
   nearest-to-open rule is unfitted where an entry fills inside the ambiguous bar, and the sign
   of its error follows the order type: a stop entry fills with the open on the stop's side and
@@ -199,12 +206,12 @@ below and is what you quote; this file is the index, not the record.
   **Read `ambiguous_share` before believing any OpeningRange number**, and treat a bracket
   narrower than a one-minute bar as unmeasurable rather than as a result — §M28.4's minute-bar
   pass cannot settle it. `docs/roadmap.md` §M28.7.
-- **A marketable limit is refused, and that is a deviation from an *unmeasured* NT8 behaviour.**
-  §M18's rule that a stop entry at or through the market is never submitted is measured; its
-  mirror for a buy limit at or above the close is not, and NT8 would most likely accept it.
-  `submittable` refuses it, so a limit entry never enters at a price the market has already
-  left. **This is the one OpeningRange rule a trade list could contradict** — §M28.2, and both
-  limit modes now rest on it.
+- **A marketable limit entry is not sent, and that is the archetype's rule, not NT8's.** NT8
+  refuses a stop entry at or through the market (§M18) but takes a buy limit at or above the
+  close and fills it by the rule above (#454). `submittable` holds it back so a limit entry
+  never enters at a price the market has already left, and a port has to guard
+  `EnterLongLimit` on `Close[0]` to match. **Do not drop the guard as an NT8 refusal** -- it is
+  a choice, and dropping it changes which trades exist. `docs/nt8-fidelity.md` §M28.2.
 - **A fade and a rejection cannot take `ORB_STOP_OPPOSITE`, and the params class raises rather
   than sweep it.** Their entry level *is* that extreme, so the stop would be the fraction stop
   at a fraction of zero — a silent duplicate of the kind `dead_axes` cannot see.
@@ -270,14 +277,9 @@ below and is what you quote; this file is the index, not the record.
   signal bar's own close rather than past `entry_std`, which a close is often already beyond.
   Under the recovery trigger the inverted excursion stop and invalidation exit read a base the
   close has often already passed. `docs/nt8-fidelity.md` §M26.7.
-- **ElasticBand fills a target the entry bar opened at or past at that open.** Left to
-  `bracket.py`, it fills at its own price on the entry bar and books a loss as a target hit.
-  `_fill_passed_targets` closes those legs first, judged against the open and not the fill so
-  slippage never decides which trades exist; the trade is kept, as NT8 cannot refuse a market
-  entry. It follows an unmeasured NT8 behaviour, and the general case is #452.
-  **The band lag moves the band and never the close**: `against_lagged_band` measures each
-  bar's own close against the lagged band, so do not lag the stretch series itself.
-  `docs/nt8-fidelity.md` §M26 and §M26.7.
+- **ElasticBand's band lag moves the band and never the close**: `against_lagged_band`
+  measures each bar's own close against the lagged band, so do not lag the stretch series
+  itself. `docs/nt8-fidelity.md` §M26.
 - **`ratchet_offset_ticks` is separate from `stop_offset_ticks`**, and `above_series` is not
   `~below_series` — each C# treats its own equality boundary as a pass, so the two overlap at
   `close == ma` rather than partition it. `docs/nt8-fidelity.md`.

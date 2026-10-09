@@ -36,7 +36,7 @@ These hold across the reading tools below, so they are stated once here rather t
 | Reading a campaign                | `campaign_report.py`, `campaign_holdout.py`, `campaign_paired.py`, `campaign_crossread.py`, `campaign_crossroot.py`, `campaign_labels.py`, `campaign_hold.py`, `campaign_early_exit.py`                                                                            |
 | Testing a shortlist               | `campaign_null.py`, `campaign_contracts.py`, `campaign_montecarlo.py`, `campaign_walkforward.py`, `campaign_exits.py`, `campaign_ambiguity.py`, `campaign_review.py`, `campaign_flatten.py`, `campaign_sizing.py`, `geometry_contribution.py`, `campaign_gates.py` |
 | Prop-firm accounts                | `campaign_propaccount.py`, `campaign_propobjectives.py`                                                                                                                                                                                                            |
-| Reconciling against NinjaTrader   | `reconcile_nt8.py`, `reconcile_higher_timeframe.py`, `reconcile_order_lifetime.py`, `compare_exports.py`                                                                                                                                                           |
+| Reconciling against NinjaTrader   | `reconcile_nt8.py`, `reconcile_higher_timeframe.py`, `reconcile_order_lifetime.py`, `reconcile_passed_target.py`, `compare_exports.py`                                                                                                                             |
 | The regression gate and CI        | `capture_trade_logs.py`, `compare_trade_logs.py`, `trade_log_gate_ci.py`, `lint_commit_messages.py`, `submodule_tree_payload.py`, `numba_tuple_probe.py`                                                                                                           |
 | Documentation                     | `findings_index.py`                                                                                                                                                                                                                                                |
 
@@ -455,7 +455,7 @@ Filtering entries to a phase and re-running the grid answers *does this strategy
 - `nqbt.review.time_of_day` in session order, with **both forms of volume beside it**: relative volume says whether an hour was unusually busy and absolute volume whether there was anything there to trade -- `docs/roadmap.md` §M27.8. `session_close_share` is in the same table, because the forced flat makes a poor late-session result the clock's until that column says otherwise.
 - `nqbt.guard.guard` over the clock and the three volume labels together. A stratum picked by reading a table is the multiple-comparisons machine one level up, and `nqbt.guard.FAMILY_COLUMN` answers it. The family is named rather than taken from `nqbt.review.stratifiable`, which would add every moving-average gate and dilute the null with conditions nobody asked about.
 
-**A simulated log is expected to land outside its bar by at most the run's slippage**, which is the default `--price-tolerance`, and on this project's own shortlists it does not: a profit target a bar gapped through fills at the target and lands further out. Widen it deliberately (the widening is printed), but not past the point where a back-adjusted series would still be caught -- `docs/roadmap.md` §M27.7.
+**A simulated log lands inside its bar plus the run's slippage**, and that is the tolerance every fill is checked at, with no flag to widen it. A configuration whose log does not is named and skipped. Either its bars are back-adjusted, or its log was stored before [#452] changed where a passed target fills, and a re-run replaces it -- `docs/nt8-fidelity.md`, "A limit order the market has passed fills at the nearest price the bar traded".
 
 ### campaign_flatten.py
 
@@ -608,6 +608,22 @@ uv run tools/reconcile_order_lifetime.py <..._events.csv>
 ```
 
 The companion `_bars.csv` and `_config.csv` are found beside it. Each measurement is reported separately, and one the run carries no data for is reported as such rather than silently passing. **Nothing here assumes the callback lag; every run re-measures it.** A probe callback reports `CurrentBar`, which for an order resolved against the *next* bar's prices is one behind the bar it filled on, because Strategy Analyzer processes those fills before calling `OnBarUpdate`. The session-close exit does not lag. Reading one rule as the other moves every conclusion by a bar, so both are checked against price first. A one-bar lifetime is the whole finding for a three-argument entry, so offsets are printed exactly where the distribution is short and as a range where an until-cancelled order spreads over hundreds of values. Findings: `docs/nt8-fidelity.md`, "Order lifetime and the session edge".
+
+### reconcile_passed_target.py
+
+Reads an `NqbtPassedTargetProbe` run and checks where NinjaTrader filled each profit target the market had already passed.
+
+```bash
+uv run tools/reconcile_passed_target.py <..._events.csv>
+```
+
+The companion `_bars.csv` and `_config.csv` are found beside it, and the probe writes all three to a folder of its own under `verification/`. It reads every case on every run, and reports one the run holds no instance of as such:
+
+1. **A target already behind the entry's fill** ([#452]). Probe scenario 1 sets the target a few ticks behind the signal bar's close and enters at market, so the entry opens past it. Reported: on which bar the target filled, the entry bar or a later one, and at what price.
+2. **A resting target a bar opens beyond** ([#244]). Probe scenario 2 moves the target to a tick beyond each bar's close while the position is held, so any bar opening further out has gapped through it. A target already behind the previous close is left out, because it was passed rather than gapped through. Bars that open short of the target and trade through it are the control.
+3. **A limit entry** ([#454]). Probe scenario 3 sends a buy limit a tick under the signal bar's close, or a sell limit a tick over it, live for the next bar only. It is read as gapped when that bar opens past the limit, and as resting otherwise, where a bar that only touches it says whether an entry limit has to trade through as a target does. Scenario 4 sends it a few ticks on the wrong side of the close, so it is marketable when sent. Each of the three reports how many NinjaTrader acknowledged, rejected and filled.
+
+Each fill is checked against the rule the first two runs established: the limit's price clamped into its fill bar's range -- `docs/nt8-fidelity.md`, "A limit order the market has passed fills at the nearest price the bar traded". It is counted at the limit, at the bar's low or high, at the open, or elsewhere, and the last two break the rule; the open is counted apart because it is what a gapped stop fills at. **The callback lag is re-measured and never assumed**, as `reconcile_order_lifetime.py` does. Here it is measured on the probe's market orders, entries and exits alike, which fill at an open, so each fill's own price says which bar it filled on. Every target fill must also belong to the entry its trial number names. The tool exits 1 when any fill breaks the rule, when a limit entry fills off the bar it was live on or is acknowledged, not rejected and left unfilled by a bar that traded through it, when the lag or the attribution fails, or when the run filled no market order. A fill on the wrong bar breaks the rule wherever the two bars' ranges clamp the limit differently, so the rule check also checks the lag on the limits themselves. A passed target NinjaTrader rejects is counted apart from one it left unfilled.
 
 ### compare_exports.py
 

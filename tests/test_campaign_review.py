@@ -33,7 +33,6 @@ from nqbt import (
 from tools import campaign_review
 from tools.campaign_review import (
     BY,
-    SLIPPAGE_TOLERANCE,
     VOLUME_STATE_PREFIX,
     conditions_of,
     labelled,
@@ -273,20 +272,16 @@ def test_the_three_series_are_the_three_forms_at_the_campaigns_own_window() -> N
 # -- how far a fill may land outside its bar ------------------------------------------------
 
 
-def test_the_tolerance_is_the_runs_own_slippage_unless_it_is_overridden() -> None:
+def test_the_tolerance_is_the_runs_own_slippage() -> None:
     """MNQ ticks at 0.25, so one tick of slippage is a quarter point of latitude."""
-    assert tolerance_for(stored_row(slippage_ticks=1.0), "MNQ", SLIPPAGE_TOLERANCE) == pytest.approx(0.25)
-    assert tolerance_for(stored_row(slippage_ticks=1.0), "MNQ", 20.0) == pytest.approx(20.0)
+    assert tolerance_for(stored_row(slippage_ticks=1.0), "MNQ") == pytest.approx(0.25)
+    assert tolerance_for(stored_row(slippage_ticks=2.0), "MNQ") == pytest.approx(0.5)
 
 
 def test_a_log_whose_fill_lands_outside_its_bar_is_named_and_skipped(
     tmp_path: Path, data: context.Dataset
 ) -> None:
-    """A simulated target that its bar gapped through fills at the target price.
-
-    That is further out than any slippage -- ``docs/roadmap.md`` §M27.7. Refusing the whole
-    shortlist over one such configuration would report nothing at all.
-    """
+    """Refusing the whole shortlist over one such configuration would report nothing at all."""
     log = trade_log(data)
     log.loc[0, "exit_price"] = float(log["exit_price"].loc[0]) + 40.0
     db = tmp_path / "InsideBar.duckdb"
@@ -295,16 +290,17 @@ def test_a_log_whose_fill_lands_outside_its_bar_is_named_and_skipped(
     assert review_row(stored_row(), data, db, "MNQ", 50).empty
 
 
-def test_a_widened_tolerance_admits_the_fill_the_default_refuses(
+def test_a_fill_outside_its_bar_by_the_runs_slippage_is_admitted(
     tmp_path: Path, data: context.Dataset
 ) -> None:
-    """And the widening is a choice the caller makes and the report prints, never a default."""
     log = trade_log(data)
-    log.loc[0, "exit_price"] = float(log["exit_price"].loc[0]) + 40.0
+    exit_bar = data.index.get_loc(pd.Timestamp(log["exit_time"].loc[0]))
+    log.loc[0, "exit_price"] = float(data.high[exit_bar]) + 0.25
     db = tmp_path / "InsideBar.duckdb"
     results.save_trades(log, SWEEP_ID, COMBO_ID, db)
 
-    assert not review_row(stored_row(), data, db, "MNQ", 50, 50.0).empty
+    assert not review_row(stored_row(slippage_ticks=1.0), data, db, "MNQ", 50).empty
+    assert review_row(stored_row(), data, db, "MNQ", 50).empty
 
 
 # -- attribution and absence ---------------------------------------------------------------

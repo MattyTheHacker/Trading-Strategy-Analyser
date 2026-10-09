@@ -192,38 +192,6 @@ def _leg_target(
 
 
 @njit(cache=True)
-def _fill_passed_targets(
-    out: FloatArray,
-    written: int,
-    trade: bracket.OpenTrade,
-    legs: bracket.Legs,
-    open_price: float,
-    i: int,
-    costs: bracket.Costs,
-) -> int:
-    """Close every leg whose target the entry bar opened at or past, at that open.
-
-    Returns the new write count, or ``-1`` if ``out`` is full -- ``docs/nt8-fidelity.md`` §M26.7.
-    """
-    at_open = bracket.start_excursion(open_price, open_price, i)
-    for leg in range(legs.is_open.size):
-        if not legs.is_open[leg] or np.isnan(legs.target[leg]):
-            continue
-
-        if trade.direction * (legs.target[leg] - open_price) > 0.0:
-            continue
-
-        leg_exit = bracket.LegExit(i, open_price, trades.EXIT_TARGET, False)
-        written = bracket.write_leg(out, written, trade, legs, leg, leg_exit, at_open, costs)
-        if written < 0:
-            return -1
-
-        legs.is_open[leg] = False
-
-    return written
-
-
-@njit(cache=True)
 def simulate_elasticband(  # noqa: C901, PLR0912, PLR0915 - one branch per rule, in bar order
     bars: bracket.Bars,
     signal: BoolArray,
@@ -352,10 +320,6 @@ def simulate_elasticband(  # noqa: C901, PLR0912, PLR0915 - one branch per rule,
                         legs.target[leg] = (
                             bracket.round_to_tick(raw, costs.tick_size) if fills.round_targets else raw
                         )
-                written = _fill_passed_targets(out, written, trade, legs, bars.open_[i], i, costs)
-                if written < 0:
-                    return -1
-
                 written, in_position = bracket.resolve_brackets(
                     out,
                     written,

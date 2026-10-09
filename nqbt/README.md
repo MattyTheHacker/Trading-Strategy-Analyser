@@ -34,7 +34,7 @@ One parameter dataclass per archetype. A ported archetype's fields mirror its Ni
 - **`vwap_min_session_bars` exists because the VWAP anchor resets at every session open**, so a session's first bars have a band built from too few observations to be one.
 - **OpeningRange's width target is not scaled by `tp_multiplier`**, because a width multiple is already a distance and scaling it too would be the same [axis](../README.md#axis) twice.
 - **The follow-through scale refuses a bracket half whose mode states its geometry in another unit.** There is then no width for it to multiply, and the axis would be silently inert.
-- **A limit entry that gaps [fills](../README.md#fill) at the open, which makes the trade better than planned**, the mirror of a stop entry's gapped fill.
+- **A limit entry that gaps [fills](../README.md#fill) at the bar's nearest price, not at the open**, as a gapped target does -- `docs/nt8-fidelity.md`, "A limit order the market has passed fills at the nearest price the bar traded".
 
 #### Context-filter fields
 
