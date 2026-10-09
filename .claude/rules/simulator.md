@@ -274,7 +274,7 @@ below and is what you quote; this file is the index, not the record.
   `bracket.py`, it fills at its own price on the entry bar and books a loss as a target hit.
   `_fill_passed_targets` closes those legs first, judged against the open and not the fill so
   slippage never decides which trades exist; the trade is kept, as NT8 cannot refuse a market
-  entry. It follows an unmeasured NT8 behaviour, and the general case stays `bracket.py`'s.
+  entry. It follows an unmeasured NT8 behaviour, and the general case is #452.
   **The band lag moves the band and never the close**: `against_lagged_band` measures each
   bar's own close against the lagged band, so do not lag the stretch series itself.
   `docs/nt8-fidelity.md` §M26 and §M26.7.
