@@ -74,7 +74,10 @@ from nqbt.sim.types import (
 from tests.test_insidebartrailing_sim import walk_bars
 from tools import campaign_sweep
 from tools.campaign_sweep import (
+    ADVERSE_ATRS,
+    ADVERSE_CLOSES,
     ALL_STRATA,
+    ATR_EXPANSIONS,
     CAMPAIGN,
     COMMISSION,
     CONFLUENCE_SIZING,
@@ -82,10 +85,13 @@ from tools.campaign_sweep import (
     CONSOLIDATING,
     CONTEXT,
     CORE,
+    COUNTER_TREND_BARS,
     DIRECTIONAL,
     EARLY_EXIT,
     EARLY_EXIT_2,
     EARLY_EXIT_2_VARIANTS,
+    EARLY_EXIT_3,
+    EARLY_EXIT_3_VARIANTS,
     EARLY_EXIT_BARS,
     EARLY_EXIT_BELOW_R,
     EARLY_EXIT_MINUTES,
@@ -115,6 +121,8 @@ from tools.campaign_sweep import (
     EMAPULLBACK_HELD_KINDS,
     EMAPULLBACK_TRAIL,
     EMAPULLBACK_TRAIL_VARIANTS,
+    GIVE_BACK_FROM_R,
+    GIVE_BACKS,
     IBT_SIZING,
     IBT_SIZING_HIGH,
     IBT_SIZING_HIGH_VARIANTS,
@@ -161,6 +169,7 @@ from tools.campaign_sweep import (
     REGIME_LOOKBACKS,
     REGIME_QUANTILES,
     RESOLUTIONS,
+    ROOTS,
     SELECTION_SHARE,
     SERIAL_BELOW_COMBINATION_BARS,
     SIZE_FIXED,
@@ -169,6 +178,7 @@ from tools.campaign_sweep import (
     SIZING_QUANTITIES,
     SIZING_SYMMETRIC,
     SLIPPAGE_TICKS,
+    STALL_BARS,
     STRATUM_SETS,
     STRUCTURE_TRAIL_BARS,
     STRUCTURE_TRAIL_CUSHIONS,
@@ -220,6 +230,7 @@ from tools.campaign_sweep import (
     swept_on,
     tail_pairs,
     tier2_arms,
+    tier3_arms,
     unstored,
     variants_for,
     volume_series,
@@ -3343,6 +3354,149 @@ def test_each_tier_2_arm_runs_at_the_settings_the_pre_registration_names_where_i
 def test_the_tier_2_run_states_its_stratum_before_it_runs() -> None:
     assert [name for name, _ in strata(EARLY_EXIT_2)] == [UNFILTERED]
     assert variants_for(EARLY_EXIT_2) is EARLY_EXIT_2_VARIANTS
+
+
+# -- the third early-exit run (#369's third tier) ------------------------------------------
+
+LOSING_SUFFIX = "-losing"
+COUNTER_TREND_INFIX = "-counter"
+
+
+def test_the_tier_3_arms_are_the_control_and_the_37_pre_registered_settings() -> None:
+    arms = tier3_arms()
+    labels = 1 + 2 + 2 + 2 + len(ATR_EXPANSIONS)
+    prices = 2 * len(STALL_BARS) + 2 * len(ADVERSE_CLOSES) + 2 * len(ADVERSE_ATRS)
+    give_backs = len(GIVE_BACKS) * len(GIVE_BACK_FROM_R)
+    assert len(arms) == 37 == 1 + labels + prices + give_backs + 2 * len(COUNTER_TREND_BARS)
+    assert arms["off"] == {}
+    assert len({tuple(sorted(fields.items())) for fields in arms.values()}) == len(arms)
+    assert all(field.startswith("early_exit_") for fields in arms.values() for field in fields)
+
+
+def test_every_tier_3_arm_carries_its_stored_grid_unchanged_under_a_name_of_its_own() -> None:
+    arms = list(tier3_arms())
+    for name, build in VARIANTS.items():
+        stored = build("MNQ")
+        exited = EARLY_EXIT_3_VARIANTS[name]("MNQ")
+        assert len(exited) == len(stored) * len(arms)
+        earlier = {
+            variant.name
+            for variants in (stored, EARLY_EXIT_VARIANTS[name]("MNQ"), EARLY_EXIT_2_VARIANTS[name]("MNQ"))
+            for variant in variants
+        }
+        assert not {variant.name for variant in exited} & earlier
+        for index, variant in enumerate(exited):
+            source = stored[index // len(arms)]
+            assert variant.name == f"{source.name} exit3={arms[index % len(arms)]}"
+            assert variant.axes == source.axes
+            assert variant.archetype is source.archetype
+            assert variant.sized() == source.sized()
+            assert replace(variant.base, **early_exit_fields(source.base)) == source.base
+
+
+def test_each_tier_3_arm_switches_on_one_early_exit_and_moves_no_stop() -> None:
+    for name in VARIANTS:
+        for variant in EARLY_EXIT_3_VARIANTS[name]("NQ"):
+            base = variant.base
+            assert len(active_early_exits(base)) == (0 if variant.name.endswith(" exit3=off") else 1)
+            assert (base.age_stop_bars, base.late_stop_minutes_before_close, base.breakeven_at) == (0, 0, 0.0)
+
+
+def test_every_losing_tier_3_arm_is_its_twin_with_only_if_losing_added() -> None:
+    """Each pair differs by the one condition, so the contrast the pre-registration reads is clean.
+
+    ``docs/findings/m52-early-exit-tier-3-preregistration.md``.
+    """
+    arms = tier3_arms()
+    losing = [arm for arm in arms if arm.endswith(LOSING_SUFFIX)]
+    assert len(losing) == 3 + len(STALL_BARS) + len(ADVERSE_CLOSES) + len(ADVERSE_ATRS)
+    for arm in losing:
+        twin = arms[arm.removesuffix(LOSING_SUFFIX)]
+        assert "early_exit_only_if_losing" not in twin
+        assert arms[arm] == {**twin, "early_exit_only_if_losing": True}
+
+
+def test_every_counter_trend_arm_is_its_twin_with_a_shorter_count_against_the_trend() -> None:
+    arms = tier3_arms()
+    counter = [arm for arm in arms if COUNTER_TREND_INFIX in arm]
+    assert len(counter) == len(COUNTER_TREND_BARS)
+    for arm in counter:
+        twin = arms[arm.split(COUNTER_TREND_INFIX)[0]]
+        shorter = arms[arm]["early_exit_counter_trend_bars"]
+        assert arms[arm] == {**twin, "early_exit_counter_trend_bars": shorter}
+        assert 0 < int(shorter) < int(twin["early_exit_bars"])
+
+
+def test_no_stored_grid_or_stratum_sweeps_a_field_a_tier_3_arm_sets() -> None:
+    set_by_arms = {field for fields in tier3_arms().values() for field in fields}
+    stratum_axes = {axis for which in (EARLY_EXIT_3, MIDDAY) for _, extra in strata(which) for axis in extra}
+    assert not set_by_arms & stratum_axes
+    for build in VARIANTS.values():
+        for variant in build("MNQ"):
+            assert not set_by_arms & set(variant.axes)
+
+
+def test_every_bar_counted_tier_3_arm_can_fire_before_any_stored_hold_cap() -> None:
+    """A count at or past ``max_hold_bars`` can never fire, and the parameter class refuses it."""
+    counts: list[int] = [
+        int(fields.get(name, 0))
+        for fields in tier3_arms().values()
+        for name in ("early_exit_bars", "early_exit_stall_bars", "early_exit_adverse_closes")
+    ]
+    for build in VARIANTS.values():
+        for variant in build("MNQ"):
+            ladder: list[int] = [int(cap) for cap in variant.axes.get("max_hold_bars", [])]
+            caps = [*ladder, variant.base.max_hold_bars]
+            assert all(cap == 0 or cap > max(counts) for cap in caps)
+
+
+def test_every_stored_grid_reads_the_labels_at_the_settings_the_tier_3_pre_registration_names() -> None:
+    """Every archetype reads the same labels, so one arm means one rule across the registry.
+
+    ``docs/findings/m52-early-exit-tier-3-preregistration.md``.
+    """
+    per_bar_volume = volume.key(int(volume.VolumeForm.PER_BAR), VOLUME_ROLLING_BARS, VOLUME_BASELINE_SESSIONS)
+    for build in VARIANTS.values():
+        for variant in chain.from_iterable(build(root) for root in ROOTS):
+            base = variant.base
+            assert (base.early_exit_atr_period, base.early_exit_below_r, base.early_exit_measure) == (
+                14,
+                0.0,
+                MEASURE_OPEN_PROFIT,
+            ), variant.name
+            assert base.higher_timeframe_key == higher_timeframe.key(60, 50), variant.name
+            assert base.volume_key == per_bar_volume, variant.name
+            assert (base.volume_thin_below, base.volume_heavy_above) == (0.7, 1.5), variant.name
+            assert (base.trend_key, base.trend_min_agreement) == (trend.key(20, 50, 5), 3), variant.name
+
+
+def test_each_tier_3_arm_that_reads_a_label_builds_it_on_every_archetype() -> None:
+    """A rule reading a series its grid never built would read nothing rather than fail loudly."""
+    for name in VARIANTS:
+        for variant in EARLY_EXIT_3_VARIANTS[name]("MNQ"):
+            arm = variant.name.split(" exit3=")[1]
+            spec = sweep.Grid(
+                axes=variant.axes, base=variant.base, archetype=variant.archetype
+            ).required_context()
+            if arm == "phase":
+                assert spec.needs_time_of_day, variant.name
+
+            if arm.startswith("htf"):
+                assert spec.higher_timeframe_keys, variant.name
+
+            if arm.startswith(("thin", "heavy-against")):
+                assert spec.volume_keys, variant.name
+
+            if arm.startswith(("atr", "adverse")):
+                assert 14 in spec.atr_periods, variant.name
+
+            if COUNTER_TREND_INFIX in arm:
+                assert spec.trend_keys, variant.name
+
+
+def test_the_tier_3_run_states_its_stratum_before_it_runs() -> None:
+    assert [name for name, _ in strata(EARLY_EXIT_3)] == [UNFILTERED]
+    assert variants_for(EARLY_EXIT_3) is EARLY_EXIT_3_VARIANTS
 
 
 # -- the structure-trail run (#352) ----------------------------------------------------

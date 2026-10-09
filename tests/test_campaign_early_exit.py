@@ -9,6 +9,7 @@ the selection window's pick, and a cell clears only where the pick pays on every
 from __future__ import annotations
 
 import math
+from itertools import permutations
 from typing import TYPE_CHECKING
 
 import pandas as pd
@@ -34,7 +35,14 @@ from tools.campaign_early_exit import (
     tagged,
 )
 from tools.campaign_hold import BASE_VARIANT
-from tools.campaign_sweep import EARLY_EXIT, EARLY_EXIT_2, early_exit_arms, tier2_arms
+from tools.campaign_sweep import (
+    EARLY_EXIT,
+    EARLY_EXIT_2,
+    EARLY_EXIT_3,
+    early_exit_arms,
+    tier2_arms,
+    tier3_arms,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -107,12 +115,23 @@ def test_the_tier_2_set_tags_by_its_own_marker_and_builds_its_own_arms() -> None
     assert not set(names) & set(exit_variants("EmaCrossover"))
 
 
-def test_neither_set_s_marker_splits_the_other_set_s_names() -> None:
-    tier1, tier2 = ARM_SETS[EARLY_EXIT], ARM_SETS[EARLY_EXIT_2]
-    tier2_name = pd.DataFrame({"variant": [f"stop=atr{tier2.marker}off"]})
-    tier1_name = pd.DataFrame({"variant": [f"stop=atr{tier1.marker}off"]})
-    assert tagged(tier2_name, tier1.marker)[ARM].isna().all()
-    assert tagged(tier1_name, tier2.marker)[ARM].isna().all()
+def test_the_tier_3_set_tags_by_its_own_marker_and_builds_its_own_arms() -> None:
+    tier3 = ARM_SETS[EARLY_EXIT_3]
+    frame = pd.DataFrame({"variant": [f"stop=atr{tier3.marker}giveback0.5@1R"]})
+    tagged_frame = tagged(frame, tier3.marker)
+    assert tagged_frame[BASE_VARIANT].iloc[0] == "stop=atr"
+    assert tagged_frame[ARM].iloc[0] == "giveback0.5@1R"
+    names = exit_variants("EmaCrossover", tier3)
+    assert len(names) == 2 * len(tier3_arms())
+    assert all(tier3.marker in name for name in names)
+    earlier = {*exit_variants("EmaCrossover"), *exit_variants("EmaCrossover", ARM_SETS[EARLY_EXIT_2])}
+    assert not set(names) & earlier
+
+
+def test_no_set_s_marker_splits_another_set_s_names() -> None:
+    for own, other in permutations(ARM_SETS.values(), 2):
+        name = pd.DataFrame({"variant": [f"stop=atr{own.marker}off"]})
+        assert tagged(name, other.marker)[ARM].isna().all(), (own.name, other.name)
 
 
 def test_every_field_an_arm_sets_is_in_a_family_the_reproduction_leaves_out() -> None:
@@ -290,21 +309,24 @@ def test_the_tier_2_control_reproduces_through_its_own_marker_without_joining_on
     assert found["rows_differing"] == 0
 
 
+@pytest.mark.parametrize("arm_set", [EARLY_EXIT_2, EARLY_EXIT_3])
 def test_a_stratum_with_no_control_row_is_refused_rather_than_read_as_reproducing(
     monkeypatch: pytest.MonkeyPatch,
+    arm_set: str,
 ) -> None:
     """With nothing to join, every count reads zero, which looks like a control that reproduces."""
     monkeypatch.setattr(module, "stored_twins", lambda _name, _stratum, _arm_set: rows("bracket", ""))
-    with pytest.raises(SystemExit, match="no --variants early-exit-2 control rows"):
-        reproduced("InsideBar", "unfiltered", ARM_SETS[EARLY_EXIT_2])
+    with pytest.raises(SystemExit, match=f"no --variants {arm_set} control rows"):
+        reproduced("InsideBar", "unfiltered", ARM_SETS[arm_set])
 
 
-def test_the_reproduction_reads_the_set_s_own_marker(monkeypatch: pytest.MonkeyPatch) -> None:
-    marker = ARM_SETS[EARLY_EXIT_2].marker
+@pytest.mark.parametrize("arm_set", [EARLY_EXIT_2, EARLY_EXIT_3])
+def test_the_reproduction_reads_the_set_s_own_marker(monkeypatch: pytest.MonkeyPatch, arm_set: str) -> None:
+    marker = ARM_SETS[arm_set].marker
     control = rows("bracket", "", variant=f"bracket{marker}{CONTROL_ARM}")
     twins = pd.concat([control, rows("bracket", "")], ignore_index=True)
     monkeypatch.setattr(module, "stored_twins", lambda _name, _stratum, _arm_set: twins)
-    found = reproduced("InsideBar", "unfiltered", ARM_SETS[EARLY_EXIT_2])
+    found = reproduced("InsideBar", "unfiltered", ARM_SETS[arm_set])
     assert found["control_rows"] == found["joined"] == 4
 
 
@@ -376,6 +398,7 @@ def test_the_set_defaults_to_tier_1_and_names_its_own_rows_when_none_were_swept(
 ) -> None:
     assert parse(["prog", "--strategy", "InsideBar"]).set == EARLY_EXIT
     assert parse(["prog", "--set", EARLY_EXIT_2, "--strategy", "InsideBar"]).set == EARLY_EXIT_2
+    assert parse(["prog", "--set", EARLY_EXIT_3, "--strategy", "InsideBar"]).set == EARLY_EXIT_3
     monkeypatch.setattr(module, "exited", lambda _name, _windows, _stratum, **_options: pd.DataFrame())
     with pytest.raises(SystemExit, match="no --variants early-exit-2 rows"):
         ladder("DeadCatBounce", ["holdout"], "profit_factor", arm_set=ARM_SETS[EARLY_EXIT_2])

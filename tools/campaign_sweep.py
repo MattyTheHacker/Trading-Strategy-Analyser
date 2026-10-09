@@ -190,6 +190,7 @@ MIDDAY = "midday"
 HOLD = "hold"
 EARLY_EXIT = "early-exit"
 EARLY_EXIT_2 = "early-exit-2"
+EARLY_EXIT_3 = "early-exit-3"
 SPEC = "spec"
 ALL_STRATA = "all"
 
@@ -466,6 +467,7 @@ STRATUM_SETS: dict[str, tuple[str, ...]] = {
     HOLD: (UNFILTERED,),
     EARLY_EXIT: (UNFILTERED,),
     EARLY_EXIT_2: (UNFILTERED,),
+    EARLY_EXIT_3: (UNFILTERED,),
     SPEC: (UNFILTERED,),
     ALL_STRATA: EVERY_DIMENSION,
 }
@@ -1858,6 +1860,95 @@ EARLY_EXIT_2_VARIANTS: VariantBuilders = {
 }
 """The second [#369] run: every archetype's stored campaign grid, once per tier-2 arm."""
 
+STALL_BARS = (3, 5, 10)
+"""Closes without a new best price after which the stall exit fires."""
+
+ATR_EXPANSIONS = (1.25, 1.5, 2.0)
+"""Multiples of the ATR on the bar before the entry bar above which a losing position exits."""
+
+ADVERSE_CLOSES = (2, 3, 4)
+"""Closes in a row, each worse than the one before, after which the position exits."""
+
+ADVERSE_ATRS = (0.5, 1.0)
+"""How far one close has to fall against the one before, in ATRs, to exit the position."""
+
+GIVE_BACK_FROM_R = (0.5, 1.0)
+"""The best excursion, in R, that arms the give-back exit."""
+
+GIVE_BACKS = (0.5, 1.0)
+"""The share of that excursion a position may give back; ``1`` is all of it."""
+
+COUNTER_TREND_BARS = ((5, 3), (10, 5), (20, 10))
+"""The not-working exit's bar, and the shorter one an entry against the trend gets."""
+
+EARLY_EXIT_3_MARKER = " exit3="
+"""What every ``--variants early-exit-3`` name carries between its base variant and its arm."""
+
+
+def tier3_arms() -> dict[str, dict[str, AxisValue | bool]]:
+    """Return every arm of #369's third tier by name, ``off`` setting none."""
+    return {"off": {}, **_tier3_label_exits(), **_tier3_price_exits(), **_tier3_counter_trend()}
+
+
+def _with_and_without_losing(
+    name: str, fields: dict[str, AxisValue | bool]
+) -> dict[str, dict[str, AxisValue | bool]]:
+    """Return one arm as given, then again firing only while losing under ``name`` plus ``-losing``."""
+    return {name: fields, f"{name}-losing": {**fields, "early_exit_only_if_losing": True}}
+
+
+def _tier3_label_exits() -> dict[str, dict[str, AxisValue | bool]]:
+    """Return the third tier's exits on a label: the phase, the higher timeframe, volume and the ATR."""
+    arms: dict[str, dict[str, AxisValue | bool]] = {"phase": {"early_exit_on_phase_change": True}}
+    arms |= _with_and_without_losing("htf", {"early_exit_on_higher_timeframe": True})
+    arms |= _with_and_without_losing("thin", {"early_exit_on_thin_volume": True})
+    arms |= _with_and_without_losing("heavy-against", {"early_exit_on_heavy_against": True})
+    for expansion in ATR_EXPANSIONS:
+        arms[f"atr{expansion:g}x"] = {"early_exit_atr_expansion": expansion}
+
+    return arms
+
+
+def _tier3_price_exits() -> dict[str, dict[str, AxisValue | bool]]:
+    """Return the third tier's exits on price: the stall, the adverse closes and move, and the give-back."""
+    arms: dict[str, dict[str, AxisValue | bool]] = {}
+    for bars in STALL_BARS:
+        arms |= _with_and_without_losing(f"stall{bars}", {"early_exit_stall_bars": bars})
+
+    for closes in ADVERSE_CLOSES:
+        arms |= _with_and_without_losing(f"closes{closes}", {"early_exit_adverse_closes": closes})
+
+    for atrs in ADVERSE_ATRS:
+        arms |= _with_and_without_losing(f"adverse{atrs:g}atr", {"early_exit_adverse_atr": atrs})
+
+    for from_r in GIVE_BACK_FROM_R:
+        for share in GIVE_BACKS:
+            arms[f"giveback{share:g}@{from_r:g}R"] = {
+                "early_exit_give_back": share,
+                "early_exit_give_back_from_r": from_r,
+            }
+
+    return arms
+
+
+def _tier3_counter_trend() -> dict[str, dict[str, AxisValue | bool]]:
+    """Return the losing exit at bar N, each time followed by its twin with less time against the trend."""
+    arms: dict[str, dict[str, AxisValue | bool]] = {}
+    for bars, counter_trend_bars in COUNTER_TREND_BARS:
+        arms[f"bars{bars}@0R"] = {"early_exit_bars": bars}
+        arms[f"bars{bars}@0R-counter{counter_trend_bars}"] = {
+            "early_exit_bars": bars,
+            "early_exit_counter_trend_bars": counter_trend_bars,
+        }
+
+    return arms
+
+
+EARLY_EXIT_3_VARIANTS: VariantBuilders = {
+    name: _exited(build, tier3_arms, EARLY_EXIT_3_MARKER) for name, build in VARIANTS.items()
+}
+"""The third [#369] run: every archetype's stored campaign grid, once per tier-3 arm."""
+
 EMAPULLBACK_TRAILS: dict[str, dict[str, bool]] = {
     "trail=off": {"trail_ma_stop": False},
     "trail=slow": {"trail_ma_stop": True, "trail_on_slow": True},
@@ -2469,6 +2560,7 @@ VARIANT_SETS = {
     CONFLUENCE_SIZING,
     EARLY_EXIT,
     EARLY_EXIT_2,
+    EARLY_EXIT_3,
     ELASTIC_BAND_STOP,
     EMAPULLBACK_CONFIRM,
     EMAPULLBACK_TRAIL,
@@ -2501,6 +2593,7 @@ def variants_for(which: str) -> VariantBuilders:
         CONFLUENCE_SIZING: CONFLUENCE_SIZING_VARIANTS,
         EARLY_EXIT: EARLY_EXIT_VARIANTS,
         EARLY_EXIT_2: EARLY_EXIT_2_VARIANTS,
+        EARLY_EXIT_3: EARLY_EXIT_3_VARIANTS,
         ELASTIC_BAND_STOP: ELASTIC_BAND_STOP_VARIANTS,
         EMAPULLBACK_CONFIRM: EMAPULLBACK_CONFIRM_VARIANTS,
         EMAPULLBACK_TRAIL: EMAPULLBACK_TRAIL_VARIANTS,

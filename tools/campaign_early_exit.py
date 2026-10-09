@@ -32,12 +32,16 @@ from tools.campaign_sweep import (
     EARLY_EXIT_2,
     EARLY_EXIT_2_MARKER,
     EARLY_EXIT_2_VARIANTS,
+    EARLY_EXIT_3,
+    EARLY_EXIT_3_MARKER,
+    EARLY_EXIT_3_VARIANTS,
     EARLY_EXIT_MARKER,
     EARLY_EXIT_VARIANTS,
     ROOTS,
     db_path,
     early_exit_arms,
     tier2_arms,
+    tier3_arms,
 )
 
 if TYPE_CHECKING:
@@ -60,8 +64,9 @@ class ArmSet(NamedTuple):
 ARM_SETS: dict[str, ArmSet] = {
     EARLY_EXIT: ArmSet(EARLY_EXIT, EARLY_EXIT_VARIANTS, early_exit_arms, EARLY_EXIT_MARKER),
     EARLY_EXIT_2: ArmSet(EARLY_EXIT_2, EARLY_EXIT_2_VARIANTS, tier2_arms, EARLY_EXIT_2_MARKER),
+    EARLY_EXIT_3: ArmSet(EARLY_EXIT_3, EARLY_EXIT_3_VARIANTS, tier3_arms, EARLY_EXIT_3_MARKER),
 }
-"""§M48's arms and §M50's, each read the same way against its own control."""
+"""§M48's arms, §M50's and §M52's, each read the same way against its own control."""
 
 TIER_1 = ARM_SETS[EARLY_EXIT]
 """The set every read takes unless told otherwise, which is §M48's."""
