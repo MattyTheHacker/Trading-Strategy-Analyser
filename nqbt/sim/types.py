@@ -2207,9 +2207,9 @@ back inside, at a depth :attr:`ElasticBandParams.recovery_fraction` names --
 class ElasticBandParams:
     """Rule set for the ElasticBand archetype -- an original, with no NinjaScript.
 
-    Fade a close far enough outside a band and target the middle. :attr:`band_source` picks the
-    channel. Its rules: ``docs/nt8-fidelity.md`` §M26. The design and the three exit schemes:
-    ``docs/roadmap.md`` §M26.
+    Fade a close far enough outside a band and target the middle, or trade with it under
+    :attr:`invert_signal`. :attr:`band_source` picks the channel. Its rules:
+    ``docs/nt8-fidelity.md`` §M26. The design and the three exit schemes: ``docs/roadmap.md`` §M26.
     """
 
     band_source: int = BAND_BOLLINGER
@@ -2246,8 +2246,8 @@ class ElasticBandParams:
     :data:`TRIGGER_RECOVERY` alone -- ``docs/roadmap.md`` §M26.6."""
 
     band_lag: int = 0
-    """Bars back the band is read from: ``0`` is the signal bar's own, ``1`` the previous one --
-    ``docs/roadmap.md`` §M26."""
+    """Bars back the band is read from: ``0`` is the signal bar's own, ``1`` the previous one, each
+    against the signal bar's own close -- ``docs/nt8-fidelity.md`` §M26."""
 
     signal_shape: int = SHAPE_ANY
     """One of :data:`SHAPE_MODES` -- what the signal bar's own candle has to look like --
@@ -2265,9 +2265,14 @@ class ElasticBandParams:
     one_sided_lookback: int = 10
     """Window :attr:`min_one_sided_bars` counts over, read while that is above ``0``."""
 
+    invert_signal: bool = False
+    """Trade with the extension rather than against it, on the same signal bars --
+    ``docs/nt8-fidelity.md`` §M26.7."""
+
     trade_long: bool = True
     trade_short: bool = True
-    """Which side to fade. Long fades a close below the lower band."""
+    """Which side to trade. Long fades a close below the lower band, or under
+    :attr:`invert_signal` follows one above the upper band."""
 
     phase_filter: int = timeofday.ALL_PHASES
     """Session phases an entry may be taken in -- see :attr:`DeadCatParams.phase_filter`."""
@@ -2360,7 +2365,8 @@ class ElasticBandParams:
 
     Read under :data:`STOP_BAND` alone, off the signal bar's basis and dispersion: at
     ``entry_std = 2.0`` a value of ``1.0`` stops at the 3-sigma band -- ``docs/roadmap.md``
-    §M26.8."""
+    §M26.8. Under :attr:`invert_signal` it is measured back inside the threshold instead, so the
+    same values stop at the 1-sigma band, and ``0`` is the threshold itself."""
 
     target_mode: int = TARGET_STRETCH
     """One of :data:`TARGET_MODES`."""
@@ -2369,16 +2375,20 @@ class ElasticBandParams:
     """Per-leg exit levels in standard deviations from the basis, ``nan`` marking a runner.
 
     ``0.0`` is the midline and ``+k`` the far band, so ``(0.0, 2.0)`` is the rotation ladder.
-    Read under :data:`TARGET_STRETCH`. Signed **towards the target**: a long's levels rise."""
+    Read under :data:`TARGET_STRETCH`. Signed **towards the target**: a long's levels rise.
+    Under :attr:`invert_signal` a level is a distance in standard deviations past the signal
+    bar's close instead, so every level must be above ``0``."""
 
     target_r_multiples: tuple[float, ...] = (1.0, 1.5, 2.0, float("nan"))
-    """Per-leg targets in R, read under :data:`TARGET_R` and capped at the basis."""
+    """Per-leg targets in R, read under :data:`TARGET_R` and capped at the basis unless
+    :attr:`invert_signal` is on."""
 
     tp_multiplier: float = 1.0
     """Scales every R target, as on the ported archetypes. Not applied to a stretch level."""
 
     exit_on_invalidation: bool = False
-    """Leave at the next open when price closes further outside than the excursion extreme."""
+    """Leave at the next open when a close passes the adverse extreme of the run the trade read:
+    further outside for a fade, back through the base of the run under :attr:`invert_signal`."""
 
     max_hold_bars: int = 0
     """See :attr:`DeadCatParams.max_hold_bars` -- same rule, same default."""
@@ -2544,7 +2554,23 @@ class ElasticBandParams:
             msg = f"min_bracket_dollars must be >= 0, got {self.min_bracket_dollars}"
             raise ValueError(msg)
 
-        if self.band_stop_std <= 0.0:
+        self._validate_band_levels()
+        validate_tp_multiplier(self.tp_multiplier)
+        validate_max_hold_bars(self.max_hold_bars)
+        validate_early_exit(self)
+        validate_breakeven(self)
+        validate_stop_tightening(self)
+
+    def _validate_band_levels(self) -> None:
+        """Check the band stop's depth and the stretch targets against the side traded."""
+        if self.invert_signal and self.band_stop_std < 0.0:
+            msg: str = (
+                "band_stop_std is how far back inside entry_std an inverted stop sits and must be "
+                f">= 0, got {self.band_stop_std}"
+            )
+            raise ValueError(msg)
+
+        if not self.invert_signal and self.band_stop_std <= 0.0:
             msg = (
                 "band_stop_std is how far past entry_std the stop sits and must be > 0, got "
                 f"{self.band_stop_std}; at 0 it is the entry threshold itself, which the close "
@@ -2552,11 +2578,15 @@ class ElasticBandParams:
             )
             raise ValueError(msg)
 
-        validate_tp_multiplier(self.tp_multiplier)
-        validate_max_hold_bars(self.max_hold_bars)
-        validate_early_exit(self)
-        validate_breakeven(self)
-        validate_stop_tightening(self)
+        if self.invert_signal and self.target_mode == TARGET_STRETCH:
+            behind_the_close: list[float] = [level for level in self.target_stretch_levels if level <= 0.0]
+            if behind_the_close:
+                msg = (
+                    f"target_stretch_levels {behind_the_close} must be > 0 under invert_signal, "
+                    "where a level is measured past the signal bar's close; at or below 0 the target "
+                    "sits at or behind that close"
+                )
+                raise ValueError(msg)
 
     @property
     def target_levels(self) -> tuple[float, ...]:
@@ -2607,8 +2637,8 @@ class ElasticBandParams:
 
     @property
     def sizing_thesis(self) -> SizingThesis:
-        """A fade back to the mean -- ``docs/nt8-fidelity.md`` §M47."""
-        return ROTATION
+        """Rotation for the fade, expansion inverted -- ``docs/nt8-fidelity.md`` §M47."""
+        return EXPANSION if self.invert_signal else ROTATION
 
     def as_dict(self) -> dict[str, object]:
         """Return a flat mapping of every parameter, keyed by field name."""

@@ -7,6 +7,7 @@ reads comes from a bar it could not have seen.
 Prices are kept small and round so the arithmetic is checkable by eye.
 """
 
+import dataclasses
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -17,9 +18,12 @@ from nqbt import archetypes, conditions, sweep
 from nqbt.instruments import MNQ, NQ, Instrument
 from nqbt.sim import bracket, elasticband
 from nqbt.sim.elasticband import (
+    against_lagged_band,
     beyond_band,
     closed_off_extreme,
+    elasticband_long_side,
     elasticband_signal,
+    extension_sides,
     fade_direction,
     lagged,
     one_sided_bars,
@@ -28,9 +32,12 @@ from nqbt.sim.elasticband import (
     run_elasticband,
     run_extreme,
     swept_and_reclaimed,
+    trade_direction,
 )
 from nqbt.sim.types import (
     BAND_VWAP,
+    EXPANSION,
+    ROTATION,
     SHAPE_ANY,
     SHAPE_RECLAIM,
     SHAPE_REJECTION,
@@ -52,7 +59,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from nqbt import context
-    from nqbt.arrays import FloatArray
+    from nqbt.arrays import BoolArray, FloatArray
 
 type Row = tuple[float, float, float, float]
 """One bar as open, high, low, close."""
@@ -75,7 +82,7 @@ def simulate(  # noqa: PLR0913 - one keyword per simulated NT8 property
     extremes: PerBar | None = None,
     force_flat_at: Sequence[int] = (),
     quantities: Sequence[int] = (1,),
-    levels: Sequence[float] = (0.0,),
+    levels: Sequence[float] = (np.nan,),
     stop_mode: int = STOP_CATASTROPHE,
     swing_lookback: int = 1,
     atr_stop_multiple: float = 1.0,
@@ -84,6 +91,7 @@ def simulate(  # noqa: PLR0913 - one keyword per simulated NT8 property
     catastrophe_stop_ticks: float = 40.0,
     entry_std: float = 2.0,
     band_stop_std: float = 1.0,
+    invert_signal: bool = False,
     target_mode: int = TARGET_STRETCH,
     tp_multiplier: float = 1.0,
     bars_required: int = 0,
@@ -146,6 +154,7 @@ def simulate(  # noqa: PLR0913 - one keyword per simulated NT8 property
             swing_lookback=swing_lookback,
             entry_std=entry_std,
             band_stop_std=band_stop_std,
+            invert_signal=invert_signal,
             target_mode=target_mode,
             tp_multiplier=tp_multiplier,
             bars_required=bars_required,
@@ -342,7 +351,7 @@ def test_the_band_stop_mirrors_on_the_short_side() -> None:
         stop_mode=STOP_BAND,
         entry_std=2.0,
         band_stop_std=1.0,
-        levels=(0.0,),
+        levels=(np.nan,),
     )
     assert trades["initial_stop"].iloc[0] == pytest.approx(106.0)
 
@@ -491,8 +500,60 @@ def test_an_r_multiple_target_short_of_the_basis_is_left_alone() -> None:
 
 
 def test_a_nan_level_is_a_runner_with_no_target() -> None:
-    trades = run(FLAT, signal_at=[0], levels=(0.0, np.nan), quantities=(1, 1))
+    trades = run(FLAT, signal_at=[0], levels=(0.0, np.nan), quantities=(1, 1), basis=104.0)
     assert np.isnan(trades["target_price"].iloc[-1])
+
+
+def test_a_target_the_entry_bar_opened_past_fills_at_that_open() -> None:
+    """A marketable limit fills at the market -- ``docs/nt8-fidelity.md`` §M26.7."""
+    # The basis is 99 and 100, and the entry bar opens at 100, so each target is already reached.
+    for basis in (99.0, 100.0):
+        trades = run(FLAT, signal_at=[0], basis=basis, levels=(0.0,))
+        assert trades["exit_reason"].tolist() == ["target"]
+        assert trades["exit_bar"].tolist() == [1]
+        assert trades["exit_price"].iloc[0] == pytest.approx(100.0)
+        assert trades["target_price"].iloc[0] == pytest.approx(basis)
+        assert trades["mae_points"].iloc[0] == 0.0
+        assert trades["mfe_points"].iloc[0] == 0.0
+
+
+def test_a_passed_target_pays_the_entrys_slippage_and_both_commissions() -> None:
+    trades = run(FLAT, signal_at=[0], basis=99.0, levels=(0.0,), slippage=1.0, commission=1.5)
+    assert trades["entry_price"].iloc[0] == pytest.approx(100.25)
+    assert trades["exit_price"].iloc[0] == pytest.approx(100.0)
+    assert trades["net_pnl"].iloc[0] < trades["gross_pnl"].iloc[0] < 0.0
+
+
+def test_a_target_a_tick_past_the_open_rests_whatever_the_slippage() -> None:
+    """The open decides it rather than the fill, so slippage moves the cost and not the trades."""
+    for slippage in (0.0, 1.0):
+        trades = run(FLAT, signal_at=[0], basis=100.25, levels=(0.0,), slippage=slippage)
+        assert trades["exit_price"].iloc[0] == pytest.approx(100.25)
+
+
+def test_only_the_legs_whose_target_was_passed_leave_at_the_open() -> None:
+    # Basis 99.5, sigma 2: the first leg targets 101.5 and rests; the second's basis is passed.
+    trades = run(FLAT, signal_at=[0], basis=99.5, levels=(1.0, 0.0), quantities=(1, 1))
+    by_leg = trades.set_index("leg")
+    assert by_leg.loc[2, "exit_reason"] == "target"
+    assert by_leg.loc[2, "exit_bar"] == 1
+    assert by_leg.loc[2, "exit_price"] == pytest.approx(100.0)
+    assert by_leg.loc[1, "exit_reason"] == "end_of_data"
+
+
+def test_an_r_target_capped_at_a_basis_the_entry_bar_opened_past_fills_at_that_open() -> None:
+    trades = run(
+        FLAT,
+        signal_at=[0],
+        target_mode=TARGET_R,
+        levels=(1.0,),
+        basis=99.0,
+        stop_mode=STOP_CATASTROPHE,
+        catastrophe_stop_ticks=40.0,
+    )
+    assert trades["target_price"].iloc[0] == pytest.approx(99.0)
+    assert trades["exit_price"].iloc[0] == pytest.approx(100.0)
+    assert trades["exit_bar"].iloc[0] == 1
 
 
 def test_the_band_is_read_from_the_signal_bar_not_the_fill_bar() -> None:
@@ -757,16 +818,33 @@ def test_lagging_the_band_shifts_it_and_leaves_no_readable_head() -> None:
     assert np.isnan(lagged(series, 9)).all()
 
 
-def test_the_band_lag_makes_the_signal_read_the_previous_bars_band() -> None:
-    rng = np.random.default_rng(19)
-    close = 18000.0 + np.cumsum(rng.normal(0.0, 2.0, 600))
-    live = ElasticBandParams(band_period=20, bars_required_to_trade=30)
-    lag = ElasticBandParams(band_period=20, band_lag=1, bars_required_to_trade=30)
-    data = dataset(close, live)
-    assert np.array_equal(
-        elasticband_signal(data, lag)[1:],
-        elasticband_signal(data, live)[:-1],
-    )
+def test_a_lagged_band_is_read_against_each_bars_own_close() -> None:
+    close = np.array([10.0, 11.0, 12.0, 13.0])
+    basis, stddev, stretch = against_lagged_band(close, np.full(4, 10.0), np.array([1.0, 1.0, 2.0, 2.0]), 1)
+    assert np.isnan(basis[0])
+    assert np.isnan(stddev[0])
+    assert np.isnan(stretch[0])
+    assert basis[1:].tolist() == [10.0, 10.0, 10.0]
+    assert stretch[1:].tolist() == [1.0, 2.0, 1.5]
+
+
+def test_the_band_lag_tests_the_previous_bars_band_against_this_bars_close() -> None:
+    """The ``[1]`` index on the band and never on ``Close[0]`` -- ``docs/nt8-fidelity.md`` §M26."""
+    lag = shape_params(band_lag=1)
+    data = dataset(walk(19, periods=600), lag)
+    _, _, stretch = elasticband.band_series(data, lag)
+    # From bar 30, past the warm-up, against the band one bar before each.
+    expected = (data.close[30:] - data.band_basis(20)[29:-1]) / data.band_stddev(20)[29:-1]
+    assert stretch[30:] == pytest.approx(expected)
+    signal = elasticband_signal(data, lag)
+    assert signal.any()
+    assert np.array_equal(signal[30:], np.abs(expected) >= 2.0)
+
+
+def test_a_lagged_signal_is_not_the_live_signal_one_bar_late() -> None:
+    live, lag = shape_params(), shape_params(band_lag=1)
+    data = dataset(walk(19, periods=600), live)
+    assert not np.array_equal(elasticband_signal(data, lag)[1:], elasticband_signal(data, live)[:-1])
 
 
 # -- what the signal bar itself looks like ----------------------------------------
@@ -1301,6 +1379,307 @@ def test_an_unknown_entry_trigger_is_refused_by_name() -> None:
 def test_a_recovery_depth_outside_the_band_is_refused(fraction: float) -> None:
     with pytest.raises(ValueError, match=r"must be in \(0, 1\]"):
         ElasticBandParams(recovery_fraction=fraction)
+
+
+# -- the inverted signal ----------------------------------------------------------
+
+
+def inverted_params(**kwargs: object) -> ElasticBandParams:
+    """Build an inverted set on the Bollinger source, with a target the inversion accepts."""
+    return shape_params(**({"invert_signal": True, "target_stretch_levels": (1.0, np.nan)} | kwargs))
+
+
+def spaced(signal: BoolArray, gap: int) -> BoolArray:
+    """Keep the signal bars at least ``gap`` bars apart, so each trade is over before the next."""
+    kept: BoolArray = np.zeros(signal.size, dtype=np.bool_)
+    last = -gap
+    for i in np.flatnonzero(signal):
+        if i - last >= gap:
+            kept[i] = True
+            last = int(i)
+
+    return kept
+
+
+def test_inverting_trades_every_bar_on_the_other_side_of_the_fade() -> None:
+    stretch = np.array([-3.0, -0.1, 0.0, 0.1, 3.0])
+    assert trade_direction(stretch, ElasticBandParams()).tolist() == fade_direction(stretch).tolist()
+    assert trade_direction(stretch, inverted_params()).tolist() == [SHORT, SHORT, LONG, LONG, LONG]
+
+
+def test_the_side_switches_name_the_side_traded_rather_than_the_extension() -> None:
+    assert extension_sides(ElasticBandParams(trade_short=False)) == (True, False)
+    assert extension_sides(inverted_params(trade_short=False)) == (False, True)
+    fade_short = shape_params(trade_long=False)
+    follow_long = inverted_params(trade_short=False)
+    data = dataset(walk(113, periods=900), fade_short)
+    signal = elasticband_signal(data, follow_long)
+    assert signal.any()
+    assert np.array_equal(signal, elasticband_signal(data, fade_short))
+    assert (data.band_stretch(20)[signal] > 0.0).all()
+
+
+INVERTED_SIGNAL_CASES = {
+    "the plain rule": {},
+    "a reversal shape": {"signal_shape": SHAPE_REVERSAL},
+    "a rejection shape": {"signal_shape": SHAPE_REJECTION, "rejection_close_fraction": 0.3},
+    "a one-sided run": {"min_one_sided_bars": 6},
+    "a ceiling and a run length": {"max_entry_std": 3.0, "min_bars_outside": 2},
+    "the recovery trigger": {"entry_trigger": TRIGGER_RECOVERY, "recovery_fraction": 0.75},
+}
+
+
+@pytest.mark.parametrize("kwargs", INVERTED_SIGNAL_CASES.values(), ids=list(INVERTED_SIGNAL_CASES))
+def test_an_inverted_signal_fires_on_exactly_the_bars_the_fade_does(kwargs: dict[str, object]) -> None:
+    inverted = inverted_params(**kwargs)
+    fade = dataclasses.replace(inverted, invert_signal=False)
+    data = candle_dataset(walk(127, periods=1500), fade)
+    signal = elasticband_signal(data, inverted)
+    assert signal.any()
+    assert np.array_equal(signal, elasticband_signal(data, fade))
+
+
+def test_the_long_side_follows_the_trade_rather_than_the_extension() -> None:
+    fade, inverted = shape_params(), inverted_params()
+    data = dataset(walk(131, periods=600), fade)
+    assert np.array_equal(elasticband_long_side(data, inverted), ~elasticband_long_side(data, fade))
+
+
+def test_the_sizing_thesis_follows_the_side_traded() -> None:
+    assert ElasticBandParams().sizing_thesis is ROTATION
+    assert inverted_params().sizing_thesis is EXPANSION
+
+
+def test_an_inverted_stretch_target_is_measured_past_the_signal_bars_close() -> None:
+    # Every close is 100 and sigma is 2, so +1 is 102 on a long and 98 on a short.
+    long_side = run(FLAT, signal_at=[0], invert_signal=True, basis=96.0, levels=(1.0,))
+    short_side = run(FLAT, signal_at=[0], invert_signal=True, direction=SHORT, basis=104.0, levels=(1.0,))
+    assert long_side["target_price"].iloc[0] == pytest.approx(102.0)
+    assert short_side["target_price"].iloc[0] == pytest.approx(98.0)
+
+
+def test_an_inverted_stretch_target_is_the_same_distance_past_the_close_however_far_out_it_was() -> None:
+    for basis in (96.0, 95.0, 94.0, 92.0):
+        trades = run(FLAT, signal_at=[0], invert_signal=True, basis=basis, levels=(1.0,))
+        assert trades["target_price"].iloc[0] == pytest.approx(102.0)
+
+
+def test_an_inverted_stretch_target_is_ahead_of_the_signal_close_at_any_band_lag() -> None:
+    for lag in (0, 1, 3):
+        params = inverted_params(band_lag=lag, max_hold_bars=10)
+        data = candle_dataset(walk(151, periods=1500, step=3.0), params)
+        log = run_elasticband(data, params)
+        targeted = log[log["target_price"].notna()]
+        assert not targeted.empty
+        signal_bars = targeted["entry_bar"].to_numpy(dtype=int) - 1
+        _, stddev, _ = elasticband.band_series(data, params)
+        expected = data.close[signal_bars] + targeted["direction"].to_numpy() * stddev[signal_bars]
+        assert targeted["target_price"].to_numpy() == pytest.approx(expected, abs=MNQ.tick_size / 2)
+        ahead = targeted["direction"].to_numpy() * (
+            targeted["target_price"].to_numpy() - data.close[signal_bars]
+        )
+        assert (ahead > 0.0).all()
+
+
+def test_an_inverted_r_target_is_not_capped_at_the_basis() -> None:
+    # 3R off a 10-point stop is 30 points away; the basis is behind the fill, so the fade's
+    # cap would put the target there.
+    trades = run(
+        FLAT,
+        signal_at=[0],
+        invert_signal=True,
+        target_mode=TARGET_R,
+        levels=(3.0,),
+        basis=96.0,
+        stop_mode=STOP_CATASTROPHE,
+        catastrophe_stop_ticks=40.0,
+    )
+    assert trades["target_price"].iloc[0] == pytest.approx(130.0)
+
+
+def test_an_inverted_r_run_places_every_target_at_its_multiple_of_the_risk() -> None:
+    """The R scheme never reads the stretch ladder, whose default starts at the basis."""
+    params = inverted_params(target_mode=TARGET_R, target_stretch_levels=(0.0, np.nan), max_hold_bars=10)
+    log = run_elasticband(dataset(walk(157, periods=1500, step=3.0), params), params)
+    targeted = log[log["target_price"].notna()]
+    assert not targeted.empty
+    multiples = np.asarray(params.target_r_multiples)[targeted["leg"].to_numpy(dtype=int) - 1]
+    distance = (
+        targeted["direction"].to_numpy() * (targeted["target_price"] - targeted["entry_price"]).to_numpy()
+    )
+    assert distance == pytest.approx(multiples * targeted["risk_points"].to_numpy(), abs=MNQ.tick_size / 2)
+
+
+def test_the_inverted_band_stop_sits_back_inside_the_threshold_the_close_cleared() -> None:
+    # Basis 96, sigma 2, entry at 2 sigma and the stop 1 sigma back inside it: 96 + 2.
+    long_side = run(
+        FLAT,
+        signal_at=[0],
+        invert_signal=True,
+        stop_mode=STOP_BAND,
+        basis=96.0,
+        entry_std=2.0,
+        band_stop_std=1.0,
+        levels=(np.nan,),
+    )
+    short_side = run(
+        FLAT,
+        signal_at=[0],
+        invert_signal=True,
+        direction=SHORT,
+        stop_mode=STOP_BAND,
+        basis=104.0,
+        entry_std=2.0,
+        band_stop_std=1.0,
+        levels=(np.nan,),
+    )
+    assert long_side["initial_stop"].iloc[0] == pytest.approx(98.0)
+    assert short_side["initial_stop"].iloc[0] == pytest.approx(102.0)
+
+
+def test_the_inverted_band_stop_is_measured_back_from_the_threshold_whatever_it_is() -> None:
+    for entry_std in (1.5, 2.0, 3.0):
+        trades = run(
+            FLAT,
+            signal_at=[0],
+            invert_signal=True,
+            stop_mode=STOP_BAND,
+            basis=90.0,
+            entry_std=entry_std,
+            band_stop_std=0.5,
+            levels=(np.nan,),
+        )
+        assert trades["initial_stop"].iloc[0] == pytest.approx(90.0 + (entry_std - 0.5) * 2.0)
+
+
+def test_an_inverted_target_the_entry_bar_gapped_past_fills_at_that_open() -> None:
+    # The signal closes at 100 and +1 sigma is 102, but the next bar opens at 103.
+    rows = [(100.0, 100.5, 99.5, 100.0), (103.0, 103.5, 102.5, 103.0), *FLAT]
+    passed = run(rows, signal_at=[0], invert_signal=True, basis=96.0, levels=(1.0,))
+    resting = run(rows, signal_at=[0], invert_signal=True, basis=96.0, levels=(2.0,))
+    assert passed["exit_price"].iloc[0] == pytest.approx(103.0)
+    assert passed["exit_bar"].iloc[0] == 1
+    assert resting["target_price"].iloc[0] == pytest.approx(104.0)
+    assert resting["exit_reason"].iloc[0] != "target"
+
+
+def test_an_inverted_band_stop_may_sit_on_the_threshold_the_close_broke_out_through() -> None:
+    trades = run(
+        FLAT,
+        signal_at=[0],
+        invert_signal=True,
+        stop_mode=STOP_BAND,
+        basis=90.0,
+        entry_std=2.0,
+        band_stop_std=0.0,
+        levels=(np.nan,),
+    )
+    assert trades["initial_stop"].iloc[0] == pytest.approx(94.0)
+    assert inverted_params(stop_mode=STOP_BAND, band_stop_std=0.0).band_stop_std == 0.0
+    with pytest.raises(ValueError, match="how far back inside entry_std an inverted stop sits"):
+        inverted_params(stop_mode=STOP_BAND, band_stop_std=-0.5)
+
+
+def test_an_inverted_band_stop_at_or_above_the_fill_skips_the_entry() -> None:
+    """The minimum-risk refusal every stop here shares -- ``docs/nt8-fidelity.md`` §M18."""
+    assert run(
+        FLAT,
+        signal_at=[0],
+        invert_signal=True,
+        stop_mode=STOP_BAND,
+        basis=99.0,
+        entry_std=2.0,
+        band_stop_std=0.5,
+        levels=(np.nan,),
+    ).empty
+
+
+def test_every_inverted_entry_whose_fill_clears_the_base_of_its_run_is_taken_with_the_stop_there() -> None:
+    params = inverted_params(stop_mode=STOP_EXCURSION, max_hold_bars=10, target_stretch_levels=(np.nan,))
+    data = dataset(walk(137, periods=3000, step=3.0), params)
+    candidates = elasticband_signal(data, params)
+    candidates[-1] = False
+    signal = spaced(candidates, gap=15)
+    log = run_elasticband(data, params, signal=signal)
+    _, _, stretch = elasticband.band_series(data, params)
+    direction = trade_direction(stretch, params)
+    offset = params.stop_offset_ticks * MNQ.tick_size
+    stop = run_extreme(data.low, data.high, beyond_band(stretch, params), direction) - direction * offset
+    signal_bars = np.flatnonzero(signal)
+    fills = data.open[signal_bars + 1]
+    clears = direction[signal_bars] * (fills - stop[signal_bars]) >= MNQ.tick_size
+    valid = clears & ~data.force_flat[signal_bars]
+    assert valid.sum() >= 10
+    entered = np.unique(log["entry_bar"].to_numpy(dtype=int)) - 1
+    assert entered.tolist() == signal_bars[valid].tolist()
+    assert log["initial_stop"].to_numpy() == pytest.approx(stop[log["entry_bar"].to_numpy(dtype=int) - 1])
+
+
+def test_the_inverted_invalidation_exit_fires_on_a_close_back_through_the_base_of_the_run() -> None:
+    params = inverted_params(
+        stop_mode=STOP_CATASTROPHE, exit_on_invalidation=True, target_stretch_levels=(np.nan,)
+    )
+    data = dataset(walk(163, periods=3000, step=3.0), params)
+    log = run_elasticband(data, params)
+    _, _, stretch = elasticband.band_series(data, params)
+    base = run_extreme(data.low, data.high, beyond_band(stretch, params), trade_direction(stretch, params))
+    invalidated = log[log["exit_reason"] == "signal"]
+    assert not invalidated.empty
+    assert (invalidated["exit_bar"] > invalidated["entry_bar"]).all()
+    decided = invalidated["exit_bar"].to_numpy(dtype=int) - 1
+    signal_bars = invalidated["entry_bar"].to_numpy(dtype=int) - 1
+    passed = invalidated["direction"].to_numpy() * (data.close[decided] - base[signal_bars])
+    assert (passed < 0.0).all()
+
+
+def test_the_inverted_excursion_stop_reads_the_run_that_ended_under_the_recovery_trigger() -> None:
+    params = recovery_params(
+        invert_signal=True,
+        target_stretch_levels=(1.0, np.nan),
+        stop_mode=STOP_EXCURSION,
+        max_hold_bars=10,
+    )
+    data = dataset(walk(167, periods=3000, step=3.0), params)
+    log = run_elasticband(data, params)
+    assert not log.empty
+    _, _, stretch = elasticband.band_series(data, params)
+    direction = trade_direction(stretch, params)
+    base = lagged(run_extreme(data.low, data.high, beyond_band(stretch, params), direction), 1)
+    offset = params.stop_offset_ticks * MNQ.tick_size
+    signal_bars = log["entry_bar"].to_numpy(dtype=int) - 1
+    expected = base[signal_bars] - log["direction"].to_numpy() * offset
+    assert log["initial_stop"].to_numpy() == pytest.approx(expected)
+
+
+def test_an_inverted_run_trades_with_the_extension_and_produces_a_valid_log() -> None:
+    params = inverted_params(max_hold_bars=10, commission_per_contract=1.5, slippage_ticks=1.0)
+    data = dataset(walk(139, periods=1500, step=3.0), params)
+    log = run_elasticband(data, params)
+    assert not log.empty
+    validate(log)
+    signal_bars = log["entry_bar"].to_numpy(dtype=int) - 1
+    # Long above the basis and short below it, which is the fade's side reversed.
+    assert (log["direction"].to_numpy() * data.band_stretch(20)[signal_bars] > 0.0).all()
+
+
+def test_a_drawn_bar_is_traded_on_the_inverted_side_too() -> None:
+    """The random-entry arm substitutes the signal and never the side."""
+    params = inverted_params(stop_mode=STOP_CATASTROPHE, max_hold_bars=5)
+    data = dataset(walk(149, periods=1500, step=3.0), params)
+    n = len(data.close)
+    drawn = np.zeros(n, dtype=np.bool_)
+    drawn[np.random.default_rng(149).choice(np.arange(40, n - 10), size=60, replace=False)] = True
+    log = run_elasticband(data, params, signal=drawn)
+    assert not log.empty
+    signal_bars = log["entry_bar"].to_numpy(dtype=int) - 1
+    expected = trade_direction(data.band_stretch(20), params)[signal_bars]
+    assert log["direction"].tolist() == expected.tolist()
+
+
+@pytest.mark.parametrize("levels", [(0.0,), (-0.5, np.nan), (1.0, 0.0)])
+def test_an_inverted_stretch_target_at_or_behind_the_close_is_refused(levels: tuple[float, ...]) -> None:
+    with pytest.raises(ValueError, match="must be > 0 under invert_signal"):
+        inverted_params(target_stretch_levels=levels)
 
 
 # -- the archetype end to end ---------------------------------------------------

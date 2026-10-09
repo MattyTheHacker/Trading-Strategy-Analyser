@@ -1,4 +1,4 @@
-"""ElasticBand archetype: fade an extension and target the middle.
+"""ElasticBand archetype: fade an extension and target the middle, or trade with it.
 
 ``TIER1_ONLY``; its rules and the NinjaScript each would become: ``docs/nt8-fidelity.md`` §M26.
 The design and the three exit schemes: ``docs/roadmap.md`` §M26. A market entry at the next
@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, NamedTuple
 import numpy as np
 from numba import njit
 
-from nqbt import conditions, trades
+from nqbt import conditions, indicators, trades
 from nqbt.instruments import MNQ, Instrument
 from nqbt.sim import bracket, filters
 from nqbt.sim.types import (
@@ -69,6 +69,7 @@ class ElasticBandRules(NamedTuple):
     swing_lookback: int
     entry_std: float
     band_stop_std: float
+    invert_signal: bool
     target_mode: int
     tp_multiplier: float
     bars_required: int
@@ -84,9 +85,9 @@ class ElasticBandRules(NamedTuple):
 def run_extreme(low: FloatArray, high: FloatArray, beyond: BoolArray, direction_at: FloatArray) -> FloatArray:
     """Return the adverse extreme of the unbroken run of bars outside the band ending at each bar.
 
-    The lowest low of a run below the band, the highest high of a run above it, and ``nan``
-    on a bar that is not outside at all. One pass, reset whenever the run breaks or changes
-    side -- this is the reference :data:`STOP_EXCURSION` hangs its stop off.
+    The lowest low where ``direction_at`` is long, the highest high where it is short, and
+    ``nan`` on a bar that is not outside at all. One pass, reset whenever the run breaks or
+    changes side -- this is the reference :data:`STOP_EXCURSION` hangs its stop off.
     """
     n = low.size
     out = np.empty(n, dtype=np.float64)
@@ -143,10 +144,16 @@ def _protective_stop(
         return float(band.excursion_extreme[signal_bar]) - direction * rules.stop_offset
 
     if rules.stop_mode == STOP_BAND:
+        basis = float(band.basis[signal_bar])
+        stddev = float(band.stddev[signal_bar])
+        if rules.invert_signal:
+            # Back inside the threshold the close broke out through, on the trade's side of the basis.
+            return basis + direction * (rules.entry_std - rules.band_stop_std) * stddev
+
         # A stretch level like the targets, signed away from the basis instead of towards it.
         level = rules.entry_std + rules.band_stop_std
 
-        return float(band.basis[signal_bar]) - direction * level * float(band.stddev[signal_bar])
+        return basis - direction * level * stddev
 
     return fill - direction * rules.catastrophe_distance
 
@@ -156,6 +163,7 @@ def _leg_target(
     level: float,
     basis: float,
     stddev: float,
+    signal_close: float,
     fill: float,
     risk: float,
     direction: float,
@@ -164,16 +172,55 @@ def _leg_target(
     """Return one leg's target price, in whichever coordinate its mode expresses it.
 
     A stretch level is a position on the band, signed towards the target, so ``0.0`` is the
-    basis for both sides. An R multiple is a distance from the fill, capped at the basis.
+    basis for both sides; inverted, it is a distance in standard deviations past the signal
+    bar's close. An R multiple is a distance from the fill, capped at the basis unless inverted.
     """
     if rules.target_mode == TARGET_STRETCH:
+        if rules.invert_signal:
+            return signal_close + direction * level * stddev
+
         return basis + direction * level * stddev
 
     raw = fill + direction * risk * level * rules.tp_multiplier
+    if rules.invert_signal:
+        return raw
+
     if direction * (raw - basis) > 0.0:
         return basis
 
     return raw
+
+
+@njit(cache=True)
+def _fill_passed_targets(
+    out: FloatArray,
+    written: int,
+    trade: bracket.OpenTrade,
+    legs: bracket.Legs,
+    open_price: float,
+    i: int,
+    costs: bracket.Costs,
+) -> int:
+    """Close every leg whose target the entry bar opened at or past, at that open.
+
+    Returns the new write count, or ``-1`` if ``out`` is full -- ``docs/nt8-fidelity.md`` §M26.7.
+    """
+    at_open = bracket.start_excursion(open_price, open_price, i)
+    for leg in range(legs.is_open.size):
+        if not legs.is_open[leg] or np.isnan(legs.target[leg]):
+            continue
+
+        if trade.direction * (legs.target[leg] - open_price) > 0.0:
+            continue
+
+        leg_exit = bracket.LegExit(i, open_price, trades.EXIT_TARGET, False)
+        written = bracket.write_leg(out, written, trade, legs, leg, leg_exit, at_open, costs)
+        if written < 0:
+            return -1
+
+        legs.is_open[leg] = False
+
+    return written
 
 
 @njit(cache=True)
@@ -192,9 +239,9 @@ def simulate_elasticband(  # noqa: C901, PLR0912, PLR0915 - one branch per rule,
     """Run the elastic band over one dataset, writing one row per leg exit.
 
     ``signal`` marks bars whose close schedules an entry for the next bar's open and
-    ``direction_at`` gives the side to fade on every bar -- ``LONG`` below the basis. The two
-    are separate so the random-entry arm can substitute only the first. ``sizing`` names the
-    size each signal bar's entry takes.
+    ``direction_at`` gives the side to trade on every bar -- ``LONG`` below the basis for a fade,
+    the other side inverted. The two are separate so the random-entry arm can substitute only
+    the first. ``sizing`` names the size each signal bar's entry takes.
 
     Returns the number of rows written, or ``-1`` if ``out`` overflowed.
     """
@@ -296,6 +343,7 @@ def simulate_elasticband(  # noqa: C901, PLR0912, PLR0915 - one branch per rule,
                             target_levels[leg],
                             band.basis[pending_bar],
                             band.stddev[pending_bar],
+                            bars.close[pending_bar],
                             fill,
                             candidate_risk,
                             d,
@@ -304,6 +352,10 @@ def simulate_elasticband(  # noqa: C901, PLR0912, PLR0915 - one branch per rule,
                         legs.target[leg] = (
                             bracket.round_to_tick(raw, costs.tick_size) if fills.round_targets else raw
                         )
+                written = _fill_passed_targets(out, written, trade, legs, bars.open_[i], i, costs)
+                if written < 0:
+                    return -1
+
                 written, in_position = bracket.resolve_brackets(
                     out,
                     written,
@@ -331,7 +383,7 @@ def simulate_elasticband(  # noqa: C901, PLR0912, PLR0915 - one branch per rule,
             stop = bracket.tightened_stop(stop, timed, d)
 
         if in_position and rules.exit_on_invalidation and d * (bars.close[i] - entry_extreme) < 0.0:
-            # The close went further than the excursion the trade faded.
+            # The close went past the adverse extreme of the run the trade read.
             pending_exit = True
             pending_exit_reason = trades.EXIT_SIGNAL
 
@@ -385,27 +437,38 @@ def lagged(series: FloatArray, lag: int) -> FloatArray:
     return out
 
 
+def against_lagged_band(
+    close: FloatArray, basis: FloatArray, stddev: FloatArray, lag: int
+) -> tuple[FloatArray, FloatArray, FloatArray]:
+    """Return a band ``lag`` bars old and each bar's own close measured against it.
+
+    The extension is ``nan`` where the lagged band is, so a bar with no band cannot signal.
+    """
+    old_basis: FloatArray = lagged(basis, lag)
+    old_stddev: FloatArray = lagged(stddev, lag)
+    stretch: FloatArray = indicators.band_stretch(close, old_basis, old_stddev)
+    stretch[np.isnan(old_stddev)] = np.nan
+
+    return old_basis, old_stddev, stretch
+
+
 def band_series(data: Dataset, params: ElasticBandParams) -> tuple[FloatArray, FloatArray, FloatArray]:
     """Return the basis, dispersion and extension this combination reads, at its band lag.
 
     One coordinate system, two windows: a rolling ``band_period`` under :data:`BAND_BOLLINGER`
-    and the session so far under :data:`BAND_VWAP`.
+    and the session so far under :data:`BAND_VWAP`. The lag moves the band and never the close
+    -- ``docs/nt8-fidelity.md`` §M26.
     """
-    lag: int = params.band_lag
     if params.band_source == BAND_VWAP:
-        return (
-            lagged(data.vwap_band_basis(), lag),
-            lagged(data.vwap_band_stddev(), lag),
-            lagged(data.vwap_band_stretch(), lag),
-        )
+        basis, stddev, stretch = data.vwap_band_basis(), data.vwap_band_stddev(), data.vwap_band_stretch()
+    else:
+        period: int = params.band_period
+        basis, stddev, stretch = data.band_basis(period), data.band_stddev(period), data.band_stretch(period)
 
-    period: int = params.band_period
+    if params.band_lag == 0:
+        return basis, stddev, stretch
 
-    return (
-        lagged(data.band_basis(period), lag),
-        lagged(data.band_stddev(period), lag),
-        lagged(data.band_stretch(period), lag),
-    )
+    return against_lagged_band(np.asarray(data.close, dtype=np.float64), basis, stddev, params.band_lag)
 
 
 def vwap_band_warmed_up(data: Dataset, params: ElasticBandParams) -> BoolArray:
@@ -425,10 +488,21 @@ def fade_direction(stretch: FloatArray) -> FloatArray:
     return np.where(stretch < 0.0, trades.LONG, trades.SHORT).astype(np.float64)
 
 
+def trade_direction(stretch: FloatArray, params: ElasticBandParams) -> FloatArray:
+    """Return which side a bar would be traded on: the fade's, or the other under ``invert_signal``."""
+    fade: FloatArray = fade_direction(stretch)
+    if not params.invert_signal:
+        return fade
+
+    followed: FloatArray = -fade
+
+    return followed
+
+
 def elasticband_long_side(data: Dataset, params: ElasticBandParams) -> BoolArray:
-    """Return the bars one combination would fade long: those below the basis."""
+    """Return the bars one combination would enter long: below the basis for a fade, above it inverted."""
     _, _, stretch = band_series(data, params)
-    long_side: BoolArray = fade_direction(stretch) == trades.LONG
+    long_side: BoolArray = trade_direction(stretch, params) == trades.LONG
 
     return long_side
 
@@ -526,6 +600,14 @@ def one_sided_bars(data: Dataset, direction: FloatArray, lookback: int) -> IntAr
     return np.where(direction > 0.0, ran_down, ran_up)
 
 
+def extension_sides(params: ElasticBandParams) -> tuple[bool, bool]:
+    """Return whether an extension below the band and one above it may signal, given the sides traded."""
+    if params.invert_signal:
+        return params.trade_short, params.trade_long
+
+    return params.trade_long, params.trade_short
+
+
 def elasticband_signal(data: Dataset, params: ElasticBandParams) -> BoolArray:
     """Flag bars whose close schedules an entry for the next bar's open.
 
@@ -540,24 +622,29 @@ def elasticband_signal(data: Dataset, params: ElasticBandParams) -> BoolArray:
 
     What the bars look like: ``signal_shape`` asks the signal bar's own candle to have turned
     and ``min_one_sided_bars`` asks the move into the band to have been one-sided.
+
+    ``invert_signal`` changes which side a bar is traded on and never which bars signal, so
+    ``trade_long`` picks the extension above the band under it.
     """
     _, _, stretch = band_series(data, params)
     beyond: BoolArray = beyond_band(stretch, params)
+    # The extension's side rather than the trade's, so an inverted signal fires on the same bars.
     direction: FloatArray = fade_direction(stretch)
     recovery: bool = params.entry_trigger == TRIGGER_RECOVERY
     triggered: BoolArray = returned_inside(stretch, params) if recovery else beyond
     extension: FloatArray = lagged(stretch, 1) if recovery else stretch
 
-    long_run: BoolArray = beyond & (direction == trades.LONG)
-    short_run: BoolArray = beyond & (direction == trades.SHORT)
+    below_run: BoolArray = beyond & (direction == trades.LONG)
+    above_run: BoolArray = beyond & (direction == trades.SHORT)
+    takes_below, takes_above = extension_sides(params)
     signal: BoolArray = np.zeros(len(data), dtype=np.bool_)
-    if params.trade_long:
-        counted_long: IntArray = outside_run_length(long_run, ends_before=recovery)
-        signal |= triggered & (direction == trades.LONG) & (counted_long >= params.min_bars_outside)
+    if takes_below:
+        counted_below: IntArray = outside_run_length(below_run, ends_before=recovery)
+        signal |= triggered & (direction == trades.LONG) & (counted_below >= params.min_bars_outside)
 
-    if params.trade_short:
-        counted_short: IntArray = outside_run_length(short_run, ends_before=recovery)
-        signal |= triggered & (direction == trades.SHORT) & (counted_short >= params.min_bars_outside)
+    if takes_above:
+        counted_above: IntArray = outside_run_length(above_run, ends_before=recovery)
+        signal |= triggered & (direction == trades.SHORT) & (counted_above >= params.min_bars_outside)
 
     if params.max_entry_std > 0.0:
         signal &= np.abs(extension) <= params.max_entry_std
@@ -585,10 +672,10 @@ def elasticband_legs(
     """Simulate one parameter combination and return its raw leg matrix.
 
     ``signal`` overrides the computed entry signal for the random-entry control arm; the side
-    is *not* overridden, so a drawn bar is faded on whichever side of the basis it sat.
+    is *not* overridden, so a drawn bar is traded on whichever side its stretch puts it.
     """
     basis, stddev, stretch = band_series(data, params)
-    direction_at: FloatArray = fade_direction(stretch)
+    direction_at: FloatArray = trade_direction(stretch, params)
     extremes: FloatArray = run_extreme(
         data.low,
         data.high,
@@ -596,7 +683,7 @@ def elasticband_legs(
         direction_at,
     )
     if params.entry_trigger == TRIGGER_RECOVERY:
-        # The signal bar is back inside the band, so the run it fades is the one that ended at
+        # The signal bar is back inside the band, so the run it reads is the one that ended at
         # the bar before it and `run_extreme` reads `nan` on the bar itself.
         extremes = lagged(extremes, 1)
 
@@ -633,6 +720,7 @@ def elasticband_legs(
             swing_lookback=params.swing_lookback,
             entry_std=params.entry_std,
             band_stop_std=params.band_stop_std,
+            invert_signal=params.invert_signal,
             target_mode=params.target_mode,
             tp_multiplier=params.tp_multiplier,
             bars_required=params.bars_required_to_trade,

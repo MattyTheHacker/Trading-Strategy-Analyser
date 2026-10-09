@@ -119,6 +119,11 @@ paths:
   `ELASTIC_SHAPES` is the shape. **`recovery_fraction` joins them**: it is read under
   `TRIGGER_RECOVERY` alone, so the trigger and its depth are one variant dimension
   (`ELASTIC_RECOVERY_ARMS`) rather than two crossed axes. `docs/roadmap.md` §M26.5 and §M26.6.
+  **`invert_signal` belongs with them as a variant dimension**: it changes what
+  `target_stretch_levels` and `band_stop_std` mean, two of the four `ELASTIC_LADDERS` ladders
+  are refused under it and the other two become different targets, and the same band-stop
+  depth is a different stop.
+  `docs/nt8-fidelity.md` §M26.7.
 - **An axis another entry rule made a duplicate can come back to life, and nothing reports that
   either.** §M26.5 measured `min_bars_outside` as inert under `reclaim` on 100% of cells and
   under `reversal` on 82.7%, because those shapes imply the run; the recovery trigger reads the

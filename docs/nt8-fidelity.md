@@ -697,7 +697,7 @@ A close exactly on the VWAP both favours and opposes the trade, because each C# 
 
 **Extension depth is bounded on both sides.** `entry_std` is the floor and `max_entry_std` the ceiling — beyond some extension the move is a trend breaking out rather than a band being stretched, which is an optimal-stopping result and a practitioner observation both ([roadmap.md](roadmap.md) §M26). **Extension duration is a separate gate.** `min_bars_outside` is how many consecutive bars have been outside — `conditions.consecutive_true` over the same boolean, and in NinjaScript an `int` incremented in `OnBarUpdate` and reset to 0 whenever the bar closes back inside. Both come from [#167]'s own statement of the thesis and neither implies the other.
 
-**The band is read from the signal bar, which includes that bar's own close.** This is not lookahead — every input is a completed bar at or before *i* — but it is self-referential: the move being tested widens σ and moves the basis, damping its own measured stretch. The alternative is the `[1]` index on both `Bollinger` and `StdDev`, tested against `Close[0]`. It is a swept toggle rather than an assumption.
+**The band is read from the signal bar, which includes that bar's own close.** This is not lookahead — every input is a completed bar at or before *i* — but it is self-referential: the move being tested widens σ and moves the basis, damping its own measured stretch. The alternative is the `[1]` index on both `Bollinger` and `StdDev`, tested against `Close[0]`. It is a swept toggle rather than an assumption. **The lag moves the band and never the close**: until #451 the Python lagged the close with it, so `band_lag = 1` compared the previous bar's close with its own band rather than this bar's close with the previous band, and every row stored with a lag above `0` before then measured that rather than this.
 
 **The entry is market-on-next-open, and §M18's consequences apply unchanged.** `EnterLong()` / `EnterShort()` under `Calculate.OnBarClose` submit at the close of bar *i* and NT8 fills at the open of bar *i+1*. There is no trigger price, so no "no touch, no fill" and no submittability rule; a bar at or past the flatten cutoff cancels the order rather than filling it. The second form is a limit at the band, which rests — so it is cancelled after one bar, and it must trade *through* rather than touch to fill ("Limit orders must trade *through*, not touch").
 
@@ -714,7 +714,7 @@ A close exactly on the VWAP both favours and opposes the trade, because each C# 
 
 All four are `SetStopLoss` / `SetProfitTarget` against a level the script already holds, so none of them needs anything NT8 does not express. **Only B's stop is floored**, because only it is a distance rather than a level — a structural stop pushed away from its structure stops being the rule it is. The tight stop is the same device as EmaCrossover's swing mode and shares its implementation, `bracket.swing_stop`; at `swingLookback = 1` it is the signal candle alone, which is the tightest stop the archetype can express and, measured, no better than any other ([roadmap.md](roadmap.md) §M26).
 
-**A target that is a level is written as a price, not as an R multiple.** `Bollinger.Middle[0]` at the signal bar. Where legs scale out they do so at fractions of the distance back to it — `fill + d × (basis − fill) × fraction[leg]` — so the archetype writes `legs.target[leg]` as prices and `bracket.py` resolves them exactly as it resolves an R-multiple target. Nothing in the bracket engine changes.
+**A target that is a level is written as a price, not as an R multiple.** `Bollinger.Middle[0]` at the signal bar. Where legs scale out they do so at fractions of the distance back to it — `fill + d × (basis − fill) × fraction[leg]` — so the archetype writes `legs.target[leg]` as prices and `bracket.py` resolves them exactly as it resolves an R-multiple target. Nothing in the bracket engine changes. A target the entry bar opens at or past fills at that open — § "A target the entry bar opened at or past fills at that open" below.
 
 **`r_multiple` therefore means a third thing.** Under A and C, R is set by the band geometry and is identical across every combination sharing a ratio; under B it is the ratio of two different volatility measures. Elastic band results are not comparable with DeadCatBounce's or EmaCrossover's at the same R.
 
@@ -827,6 +827,68 @@ else { runBars++; runLow = Math.Min(runLow, Low[0]); runHigh = Math.Max(runHigh,
 **`max_entry_std` gates the bar the extension was measured on, which under this trigger is not the signal bar.** The ceiling exists to refuse a move that has become a trend rather than a stretch, and the signal bar is inside the band by construction — so gating it would make the parameter inert at every value, which is the blind spot `.claude/rules/sweep-and-context.md` names rather than a safe default. `runStretch` is the value the C# carries for it.
 
 **Nothing else moves.** The entry is still market-on-next-open with no trigger price, so the fill rules, the resting-order lifetime and the force-flat handling are unchanged, and `signal_shape` still reads the signal bar's own candle and composes with this rather than being replaced by it.
+
+### M26.7 — the inverted signal, written before the Python (#279)
+
+**One rule, and it changes which side a bar is traded on rather than which bars signal.** `invert_signal` enters with the extension instead of against it: long a close above the upper band, short one below the lower. Every signal rule — the depth threshold and its ceiling, the run length, both entry triggers, the signal-bar shapes and the one-sided count — still reads the extension exactly as above, so an inverted combination fires on the same bars as its fade and the pair differs in the side alone. The market-on-next-open entry, the one-bar order lifetime and the session flatten are untouched, and `Archetype.tier2` stays `TIER1_ONLY`. Nothing has been swept with it yet.
+
+**It is not a free toggle, because five things downstream of the entry read the fade's direction.** Three exit rules would be wrong inverted — the R target's cap at the basis, the excursion stop and the band stop — and the stretch target and the sizing thesis need a definition of their own. Each is below. The swing, ATR and catastrophe stops are a bar extreme or a distance off the fill signed by the trade's direction, so they need nothing.
+
+**`trade_long` and `trade_short` name the side traded, not the extension.** Under the inversion `trade_long` takes the extension above the band, which the fade shorts, so a fade with `trade_long = false` and an inverted combination with `trade_short = false` trade the same bars:
+
+```csharp
+double stretch = (Close[0] - basis) / sigma;
+int fadeSide = stretch < 0 ? 1 : -1;                  // the side every signal rule reads
+int dir = invertSignal ? -fadeSide : fadeSide;        // the side traded
+if (signal && dir > 0 && tradeLong) EnterLong();
+else if (signal && dir < 0 && tradeShort) EnterShort();
+```
+
+**The shapes and the one-sided count read the extension, not the trade.** `reversal` still asks for a body closing back towards the basis, so a shaped inverted entry is a breakout taken on a bar that has turned against it. That is the cost of keeping the bars identical, and a campaign crossing the inversion with a shape should know it is measuring that.
+
+**A stretch target is measured past the signal bar's close, so every level starts ahead of it:**
+
+```csharp
+double target = Close[0] + dir * level * sigma;
+```
+
+`sigma` is the one the signal read, at its band lag, exactly as a fade's target reads it. Measured past `entry_std` instead, the close that signalled is often already beyond the target: over the 1-minute continuous series on a 20-bar band at 2σ, 30% of signals on both roots close past +0.5σ and 7% past +1.0σ. Most of those targets would already be passed at the next open and leave there by the rule below, as instant round trips. Levels at or below `0` are refused, because they sit at or behind the close.
+
+**An R target is not capped at the basis.** The fade caps it because a target past the mean is not a mean-reversion target; inverted, the basis is behind the fill, so the cap would put every target behind it. `SetProfitTarget(CalculationMode.Price, fill + dir * risk * r * tpMultiplier)`.
+
+**The excursion stop hangs off the base of the run, and the invalidation exit reads the same level.** `run_extreme` takes the side traded, so inverted it is the lowest low of a run above the band for a long and the highest high of a run below it for a short — where the breakout started. Read off the fade's side it would sit beyond the fill, and the minimum-risk check would decline every entry silently. The NinjaScript is the same expression as the fade's, because §M26.6's `runLow` and `runHigh` track the run whichever side it is on:
+
+```csharp
+// at the signal bar, held for the life of the trade
+entryRunBase = dir > 0 ? runLow : runHigh;
+SetStopLoss(CalculationMode.Price, entryRunBase - dir * stopOffsetTicks * TickSize);
+// at every later close
+if (exitOnInvalidation && dir * (Close[0] - entryRunBase) < 0) ExitLong(); // mirrored on the short side
+```
+
+The level is fixed at the signal bar: `runLow` and `runHigh` keep moving with the run after the entry, and the invalidation exit reads the level the stop was placed at, not the run's current one.
+
+**Under the recovery trigger the signal close has come back inside the band, often through the base of the run**, so inverted, the excursion stop is declined by the minimum-risk check and the invalidation exit fires at the first close, on a share of signals that grows with `recovery_fraction`'s depth. The fade has neither problem, because its close comes back away from its stop. Neither combination is refused, but crossing the inverted recovery trigger with either measures the trigger's depth rather than the stop.
+
+**The band stop sits back inside the threshold, on the trade's side of the basis:**
+
+```csharp
+double stop = invertSignal
+    ? basis + dir * (entryStd - bandStopStd) * sigma    // back inside the band the close broke out of
+    : basis - dir * (entryStd + bandStopStd) * sigma;   // §M26.8
+```
+
+The same `band_stop_std` values therefore stop at the 1σ band rather than the 3σ one at `entry_std = 2.0`, and `0` is allowed here, where it is the threshold the close broke out through, rather than refused as it is on the fade. A value at or past `entry_std` puts the level at or beyond the basis, which is a wide stop rather than a refused one. The minimum-risk refusal declines an entry whose fill is at or past the level, which under the recovery trigger is typically a close that came back inside by more than `band_stop_std`.
+
+**The sizing thesis is a breakout's.** The confluence size reads `sizing_thesis` for its regime and volume labels: the fade's is `ROTATION`, favouring a consolidating regime and thin volume, and the inversion's is `EXPANSION`, favouring a directional regime and heavy volume — OpeningRange's rule for its breakout entries (§M47). The trend, higher-timeframe and VWAP labels already read the side traded through `long_side`.
+
+**The random-entry arm substitutes the signal and never the side**, so a drawn bar is traded on the inverted side as well. A drawn bar whose stop level is on the wrong side of its fill is still declined, as it is under the fade's excursion stop, so under the inverted band stop the null is drawn only from bars beyond `entry_std - band_stop_std`; read a band-stop null with that in mind.
+
+#### A target the entry bar opened at or past fills at that open
+
+**On the fade and the inversion alike, a leg whose target the entry bar opened at or past leaves at that open, as a target, with no slippage.** A fade's basis is passed when the next bar opens beyond it, and so is a capped R target; an inverted target is when the open gaps past it. The trade is kept, so it pays the entry's slippage and both commissions, and the legs whose targets are still ahead rest as usual. It is decided against the open rather than the fill, so the slippage setting moves what a trade costs and never which trades exist. Before #451 the bracket engine filled such a target at its own price on the entry bar, booking a loss as a target hit. On the MNQ 03-24 defaults that was 6 of 1,416 trades, all in the thin bars before that contract's December roll; on the spliced front-month series it closed none at the defaults, the VWAP band or R targets, on either root at 1 or 5 minutes.
+
+**This follows an unmeasured NT8 behaviour rather than a measured one.** The entry is a market order, so the script cannot refuse it, and `SetProfitTarget` at a price the market has passed submits a marketable limit, which NT8 most likely fills at the market straight away. A trade list with such a gap is what would settle it. The general case — `bracket.py` filling a passed target at its own price on any archetype's entry bar — is #452, which should confirm or replace this rule.
 
 ### M26.8 — the stop on the band itself, written before the Python (#280)
 
