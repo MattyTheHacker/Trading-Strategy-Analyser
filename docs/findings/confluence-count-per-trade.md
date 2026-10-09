@@ -58,7 +58,8 @@ The excess is therefore the only honest column:
 
 **The count is not independent of the entry.** `above_ema_21` holds at 88.6% of the entries of an EMA(9)/EMA(21) long, so the count and the signal share machinery; the four other conditions are what carry it. A set drawn from indicators the archetype does not read would be the cleaner test and has not been run.
 
-**Ten legs in 390,720 across the twenty null draws exit outside their own bar**, every one a `target` a bar gapped through, worst 263.75 points — [#244]'s open question, hit harder by a random entry because it can be placed in front of an overnight gap. Those trades are dropped rather than admitted by a widened `price_tolerance`, because a guard widened past 260 points no longer catches the back-adjusted series it exists for.
+**Ten legs in 390,720 across the twenty null draws exit outside their own bar**, every one a `target` a bar gapped through, worst 263.75 points — [#244]'s open question, hit harder by a random entry because it can be placed in front of an overnight gap. Those trades are dropped rather than admitted by a widened `price_tolerance`, because a guard widened past 260 points no longer catches the back-adjusted series it exists for. [#452] has since settled the question, and the simulator no longer puts a target outside its bar.
 
 [#244]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/244
+[#452]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/452
 [#74]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/74

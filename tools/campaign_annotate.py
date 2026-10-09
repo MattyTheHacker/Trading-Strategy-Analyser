@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from nqbt import annotate, archetypes, context, logsetup, resample, results, splice, sweep
 from tools.campaign_report import load_trades
-from tools.campaign_review import SLIPPAGE_TOLERANCE, review_spec, tolerance_for
+from tools.campaign_review import review_spec, tolerance_for
 from tools.campaign_shortlist import rebuild, shortlist, source
 from tools.campaign_sweep import db_path
 
@@ -58,7 +58,6 @@ def store_row(  # type: ignore[explicit-any]  # duckdb's dtypes
     data: context.Dataset,
     path: Path,
     root: str,
-    tolerance: float,
 ) -> bool:
     """Annotate one stored log and persist it, reporting whether it went."""
     sweep_id, combo_id = int(row["sweep_id"]), int(row["combo_id"])
@@ -78,11 +77,11 @@ def store_row(  # type: ignore[explicit-any]  # duckdb's dtypes
             log,
             data,
             thresholds=thresholds,
-            price_tolerance=tolerance_for(row, root, tolerance),
+            price_tolerance=tolerance_for(row, root),
         )
     except annotate.AnnotationError as refused:
         logger.warning(
-            "  sweep %-4d combo %-6d cannot be annotated at this tolerance: %s",
+            "  sweep %-4d combo %-6d cannot be annotated: %s",
             sweep_id,
             combo_id,
             refused,
@@ -114,7 +113,6 @@ def store_annotations(
     name: str,
     rows: pd.DataFrame,
     root: str,
-    tolerance: float = SLIPPAGE_TOLERANCE,
 ) -> int:
     """Annotate and store every shortlisted configuration's log, returning how many went.
 
@@ -133,7 +131,7 @@ def store_annotations(
             annotation_spec(block, archetype),
             bar_minutes=bar_minutes,
         )
-        stored += sum(store_row(row, data, path, root, tolerance) for _, row in block.iterrows())
+        stored += sum(store_row(row, data, path, root) for _, row in block.iterrows())
 
     return stored
 
@@ -150,12 +148,6 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--resolution", type=int, default=None, help="restrict it to one bar size")
     parser.add_argument("--variant", default=None, help="restrict it to one variant of the grid")
     parser.add_argument("--top", type=int, default=20, help="how many configurations to annotate")
-    parser.add_argument(
-        "--price-tolerance",
-        type=float,
-        default=SLIPPAGE_TOLERANCE,
-        help="points a fill may land outside its bar; unset takes the run's own slippage",
-    )
     args = parser.parse_args(argv[1:])
 
     rows: pd.DataFrame = shortlist(
@@ -169,10 +161,7 @@ def main(argv: list[str]) -> int:
         args.variant,
     )
     logger.info("%s on %s: annotating %d stored configurations", args.strategy, args.root, len(rows))
-    if args.price_tolerance >= 0.0:
-        logger.info("fills may land %.2f points outside their bar by request", args.price_tolerance)
-
-    stored: int = store_annotations(args.strategy, rows, args.root, args.price_tolerance)
+    stored: int = store_annotations(args.strategy, rows, args.root)
     if not stored:
         logger.warning("nothing annotated; run tools/campaign_shortlist.py for these rows first")
 

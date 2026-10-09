@@ -397,8 +397,9 @@ def resolve_brackets(  # noqa: C901, PLR0912 - one branch per NT8 exit rule, in 
     means ``out`` overflowed and the caller must abandon the run.
 
     Order of resolution: the stop takes the whole position unless the ambiguity policy says the
-    targets were reached first; targets fill at their own price with no slippage; anything still
-    open after a targets-first bar leaves at the stop on that same bar; and force-flat is last.
+    targets were reached first; targets fill with no slippage, at their own price or the nearest
+    one the bar traded (``target_fill``); anything still open after a targets-first bar leaves at
+    the stop on that same bar; and force-flat is last.
     Called by both the in-position path and the entry-bar path.
     """
     n_legs = legs.is_open.size
@@ -451,14 +452,14 @@ def resolve_brackets(  # noqa: C901, PLR0912 - one branch per NT8 exit rule, in 
     for leg in range(n_legs):
         if legs.is_open[leg] and not np.isnan(legs.target[leg]):  # noqa: SIM102 - needs a continue guard; #146
             if limit_filled(favourable_px, legs.target[leg], fills.fill_limit_on_touch, direction):
-                # Limit order: fills at its price, never worse, no slippage.
+                # Limit order: fills at its price or the nearest one the bar traded, no slippage.
                 written = write_leg(
                     out,
                     written,
                     trade,
                     legs,
                     leg,
-                    LegExit(i, legs.target[leg], EXIT_TARGET, ambiguous),
+                    LegExit(i, target_fill(legs.target[leg], adverse_px, direction), EXIT_TARGET, ambiguous),
                     excursion,
                     costs,
                 )
@@ -1195,6 +1196,19 @@ def limit_filled(favourable_px: float, limit: float, on_touch: bool, direction: 
         return direction * favourable_px >= direction * limit
 
     return direction * favourable_px > direction * limit
+
+
+@njit(cache=True)
+def target_fill(target: float, adverse_px: float, direction: float) -> float:
+    """Return the price a filled target leaves at: its own, or the bar's adverse extreme beyond it.
+
+    ``docs/nt8-fidelity.md``, "A target the market has passed fills at the nearest price the bar
+    traded".
+    """
+    if direction * adverse_px > direction * target:
+        return adverse_px
+
+    return target
 
 
 @njit(cache=True)

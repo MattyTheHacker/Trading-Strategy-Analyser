@@ -115,7 +115,7 @@ def test_a_stored_annotation_carries_the_context_at_each_trades_entry_bar(
     stocked: tuple[Path, int], data: context.Dataset
 ) -> None:
     db, sweep_id = stocked
-    assert store_row(stored_row(sweep_id=sweep_id), data, db, "MNQ", -1.0)
+    assert store_row(stored_row(sweep_id=sweep_id), data, db, "MNQ")
 
     stored = results.query("SELECT * FROM annotations", db)
     assert len(stored) == len(trade_log(data))
@@ -125,7 +125,7 @@ def test_a_stored_annotation_carries_the_context_at_each_trades_entry_bar(
 
 def test_the_cut_is_stored_with_the_rows_it_cut(stocked: tuple[Path, int], data: context.Dataset) -> None:
     db, sweep_id = stocked
-    store_row(stored_row(sweep_id=sweep_id), data, db, "MNQ", -1.0)
+    store_row(stored_row(sweep_id=sweep_id), data, db, "MNQ")
     stored = results.query("SELECT * FROM annotations", db)
     assert stored["cut_volume_thin_below"].iloc[0] == THIN
     assert stored["cut_volume_heavy_above"].iloc[0] == HEAVY
@@ -137,14 +137,14 @@ def test_storing_a_row_twice_replaces_rather_than_doubles_it(
     """A doubled annotation still joins and every count taken through it moves."""
     db, sweep_id = stocked
     row = stored_row(sweep_id=sweep_id)
-    store_row(row, data, db, "MNQ", -1.0)
-    store_row(row, data, db, "MNQ", -1.0)
+    store_row(row, data, db, "MNQ")
+    store_row(row, data, db, "MNQ")
     assert results.query("SELECT COUNT(*) c FROM annotations", db).loc[0, "c"] == len(trade_log(data))
 
 
 def test_a_row_with_no_stored_log_is_named_and_skipped(tmp_path: Path, data: context.Dataset) -> None:
     empty = tmp_path / "empty.duckdb"
-    assert not store_row(stored_row(), data, empty, "MNQ", -1.0)
+    assert not store_row(stored_row(), data, empty, "MNQ")
 
 
 def test_a_log_whose_fill_lands_outside_its_bar_is_skipped_rather_than_annotated(
@@ -156,7 +156,7 @@ def test_a_log_whose_fill_lands_outside_its_bar_is_skipped_rather_than_annotated
     moved.loc[0, "entry_price"] = float(moved["entry_price"].loc[0]) + 500.0
     results.save_trades(moved, 1, COMBO_ID, db)
 
-    assert not store_row(stored_row(sweep_id=1), data, db, "MNQ", -1.0)
+    assert not store_row(stored_row(sweep_id=1), data, db, "MNQ")
 
     tables = results.query("SELECT table_name FROM information_schema.tables", db)
     assert "annotations" not in set(tables["table_name"]), "a refused row leaves nothing behind"

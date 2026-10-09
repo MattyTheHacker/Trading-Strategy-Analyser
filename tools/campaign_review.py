@@ -38,9 +38,6 @@ BY = "expectancy"
 zero, which profit factor is not -- ``docs/findings/m27-registry-campaign.md``
 § "Reading the per-contract tally"."""
 
-SLIPPAGE_TOLERANCE = -1.0
-"""``--price-tolerance`` unset: take the run's own slippage -- ``tools/README.md`` § "campaign_review.py"."""
-
 
 def volume_keys() -> tuple[volume.VolumeKey, ...]:
     """Return all three relative-volume series, so the clock is read against every form at once.
@@ -83,11 +80,8 @@ def conditions_of(annotation: annotate.Annotation) -> tuple[str, ...]:
     return (review.PHASE_COLUMN, *volumes)
 
 
-def tolerance_for(row: pd.Series, root: str, given: float) -> float:  # type: ignore[explicit-any]  # duckdb's dtypes
-    """Return how far a fill of this run may land outside its bar: the run's slippage, or the override."""
-    if given >= 0.0:
-        return given
-
+def tolerance_for(row: pd.Series, root: str) -> float:  # type: ignore[explicit-any]  # duckdb's dtypes
+    """Return how far a fill of this run may land outside its bar, which is the run's own slippage."""
     return float(row["slippage_ticks"]) * get_instrument(root).tick_size
 
 
@@ -96,14 +90,13 @@ def annotate_row(  # type: ignore[explicit-any]  # duckdb's dtypes
     log: pd.DataFrame,
     data: context.Dataset,
     root: str,
-    tolerance: float,
 ) -> annotate.Annotation:
     """Join one stored log to the bars it was simulated over -- ``docs/roadmap.md`` §M11.2."""
     return annotate.annotate_trades(
         log,
         data,
         thresholds=thresholds_for(row),
-        price_tolerance=tolerance_for(row, root, tolerance),
+        price_tolerance=tolerance_for(row, root),
     )
 
 
@@ -118,7 +111,6 @@ def review_row(  # type: ignore[explicit-any]  # duckdb's dtypes
     path: Path,
     root: str,
     iterations: int,
-    tolerance: float = SLIPPAGE_TOLERANCE,
 ) -> pd.DataFrame:
     """Print one configuration's clock table, with its guard beneath it.
 
@@ -136,10 +128,10 @@ def review_row(  # type: ignore[explicit-any]  # duckdb's dtypes
         return pd.DataFrame()
 
     try:
-        annotation: annotate.Annotation = annotate_row(row, log, data, root, tolerance)
+        annotation: annotate.Annotation = annotate_row(row, log, data, root)
     except annotate.AnnotationError as refused:
         logger.warning(
-            "  sweep %-4d combo %-6d cannot be annotated at this tolerance: %s",
+            "  sweep %-4d combo %-6d cannot be annotated: %s",
             int(row["sweep_id"]),
             int(row["combo_id"]),
             refused,
@@ -175,7 +167,6 @@ def review_shortlist(
     rows: pd.DataFrame,
     root: str,
     iterations: int,
-    tolerance: float = SLIPPAGE_TOLERANCE,
 ) -> pd.DataFrame:
     """Review every shortlisted configuration, one clock table each.
 
@@ -189,7 +180,7 @@ def review_shortlist(
         bar_minutes: int = int(minutes)  # type: ignore[call-overload]  # a groupby key on an int column
         frame: pd.DataFrame = resample.resample(source(bars, str(window)), bar_minutes)
         data: context.Dataset = context.prepare(frame, review_spec(), bar_minutes=bar_minutes)
-        tables.extend(review_row(row, data, path, root, iterations, tolerance) for _, row in block.iterrows())
+        tables.extend(review_row(row, data, path, root, iterations) for _, row in block.iterrows())
 
     present: list[pd.DataFrame] = [table for table in tables if not table.empty]
     if not present:
@@ -224,12 +215,6 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--variant", default=None, help="restrict it to one variant of the grid")
     parser.add_argument("--top", type=int, default=1, help="how many configurations to review")
     parser.add_argument("--iterations", type=int, default=guard.DEFAULT_ITERATIONS)
-    parser.add_argument(
-        "--price-tolerance",
-        type=float,
-        default=SLIPPAGE_TOLERANCE,
-        help="points a fill may land outside its bar; unset takes the run's own slippage",
-    )
     args = parser.parse_args(argv[1:])
 
     rows: pd.DataFrame = shortlist(
@@ -251,16 +236,7 @@ def main(argv: list[str]) -> int:
         args.by,
     )
 
-    if args.price_tolerance >= 0.0:
-        logger.info("fills may land %.2f points outside their bar by request", args.price_tolerance)
-
-    reviewed: pd.DataFrame = review_shortlist(
-        args.strategy,
-        rows,
-        args.root,
-        args.iterations,
-        args.price_tolerance,
-    )
+    reviewed: pd.DataFrame = review_shortlist(args.strategy, rows, args.root, args.iterations)
     if reviewed.empty:
         logger.warning("no stored trade logs for this shortlist; nothing to review")
 

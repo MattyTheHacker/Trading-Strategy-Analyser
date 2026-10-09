@@ -323,6 +323,83 @@ def test_the_entry_bar_never_uses_the_gap_rule() -> None:
     assert trades["exit_price"].unique() == pytest.approx([104.5])  # not the 105 open
 
 
+def test_a_target_a_bar_gaps_past_fills_at_the_nearest_price_the_bar_traded() -> None:
+    # -- ``docs/nt8-fidelity.md``, "A target the market has passed fills at the nearest price
+    # the bar traded". Neither the target nor the open: the bar never traded at the one, and
+    # traded nearer it than the other.
+    trades = run(
+        [
+            (102, 104, 100, 101),  # 0: signal, trigger 100, stop 104.5, first target 95.5
+            (101, 102, 100, 101),  # 1: fills at 100
+            (94, 94.5, 92, 93),  # 2: opens below 95.5 and never trades back up to it
+        ],
+        signal_at=[0],
+    )
+    by_leg = trades.set_index("leg")
+    assert by_leg.loc[1, "exit_price"] == pytest.approx(94.5)  # the bar's high
+    assert by_leg.loc[2, "exit_price"] == pytest.approx(93.25)  # inside the bar, so its own price
+    assert list(by_leg.loc[[1, 2], "exit_reason"]) == ["target", "target"]
+
+
+def test_a_gapped_target_the_bar_trades_back_to_fills_at_its_own_price() -> None:
+    trades = run(
+        [
+            (102, 104, 100, 101),
+            (101, 102, 100, 101),
+            (94, 96, 92, 93),  # 2: opens below 95.5, then trades back up through it
+        ],
+        signal_at=[0],
+    )
+    assert trades.set_index("leg").loc[1, "exit_price"] == pytest.approx(95.5)
+
+
+def test_a_long_target_a_bar_gaps_past_fills_at_the_bars_low() -> None:
+    trades = run(
+        [
+            (101, 104, 100, 103),  # 0: signal, trigger 104, stop 99.5, targets 108.5 and 110.75
+            (103, 105, 102, 104),  # 1: fills at 104
+            (110, 111, 109.5, 110.5),  # 2: opens above 108.5 and never trades back down to it
+        ],
+        signal_at=[0],
+        direction=LONG,
+    )
+    by_leg = trades.set_index("leg")
+    assert by_leg.loc[1, "exit_price"] == pytest.approx(109.5)
+    assert by_leg.loc[2, "exit_price"] == pytest.approx(110.75)
+
+
+def test_a_target_the_entry_bar_opened_past_fills_on_that_bar_at_its_nearest_price() -> None:
+    trades = run(
+        [
+            (102, 104, 100, 101),  # 0: signal, trigger 100, first target 95.5
+            (95, 95.25, 94, 94.5),  # 1: gaps through the trigger and the target, fills at 95
+        ],
+        signal_at=[0],
+    )
+    first = trades.set_index("leg").loc[1]
+    assert first["entry_price"] == pytest.approx(95.0)
+    assert first["exit_bar"] == 1
+    assert first["exit_reason"] == "target"
+    assert first["exit_price"] == pytest.approx(95.25)  # the bar's high, not 95.5
+
+
+@pytest.mark.parametrize(
+    ("target", "adverse", "direction", "expected"),
+    [
+        (95.5, 94.5, SHORT, 94.5),
+        (95.5, 96.0, SHORT, 95.5),
+        (108.5, 109.5, LONG, 109.5),
+        (108.5, 108.0, LONG, 108.5),
+        (100.0, 100.0, LONG, 100.0),
+        (100.0, 100.0, SHORT, 100.0),
+    ],
+)
+def test_a_target_fills_at_its_price_unless_the_whole_bar_lies_past_it(
+    target: float, adverse: float, direction: float, expected: float
+) -> None:
+    assert bracket.target_fill(target, adverse, direction) == expected
+
+
 def test_session_close_flattens_whatever_is_left() -> None:
     trades = run(
         [

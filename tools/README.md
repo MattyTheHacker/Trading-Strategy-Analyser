@@ -455,7 +455,7 @@ Filtering entries to a phase and re-running the grid answers *does this strategy
 - `nqbt.review.time_of_day` in session order, with **both forms of volume beside it**: relative volume says whether an hour was unusually busy and absolute volume whether there was anything there to trade -- `docs/roadmap.md` §M27.8. `session_close_share` is in the same table, because the forced flat makes a poor late-session result the clock's until that column says otherwise.
 - `nqbt.guard.guard` over the clock and the three volume labels together. A stratum picked by reading a table is the multiple-comparisons machine one level up, and `nqbt.guard.FAMILY_COLUMN` answers it. The family is named rather than taken from `nqbt.review.stratifiable`, which would add every moving-average gate and dilute the null with conditions nobody asked about.
 
-**A simulated log is expected to land outside its bar by at most the run's slippage**, which is the default `--price-tolerance`, and on this project's own shortlists it does not: a profit target a bar gapped through fills at the target and lands further out. Widen it deliberately (the widening is printed), but not past the point where a back-adjusted series would still be caught -- `docs/roadmap.md` §M27.7.
+**A simulated log lands inside its bar plus the run's slippage**, and that is the tolerance every fill is checked at, with no flag to widen it. A configuration whose log does not is named and skipped. Either its bars are back-adjusted, or its log was stored before [#452] changed where a passed target fills, and a re-run replaces it -- `docs/nt8-fidelity.md`, "A target the market has passed fills at the nearest price the bar traded".
 
 ### campaign_flatten.py
 
@@ -611,18 +611,18 @@ The companion `_bars.csv` and `_config.csv` are found beside it. Each measuremen
 
 ### reconcile_passed_target.py
 
-Reads an `NqbtPassedTargetProbe` run and reports where NinjaTrader filled each profit target the market had already passed.
+Reads an `NqbtPassedTargetProbe` run and checks where NinjaTrader filled each profit target the market had already passed.
 
 ```bash
 uv run tools/reconcile_passed_target.py <..._events.csv>
 ```
 
-The companion `_bars.csv` and `_config.csv` are found beside it, and the probe writes all three to a folder of its own under `verification/`. It answers two questions, and reads both on every run, reporting one the run holds no instance of as such:
+The companion `_bars.csv` and `_config.csv` are found beside it, and the probe writes all three to a folder of its own under `verification/`. It reads two cases on every run, and reports one the run holds no instance of as such:
 
 1. **A target already behind the entry's fill** ([#452]). Probe scenario 1 sets the target a few ticks behind the signal bar's close and enters at market, so the entry opens past it. Reported: on which bar the target filled, the entry bar or a later one, and at what price.
-2. **A resting target a bar opens beyond** ([#244]). Probe scenario 2 moves the target to a tick beyond each bar's close while the position is held, so any bar opening further out has gapped through it. A target already behind the previous close is left out, because it was passed rather than gapped through. Bars that open short of the target and trade through it are the control, and every one of them should fill at the target.
+2. **A resting target a bar opens beyond** ([#244]). Probe scenario 2 moves the target to a tick beyond each bar's close while the position is held, so any bar opening further out has gapped through it. A target already behind the previous close is left out, because it was passed rather than gapped through. Bars that open short of the target and trade through it are the control.
 
-Each price is classed as the target's own price, the fill bar's open, or neither, because those are the two rules in question: `bracket.py` fills at the target, and ElasticBand fills at the open -- `docs/nt8-fidelity.md`, "A target the entry bar opened at or past fills at that open". **The callback lag is re-measured and never assumed**, as `reconcile_order_lifetime.py` does. Here it is measured on the market entries, which fill at an open, so the entry's own price says which bar it filled on. Two more checks guard the readings. Every target fill must belong to the entry its trial number names, and every control fill at the target must lie inside its fill bar's range, which checks the lag on the targets themselves. The tool exits 1 when any of these fails, or when the run filled no entry, because nothing it reports could then be read. A passed target NinjaTrader rejects is counted apart from one it left unfilled.
+Each fill is checked against the rule the first two runs established: the target's price clamped into its fill bar's range -- `docs/nt8-fidelity.md`, "A target the market has passed fills at the nearest price the bar traded". It is counted at the target, at the bar's low or high, or as breaking the rule. **The callback lag is re-measured and never assumed**, as `reconcile_order_lifetime.py` does. Here it is measured on the market entries, which fill at an open, so the entry's own price says which bar it filled on. Every target fill must also belong to the entry its trial number names. The tool exits 1 when any fill breaks the rule, when the lag or the attribution fails, or when the run filled no entry. A fill on the wrong bar breaks the rule wherever the two bars' ranges clamp the target differently, so the rule check also checks the lag on the targets themselves. A passed target NinjaTrader rejects is counted apart from one it left unfilled.
 
 ### compare_exports.py
 

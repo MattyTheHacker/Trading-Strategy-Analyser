@@ -152,6 +152,24 @@ This one is not long-specific: it moved 56 of 1,380 legs on the pinned MNQ 03-24
 
 Verified decisively: **all 15** initial target-fill disagreements were bars whose low equalled the target to the tick. Stops are unaffected — a stop becomes a market order on touch.
 
+### A target the market has passed fills at the nearest price the bar traded
+
+**A profit target fills at its own price if its fill bar traded there, and otherwise at that bar's low for a long or its high for a short.** That is the price nearest the target that the bar traded. It holds both ways a target is passed: behind the entry's fill because the entry bar opened past it (#452), and resting while a later bar opens beyond it (#244). It is not the gapped-stop rule above: a target fills at the open only where the open is that extreme.
+
+Measured by `NqbtPassedTargetProbe.cs`, which places each target past the market on purpose, because no reconciled trade list holds the case. Two runs over `MNQ 03-24`, 1 minute, 2023-12-13 → 2024-03-15, Standard fill resolution, zero costs, 5,000 trials each, alternating long and short. The outputs are machine-local in `verification/` (#91), and `tools/reconcile_passed_target.py` reads them:
+
+| case                                        | fills | at the target | at the bar's low or high | neither |
+| ------------------------------------------- | ----- | ------------- | ------------------------ | ------- |
+| target behind the entry's fill (scenario 1) | 4,982 | 2,990         | 1,992                    | 0       |
+| resting target a bar gapped (scenario 2)    | 638   | 550           | 88                       | 0       |
+| control: the bar opens short of the target  | 4,359 | 4,359         | 0                        | 0       |
+
+Both runs' Trades exports match the probe's own log on every trade's entry and exit price, 5,000 of 5,000 each. No passed target was rejected or left resting: NinjaTrader accepts a marketable limit target and fills it on the bar it is placed on.
+
+**What it replaced.** `bracket.py` filled every target at its own price. Wherever the bar lay wholly past the target, that booked a price the bar never traded, worse than the one NinjaTrader gives. ElasticBand alone closed such a leg at the entry bar's open (#451), which was right only where the open was the bar's extreme. Every leg the change moved on the trade-log gate's captures was a target exit, almost all in the thin bars before `MNQ 03-24`'s December roll, and the five stored reconciliations are unchanged because none of their windows holds such a bar.
+
+**Measured on targets only.** The probe places no stop, so a bar that takes both a passed target and the stop still falls to "Ambiguous bars resolve to whichever level is nearer the open" below. OpeningRange's limit entries still fill a gapped limit at the open, which this suggests is wrong but does not measure, because an entry limit is a different order: #454.
+
 ### Ambiguous bars resolve to whichever level is nearer the open
 
 When a bar contains both the stop and a target, bar-close OHLC cannot say which came first. NT8 fills the level nearer the bar's **open**, and when the target goes first the stop still takes the remaining legs *within the same bar*.
@@ -714,7 +732,7 @@ A close exactly on the VWAP both favours and opposes the trade, because each C# 
 
 All four are `SetStopLoss` / `SetProfitTarget` against a level the script already holds, so none of them needs anything NT8 does not express. **Only B's stop is floored**, because only it is a distance rather than a level — a structural stop pushed away from its structure stops being the rule it is. The tight stop is the same device as EmaCrossover's swing mode and shares its implementation, `bracket.swing_stop`; at `swingLookback = 1` it is the signal candle alone, which is the tightest stop the archetype can express and, measured, no better than any other ([roadmap.md](roadmap.md) §M26).
 
-**A target that is a level is written as a price, not as an R multiple.** `Bollinger.Middle[0]` at the signal bar. Where legs scale out they do so at fractions of the distance back to it — `fill + d × (basis − fill) × fraction[leg]` — so the archetype writes `legs.target[leg]` as prices and `bracket.py` resolves them exactly as it resolves an R-multiple target. Nothing in the bracket engine changes. A target the entry bar opens at or past fills at that open — § "A target the entry bar opened at or past fills at that open" below.
+**A target that is a level is written as a price, not as an R multiple.** `Bollinger.Middle[0]` at the signal bar. Where legs scale out they do so at fractions of the distance back to it — `fill + d × (basis − fill) × fraction[leg]` — so the archetype writes `legs.target[leg]` as prices and `bracket.py` resolves them exactly as it resolves an R-multiple target. Nothing in the bracket engine changes. A target the entry bar opens past fills at the nearest price that bar traded — § "A target the market has passed fills at the nearest price the bar traded".
 
 **`r_multiple` therefore means a third thing.** Under A and C, R is set by the band geometry and is identical across every combination sharing a ratio; under B it is the ratio of two different volatility measures. Elastic band results are not comparable with DeadCatBounce's or EmaCrossover's at the same R.
 
@@ -884,11 +902,9 @@ The same `band_stop_std` values therefore stop at the 1σ band rather than the 3
 
 **The random-entry arm substitutes the signal and never the side**, so a drawn bar is traded on the inverted side as well. A drawn bar whose stop level is on the wrong side of its fill is still declined, as it is under the fade's excursion stop, so under the inverted band stop the null is drawn only from bars beyond `entry_std - band_stop_std`; read a band-stop null with that in mind.
 
-#### A target the entry bar opened at or past fills at that open
+#### A target the entry bar opened past
 
-**On the fade and the inversion alike, a leg whose target the entry bar opened at or past leaves at that open, as a target, with no slippage.** A fade's basis is passed when the next bar opens beyond it, and so is a capped R target; an inverted target is when the open gaps past it. The trade is kept, so it pays the entry's slippage and both commissions, and the legs whose targets are still ahead rest as usual. It is decided against the open rather than the fill, so the slippage setting moves what a trade costs and never which trades exist. Before #451 the bracket engine filled such a target at its own price on the entry bar, booking a loss as a target hit. On the MNQ 03-24 defaults that was 6 of 1,416 trades, all in the thin bars before that contract's December roll; on the spliced front-month series it closed none at the defaults, the VWAP band or R targets, on either root at 1 or 5 minutes.
-
-**This follows an unmeasured NT8 behaviour rather than a measured one.** The entry is a market order, so the script cannot refuse it, and `SetProfitTarget` at a price the market has passed submits a marketable limit, which NT8 most likely fills at the market straight away. A trade list with such a gap is what would settle it. The general case — `bracket.py` filling a passed target at its own price on any archetype's entry bar — is #452, which should confirm or replace this rule.
+**A fade's basis is passed when the next bar opens beyond it, and so is a capped R target; an inverted target is when the open gaps past it.** Such a leg leaves by the shared rule, § "A target the market has passed fills at the nearest price the bar traded", as a target with no slippage. The trade is kept, because NinjaTrader cannot refuse a market entry, and the legs whose targets are still ahead rest as usual. #451 first closed such a leg at the entry bar's open; #452 measured NinjaTrader and replaced that with the shared rule.
 
 ### M26.8 — the stop on the band itself, written before the Python (#280)
 

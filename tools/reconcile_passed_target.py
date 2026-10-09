@@ -1,4 +1,4 @@
-"""Read a ``NqbtPassedTargetProbe`` run and report where a passed profit target fills.
+"""Read a ``NqbtPassedTargetProbe`` run and check where each passed profit target filled.
 
     uv run tools/reconcile_passed_target.py <..._events.csv>
 
@@ -114,24 +114,33 @@ def misattributed_targets(run: Run, frame: pd.DataFrame) -> int:
     return orphaned + int((filled["target_entry_signal"] != filled["entry_signal"]).sum())
 
 
-def fill_prices(fill: FloatArray, target: FloatArray, open_: FloatArray) -> dict[str, int]:
-    """Count fills at the target's own price, at the fill bar's open, and at neither."""
+def fill_prices(fill: FloatArray, target: FloatArray, low: FloatArray, high: FloatArray) -> dict[str, int]:
+    """Count fills at the target's own price, at the bar's extreme nearest it, and at anything else.
+
+    The first two are the one rule, the target's price clamped into its fill bar's range --
+    ``docs/nt8-fidelity.md``, "A target the market has passed fills at the nearest price the bar
+    traded".
+    """
+    follows: BoolArray = fill == np.clip(target, low, high)
     at_target: BoolArray = fill == target
-    at_open: BoolArray = (fill == open_) & ~at_target
 
     return {
-        "at_target": int(at_target.sum()),
-        "at_open": int(at_open.sum()),
-        "other": int((~at_target & ~at_open).sum()),
+        "at_target": int((follows & at_target).sum()),
+        "at_bar_extreme": int((follows & ~at_target).sum()),
+        "other": int((~follows).sum()),
     }
 
 
 def target_fill_prices(filled: pd.DataFrame, bars: pd.DataFrame) -> dict[str, int]:
     """Apply :func:`fill_prices` to rows of :func:`trials` whose target filled."""
-    open_: FloatArray = bars["open"].reindex(filled["target_bar"]).to_numpy(dtype=np.float64)
+    low: FloatArray = bars["low"].reindex(filled["target_bar"]).to_numpy(dtype=np.float64)
+    high: FloatArray = bars["high"].reindex(filled["target_bar"]).to_numpy(dtype=np.float64)
 
     return fill_prices(
-        filled["target_fill"].to_numpy(dtype=np.float64), filled["target"].to_numpy(dtype=np.float64), open_
+        filled["target_fill"].to_numpy(dtype=np.float64),
+        filled["target"].to_numpy(dtype=np.float64),
+        low,
+        high,
     )
 
 
@@ -162,8 +171,7 @@ def gapped_while_resting(frame: pd.DataFrame, bars: pd.DataFrame) -> dict[str, d
     """Count the target fills after the entry bar, split by whether their bar opened beyond the target.
 
     Only a target the previous bar closed short of is resting. One already behind the market was
-    passed, which :func:`passed_at_entry` reads. ``control_bar`` counts the control fills at the
-    target whose fill bar's range holds the target, and those whose range does not.
+    passed, which :func:`passed_at_entry` reads.
     """
     later = frame[frame["target_bar"] > frame["entry_bar"]].dropna(subset=["target_fill"])
     side: FloatArray = later["side"].to_numpy(dtype=np.float64)
@@ -176,32 +184,23 @@ def gapped_while_resting(frame: pd.DataFrame, bars: pd.DataFrame) -> dict[str, d
     resting: BoolArray = side * (target - previous_close) > 0
     gapped: BoolArray = resting & (side * (open_ - target) > 0)
     control: BoolArray = resting & ~gapped
-    control_at_target: BoolArray = control & (fill == target)
-    inside: BoolArray = (low <= target) & (target <= high)
 
     return {
-        "gapped": fill_prices(fill[gapped], target[gapped], open_[gapped]),
-        "control": fill_prices(fill[control], target[control], open_[control]),
-        "control_bar": {
-            "inside": int((control_at_target & inside).sum()),
-            "outside": int((control_at_target & ~inside).sum()),
-        },
+        "gapped": fill_prices(fill[gapped], target[gapped], low[gapped], high[gapped]),
+        "control": fill_prices(fill[control], target[control], low[control], high[control]),
     }
 
 
 def verdict(counts: dict[str, int]) -> str:
-    """Return what the fills say in a few words: at the target, at the open, mixed, or nothing."""
-    total = counts["at_target"] + counts["at_open"] + counts["other"]
+    """Return whether every fill follows the rule, in a few words."""
+    total = counts["at_target"] + counts["at_bar_extreme"] + counts["other"]
     if total == 0:
         return "no instances in this run"
 
-    if counts["at_target"] == total:
-        return f"all {total} at the target's own price"
+    if counts["other"] == 0:
+        return f"all {total} at the nearest price the bar traded"
 
-    if counts["at_open"] == total:
-        return f"all {total} at the fill bar's open"
-
-    return f"mixed over {total} -- read the counts"
+    return f"{counts['other']} of {total} break the rule"
 
 
 def report(run: Run) -> bool:
@@ -245,18 +244,18 @@ def report(run: Run) -> bool:
         resting["control"],
         verdict(resting["control"]),
     )
-    if resting["control_bar"]["outside"]:
-        logger.warning(
-            "  %d control fills at the target lie outside their bar; the target fills' lag is not +1",
-            resting["control_bar"]["outside"],
-        )
+    every = target_fill_prices(frame.dropna(subset=["target_fill"]), run.bars)
+    logger.info("every target fill: %s -- %s", every, verdict(every))
+    broken = passed["trials"]["filled_before_entry"] + every["other"]
+    if broken:
+        logger.warning("  %d target fills break the rule, or name the wrong bar", broken)
         return False
 
     return True
 
 
 def main(argv: list[str]) -> int:
-    """Report where the passed targets in one run filled and return the process exit code."""
+    """Check where the passed targets in one run filled and return the process exit code."""
     logsetup.configure(__name__)
     if len(argv) != EXPECTED_ARGV:
         logger.info("%s", __doc__)

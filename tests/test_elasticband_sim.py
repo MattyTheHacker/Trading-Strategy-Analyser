@@ -504,44 +504,49 @@ def test_a_nan_level_is_a_runner_with_no_target() -> None:
     assert np.isnan(trades["target_price"].iloc[-1])
 
 
-def test_a_target_the_entry_bar_opened_past_fills_at_that_open() -> None:
-    """A marketable limit fills at the market -- ``docs/nt8-fidelity.md`` §M26.7."""
-    # The basis is 99 and 100, and the entry bar opens at 100, so each target is already reached.
-    for basis in (99.0, 100.0):
-        trades = run(FLAT, signal_at=[0], basis=basis, levels=(0.0,))
-        assert trades["exit_reason"].tolist() == ["target"]
-        assert trades["exit_bar"].tolist() == [1]
-        assert trades["exit_price"].iloc[0] == pytest.approx(100.0)
-        assert trades["target_price"].iloc[0] == pytest.approx(basis)
-        assert trades["mae_points"].iloc[0] == 0.0
-        assert trades["mfe_points"].iloc[0] == 0.0
+@pytest.mark.parametrize(("basis", "fill"), [(99.0, 99.5), (100.0, 100.0)])
+def test_a_target_the_entry_bar_opened_past_fills_at_the_nearest_price_it_traded(
+    basis: float, fill: float
+) -> None:
+    """A target the market has passed fills at the nearest price the bar traded.
+
+    ``docs/nt8-fidelity.md``, "A target the market has passed fills at the nearest price the bar
+    traded".
+    """
+    # The entry bar opens at 100 and trades 99.5 to 100.5, so a basis of 99 is never traded and
+    # leaves at the bar's low, and a basis of 100 is traded through and leaves at its own price.
+    trades = run(FLAT, signal_at=[0], basis=basis, levels=(0.0,))
+    assert trades["exit_reason"].tolist() == ["target"]
+    assert trades["exit_bar"].tolist() == [1]
+    assert trades["exit_price"].iloc[0] == pytest.approx(fill)
+    assert trades["target_price"].iloc[0] == pytest.approx(basis)
 
 
 def test_a_passed_target_pays_the_entrys_slippage_and_both_commissions() -> None:
     trades = run(FLAT, signal_at=[0], basis=99.0, levels=(0.0,), slippage=1.0, commission=1.5)
     assert trades["entry_price"].iloc[0] == pytest.approx(100.25)
-    assert trades["exit_price"].iloc[0] == pytest.approx(100.0)
+    assert trades["exit_price"].iloc[0] == pytest.approx(99.5)
     assert trades["net_pnl"].iloc[0] < trades["gross_pnl"].iloc[0] < 0.0
 
 
-def test_a_target_a_tick_past_the_open_rests_whatever_the_slippage() -> None:
-    """The open decides it rather than the fill, so slippage moves the cost and not the trades."""
+def test_a_target_a_tick_past_the_open_fills_at_its_price_whatever_the_slippage() -> None:
+    """The bar decides where a target fills, so slippage moves what the entry costs and nothing else."""
     for slippage in (0.0, 1.0):
         trades = run(FLAT, signal_at=[0], basis=100.25, levels=(0.0,), slippage=slippage)
         assert trades["exit_price"].iloc[0] == pytest.approx(100.25)
 
 
-def test_only_the_legs_whose_target_was_passed_leave_at_the_open() -> None:
+def test_only_the_legs_whose_target_was_passed_leave_on_the_entry_bar() -> None:
     # Basis 99.5, sigma 2: the first leg targets 101.5 and rests; the second's basis is passed.
     trades = run(FLAT, signal_at=[0], basis=99.5, levels=(1.0, 0.0), quantities=(1, 1))
     by_leg = trades.set_index("leg")
     assert by_leg.loc[2, "exit_reason"] == "target"
     assert by_leg.loc[2, "exit_bar"] == 1
-    assert by_leg.loc[2, "exit_price"] == pytest.approx(100.0)
+    assert by_leg.loc[2, "exit_price"] == pytest.approx(99.5)
     assert by_leg.loc[1, "exit_reason"] == "end_of_data"
 
 
-def test_an_r_target_capped_at_a_basis_the_entry_bar_opened_past_fills_at_that_open() -> None:
+def test_an_r_target_capped_at_a_basis_the_entry_bar_opened_past_fills_at_the_bars_low() -> None:
     trades = run(
         FLAT,
         signal_at=[0],
@@ -552,7 +557,7 @@ def test_an_r_target_capped_at_a_basis_the_entry_bar_opened_past_fills_at_that_o
         catastrophe_stop_ticks=40.0,
     )
     assert trades["target_price"].iloc[0] == pytest.approx(99.0)
-    assert trades["exit_price"].iloc[0] == pytest.approx(100.0)
+    assert trades["exit_price"].iloc[0] == pytest.approx(99.5)
     assert trades["exit_bar"].iloc[0] == 1
 
 
@@ -1552,12 +1557,13 @@ def test_the_inverted_band_stop_is_measured_back_from_the_threshold_whatever_it_
         assert trades["initial_stop"].iloc[0] == pytest.approx(90.0 + (entry_std - 0.5) * 2.0)
 
 
-def test_an_inverted_target_the_entry_bar_gapped_past_fills_at_that_open() -> None:
-    # The signal closes at 100 and +1 sigma is 102, but the next bar opens at 103.
+def test_an_inverted_target_the_entry_bar_gapped_past_fills_at_the_bars_low() -> None:
+    # The signal closes at 100 and +1 sigma is 102, but the next bar opens at 103 and never
+    # trades below 102.5.
     rows = [(100.0, 100.5, 99.5, 100.0), (103.0, 103.5, 102.5, 103.0), *FLAT]
     passed = run(rows, signal_at=[0], invert_signal=True, basis=96.0, levels=(1.0,))
     resting = run(rows, signal_at=[0], invert_signal=True, basis=96.0, levels=(2.0,))
-    assert passed["exit_price"].iloc[0] == pytest.approx(103.0)
+    assert passed["exit_price"].iloc[0] == pytest.approx(102.5)
     assert passed["exit_bar"].iloc[0] == 1
     assert resting["target_price"].iloc[0] == pytest.approx(104.0)
     assert resting["exit_reason"].iloc[0] != "target"

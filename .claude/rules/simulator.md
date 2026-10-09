@@ -15,6 +15,13 @@ below and is what you quote; this file is the index, not the record.
 - The DeadCatBounce trigger is **`min(Low[0], Close[0] - 2 ticks)`**, not the bar's low. It binds on ~1/3 of signals.
 - `IsFillLimitOnTouch = false`: a limit must trade **through**, so targets need `low < target`,
   not `<=`.
+- **A target the market has passed fills at the nearest price its bar traded**: its own price
+  if the bar reached it, otherwise the bar's low for a long or high for a short. **Not the
+  open** -- that is the gapped *stop*'s rule. It covers a target the entry bar opened past and a
+  resting one a bar gapped through alike, and `bracket.target_fill` is the one place, so **do not
+  fork it**. Measured on targets only; OpeningRange's limit entries still fill a gapped limit at
+  the open (#454). `docs/nt8-fidelity.md`, "A target the market has passed fills at the nearest
+  price the bar traded".
 - **Ambiguous bars** (stop and target both in range) resolve to whichever is **nearer the
   open**. A blanket worst case is *more* pessimistic than NT8, not equal to it, and a blanket
   best case is the other end; both exist only so `nqbt/disambiguate.py` has the two outcomes to
@@ -270,14 +277,9 @@ below and is what you quote; this file is the index, not the record.
   signal bar's own close rather than past `entry_std`, which a close is often already beyond.
   Under the recovery trigger the inverted excursion stop and invalidation exit read a base the
   close has often already passed. `docs/nt8-fidelity.md` §M26.7.
-- **ElasticBand fills a target the entry bar opened at or past at that open.** Left to
-  `bracket.py`, it fills at its own price on the entry bar and books a loss as a target hit.
-  `_fill_passed_targets` closes those legs first, judged against the open and not the fill so
-  slippage never decides which trades exist; the trade is kept, as NT8 cannot refuse a market
-  entry. It follows an unmeasured NT8 behaviour, and the general case is #452.
-  **The band lag moves the band and never the close**: `against_lagged_band` measures each
-  bar's own close against the lagged band, so do not lag the stretch series itself.
-  `docs/nt8-fidelity.md` §M26 and §M26.7.
+- **ElasticBand's band lag moves the band and never the close**: `against_lagged_band`
+  measures each bar's own close against the lagged band, so do not lag the stretch series
+  itself. `docs/nt8-fidelity.md` §M26.
 - **`ratchet_offset_ticks` is separate from `stop_offset_ticks`**, and `above_series` is not
   `~below_series` — each C# treats its own equality boundary as a pass, so the two overlap at
   `close == ma` rather than partition it. `docs/nt8-fidelity.md`.
