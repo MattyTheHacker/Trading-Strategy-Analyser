@@ -27,9 +27,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from nqbt import archetypes, context, logsetup, resample, results, sessions, splice, sweep
 from nqbt.instruments import get_instrument
+from nqbt.sim.types import TARGET_STRETCH, ElasticBandParams
 from tools.campaign_holdout import held_out
 from tools.campaign_report import load, rank
-from tools.campaign_sweep import db_path, elastic_ladder, windows
+from tools.campaign_sweep import db_path, elastic_ladder, elastic_r_ladder, windows
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +66,10 @@ def _coerced(value: object, default: object) -> object:
 
 
 def rebuild(row: pd.Series, archetype: archetypes.Archetype) -> archetypes.ArchetypeParams:  # type: ignore[explicit-any]  # duckdb's dtypes
-    """Rebuild the parameter set a stored row came from, defaults filling anything not stored."""
+    """Rebuild the parameter set a stored row came from, defaults filling anything not stored.
+
+    An ElasticBand row takes its target ladder from its variant name, under the target mode it ran.
+    """
     params: archetypes.ArchetypeParams = archetype.params_cls()
     updates: dict[str, object] = {}
     for field in fields(params):
@@ -73,10 +77,18 @@ def rebuild(row: pd.Series, archetype: archetypes.Archetype) -> archetypes.Arche
             continue
 
         updates[field.name] = _coerced(row[field.name], getattr(params, field.name))
-    if archetype is archetypes.ELASTICBAND:
-        updates["target_stretch_levels"] = elastic_ladder(str(row["variant"]))
+    if isinstance(params, ElasticBandParams):
+        updates |= _elastic_targets(str(row["variant"]), updates.get("target_mode", params.target_mode))
 
     return replace(params, **updates)
+
+
+def _elastic_targets(variant: str, target_mode: object) -> dict[str, object]:
+    """Return the ladder an ElasticBand variant's name says it ran, in the target mode it ran."""
+    if target_mode == TARGET_STRETCH:
+        return {"target_stretch_levels": elastic_ladder(variant)}
+
+    return {"target_r_multiples": elastic_r_ladder(variant)}
 
 
 def shortlist(

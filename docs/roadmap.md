@@ -530,6 +530,10 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 **A well-powered negative rather than an underpowered one: the recovery entry wins the [selection window](../README.md#selection-window), gives all of it back held out, and pays for the reaction out of both ends of the bracket at once.** Moved to [`docs/findings/m26-6-recovery-entry.md`](findings/m26-6-recovery-entry.md).
 
+### M26.7 — the inverted signal: the fade's bars traded the other way ([#279])
+
+**Pre-registered, not yet run: five arms, the fade and the inversion on the same signal bars, on R targets and each on its own stretch ladder, in all 23 strata at five bar sizes, read with §M37's paired bar and gate 3.** Pre-registered in [`docs/findings/m26-7-inverted-signal-preregistration.md`](findings/m26-7-inverted-signal-preregistration.md); the rules and their NinjaScript are [`nt8-fidelity.md`](nt8-fidelity.md) §M26.7.
+
 ### M26.8 — the stop on the band itself: the level §M26 specified and never built ([#280])
 
 **A stop at the band beats the tightest stop and never the widest; every arm beats the matched null and the stop scheme is not what moves the margin.** Moved to [`docs/findings/m26-8-stop-on-band.md`](findings/m26-8-stop-on-band.md).
@@ -1469,6 +1473,7 @@ ______________________________________________________________________
 [#27]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/27
 [#273]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/273
 [#278]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/278
+[#279]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/279
 [#28]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/28
 [#280]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/280
 [#281]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/281

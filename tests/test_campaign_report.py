@@ -15,7 +15,7 @@ import pandas as pd
 import pytest
 
 from nqbt import archetypes, stats, trades
-from nqbt.sim.types import ElasticBandParams, InsideBarParams
+from nqbt.sim.types import TARGET_R, ElasticBandParams, InsideBarParams
 from tools import campaign_holdout, campaign_report
 from tools.campaign_holdout import (
     GROUP_KEYS,
@@ -613,6 +613,34 @@ def test_rebuilding_restores_the_elastic_ladder_the_variant_names() -> None:
     del row["target_stretch_levels"]
     rebuilt = rebuild(row, archetypes.ELASTICBAND)
     assert isinstance(rebuilt, ElasticBandParams)
+    assert rebuilt.target_stretch_levels[0] == pytest.approx(2.0)
+
+
+def test_an_elastic_row_on_r_targets_rebuilds_without_a_ladder_in_its_name() -> None:
+    """Neither ladder is stored, and an R-target name carries no stretch level to read."""
+    params = ElasticBandParams(invert_signal=True, target_mode=TARGET_R)
+    row = pd.Series({**params.as_dict(), "variant": "invert=on target=R"})
+    del row["target_stretch_levels"]
+    del row["target_r_multiples"]
+    assert rebuild(row, archetypes.ELASTICBAND) == params
+
+
+def test_an_elastic_row_on_r_targets_without_the_token_is_refused_rather_than_given_the_default() -> None:
+    row = pd.Series({**ElasticBandParams(target_mode=TARGET_R).as_dict(), "variant": "invert=on"})
+    del row["target_stretch_levels"]
+    del row["target_r_multiples"]
+    with pytest.raises(KeyError, match="no target=R token"):
+        rebuild(row, archetypes.ELASTICBAND)
+
+
+def test_an_inverted_elastic_row_takes_its_ladder_past_the_close_off_the_name() -> None:
+    row = pd.Series(
+        {**ElasticBandParams().as_dict(), "invert_signal": True, "variant": "invert=on target=+2.0s"}
+    )
+    del row["target_stretch_levels"]
+    rebuilt = rebuild(row, archetypes.ELASTICBAND)
+    assert isinstance(rebuilt, ElasticBandParams)
+    assert rebuilt.invert_signal
     assert rebuilt.target_stretch_levels[0] == pytest.approx(2.0)
 
 

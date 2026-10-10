@@ -58,6 +58,7 @@ from nqbt.sim.types import (
     STOP_BAND,
     STOP_CATASTROPHE,
     STOP_SWING,
+    TARGET_R,
     TARGET_STRETCH,
     TRIGGER_EXTENDED,
     TRIGGER_RECOVERY,
@@ -105,12 +106,16 @@ from tools.campaign_sweep import (
     ELASTIC_CHANNEL_PERIOD,
     ELASTIC_CHANNEL_SOURCES,
     ELASTIC_CHANNEL_VARIANTS,
+    ELASTIC_INVERT,
+    ELASTIC_INVERT_AXES,
+    ELASTIC_INVERT_VARIANTS,
     ELASTIC_LADDERS,
     ELASTIC_RECOVERY,
     ELASTIC_RECOVERY_ARMS,
     ELASTIC_RECOVERY_TARGET,
     ELASTIC_RECOVERY_VARIANTS,
     ELASTIC_SHAPE_VARIANTS,
+    ELASTIC_TARGET_R,
     ELASTIC_VOLUME,
     ELASTIC_VOLUME_BRACKET,
     ELASTIC_VOLUME_SHAPES,
@@ -2403,6 +2408,109 @@ def test_the_band_stop_run_carries_the_roots_real_costs() -> None:
 
 def test_variants_for_selects_the_band_stop_grid() -> None:
     assert variants_for(ELASTIC_BAND_STOP) is ELASTIC_BAND_STOP_VARIANTS
+
+
+# -- the [#279] inverted signal ------------------------------------------------------------
+
+
+def invert_variants(root: str = "MNQ") -> list[Variant]:
+    """Return every arm of the inverted-signal run, both sides on R first."""
+    return ELASTIC_INVERT_VARIANTS["ElasticBand"](root)
+
+
+def test_the_invert_run_states_its_strata_before_it_runs_and_they_are_every_dimension() -> None:
+    assert variants_for(ELASTIC_INVERT) is ELASTIC_INVERT_VARIANTS
+    assert [name for name, _ in strata(ELASTIC_INVERT)] == [name for name, _ in strata(ALL_STRATA)]
+
+
+def test_the_invert_arms_are_both_sides_on_r_then_each_side_on_its_own_ladder() -> None:
+    """``docs/findings/m26-7-inverted-signal-preregistration.md``."""
+    sides = [
+        (base_as(variant, ElasticBandParams).invert_signal, variant.name) for variant in invert_variants()
+    ]
+    assert sides == [
+        (False, "invert=off target=R"),
+        (True, "invert=on target=R"),
+        (False, "invert=off target=0.0s"),
+        (True, "invert=on target=+1.0s"),
+        (True, "invert=on target=+2.0s"),
+    ]
+
+
+def test_every_invert_arm_is_the_fade_on_r_but_for_its_side_and_its_target() -> None:
+    """Every axis is shared, so each pair holds the same combinations on the same bars."""
+    for root in COMMISSION:
+        fade_on_r, *others = invert_variants(root)
+        control = base_as(fade_on_r, ElasticBandParams)
+        assert (control.band_source, control.signal_shape) == (BAND_VWAP, SHAPE_ANY)
+        for variant in others:
+            base = base_as(variant, ElasticBandParams)
+            assert variant.axes == fade_on_r.axes == ELASTIC_INVERT_AXES
+            unsided = replace(
+                base,
+                invert_signal=False,
+                target_mode=TARGET_R,
+                target_stretch_levels=control.target_stretch_levels,
+            )
+            assert unsided == control, variant.name
+
+
+def test_an_arm_on_r_runs_the_default_r_ladder_because_a_rebuild_restores_that_one() -> None:
+    """The R ladder is not a stored column, so ``campaign_shortlist.rebuild`` returns the default."""
+    default = ElasticBandParams().target_r_multiples
+    on_r = [variant for variant in invert_variants() if ELASTIC_TARGET_R in variant.name.split()]
+    assert len(on_r) == 2
+    for variant in on_r:
+        base = base_as(variant, ElasticBandParams)
+        assert base.target_mode == TARGET_R
+        np.testing.assert_array_equal(base.target_r_multiples, default)
+
+
+def test_the_ladder_is_readable_back_off_every_invert_variant_on_stretch_targets() -> None:
+    """An inverted level is past the close, so it sits above zero where the fade's is the midline."""
+    for variant in invert_variants():
+        base = base_as(variant, ElasticBandParams)
+        if base.target_mode != TARGET_STRETCH:
+            continue
+
+        assert elastic_ladder(variant.name) == base.target_stretch_levels
+        first = base.target_stretch_levels[0]
+        assert first > 0.0 if base.invert_signal else first == 0.0
+
+
+def test_no_invert_variant_can_collide_with_a_stored_elastic_one() -> None:
+    """One database holds every ElasticBand run and the variant name is all that separates them."""
+    stored = {
+        variant.name
+        for builders in (
+            VARIANTS,
+            ELASTIC_SHAPE_VARIANTS,
+            ELASTIC_VOLUME_VARIANTS,
+            ELASTIC_CHANNEL_VARIANTS,
+            ELASTIC_RECOVERY_VARIANTS,
+            ELASTIC_BAND_STOP_VARIANTS,
+        )
+        for variant in builders["ElasticBand"]("MNQ")
+    }
+    names = {variant.name for variant in invert_variants()}
+
+    assert not stored & names
+    assert len(names) == len(invert_variants())
+
+
+def test_every_invert_variant_grid_can_be_built_at_every_cell() -> None:
+    """A cell that cannot be built fails here rather than an hour into the run."""
+    for variant in invert_variants():
+        for _, grid in grids_for(variant, ELASTIC_INVERT, NO_CUTS):
+            assert len(grid) == variant.sized()
+            assert sum(1 for _ in grid.combinations()) == variant.sized()
+
+
+def test_the_invert_run_carries_the_roots_real_costs() -> None:
+    for root in COMMISSION:
+        for variant in invert_variants(root):
+            assert variant.base.commission_per_contract == pytest.approx(COMMISSION[root])
+            assert variant.base.slippage_ticks == pytest.approx(SLIPPAGE_TICKS)
 
 
 # -- the [#313] trail on the slow average --------------------------------------------------
