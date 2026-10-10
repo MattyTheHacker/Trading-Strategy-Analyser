@@ -38,7 +38,7 @@ One parameter dataclass per archetype. A ported archetype's fields mirror its Ni
 
 #### Context-filter fields
 
-Every archetype carries the same six context filters; `DeadCatParams` documents them and every other class points there. Each is a bitmask integer so it is a legal [sweep](../README.md#sweep) axis -- `docs/roadmap.md` §M10 -- and each is skipped entirely at its everything value -- §M10.4. The threshold defaults are conventional starting points, not measurements -- §M10.1, §M10.2 and §M19.1.
+Every archetype carries the same six context filters and the three side-relative ones; `DeadCatParams` documents them and every other class points there. Each is a bitmask integer so it is a legal [sweep](../README.md#sweep) axis -- `docs/roadmap.md` §M10 -- and each is skipped entirely at its everything value -- §M10.4. The threshold defaults are conventional starting points, not measurements -- §M10.1, §M10.2 and §M19.1.
 
 - **`ContextFilterParams` is a structural `Protocol`** so that `validate_context_filters` is one definition rather than a copy per parameter class. It checks every sub-field whatever its filter admits, so a nonsense window or [resolution](../README.md#resolution) cannot ride along inertly until a sweep turns its filter on.
 - **`REQUIRE_ALL` is zero rather than the number of gates**, because how many gates are active is a property of the [combination](../README.md#configuration), and a rule set has to be able to say "all of them" without knowing it. Counting the active gates is also what lets a count be validated at construction -- `docs/roadmap.md` § "The build spec's three loose ends".
@@ -56,7 +56,8 @@ One copy of every exit rule the reconciliations validated -- `docs/roadmap.md` �
 
 - **`ContextFiltered` is a structural `Protocol`** rather than a union of the concrete parameter classes, so a new archetype gets all six filters by declaring the fields. `ConfluenceFiltered` is separate because declaring `confluence_required` is what opts an archetype into the confluence pattern.
 - **The first signal bar is cleared in the same step**, so every archetype gets it by ending its signal there, as it gets the filters. A signal handed to `legs` as an override skips this step, so a random-entry draw on a dataset with a first signal bar can still enter before it.
-- **The sizing labels are not the context gates.** `label_sides` reads whether each label favours or opposes each bar's own side, whereas the gates are side-blind masks, so an `UP` trend filter admits shorts in an uptrend. A `size_on_*` label adds contracts and narrows no entry; `confluence_required` narrows the entry and sizes nothing -- `docs/nt8-fidelity.md` §M45.
+- **The sizing labels are not the context gates.** `label_sides` reads whether each label favours or opposes each bar's own side, whereas the six gates are side-blind masks, so an `UP` trend filter admits shorts in an uptrend. A `size_on_*` label adds contracts and narrows no entry; `confluence_required` narrows the entry and sizes nothing -- `docs/nt8-fidelity.md` §M45.
+- **The side-relative filters are the sizing labels' favouring half, used as gates.** `side_gates` reads the trend, the higher-timeframe side and the VWAP side through the same helpers as `label_sides`, against the side the archetype's signal passes in. The side is a function the filters call only when one of the three is on, so a sweep with them off never recomputes it -- `docs/nt8-fidelity.md`, "Filters relative to the trade's side".
 
 ## Search
 

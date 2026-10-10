@@ -472,7 +472,7 @@ def openingrange_signal(data: Dataset, params: OpeningRangeParams) -> BoolArray:
     """
     signal: BoolArray = data.range_armed(params.range_key).copy()
 
-    return filters.apply_context_filters(signal, data, params)
+    return filters.apply_context_filters(signal, data, params, lambda: openingrange_long_side(data, params))
 
 
 def entry_bound(data: Dataset, params: OpeningRangeParams, signal: BoolArray) -> int:

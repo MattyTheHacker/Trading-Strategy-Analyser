@@ -195,6 +195,7 @@ EARLY_EXIT = "early-exit"
 EARLY_EXIT_2 = "early-exit-2"
 EARLY_EXIT_3 = "early-exit-3"
 SPEC = "spec"
+SIDE_COUNT = "side-count"
 ALL_STRATA = "all"
 
 
@@ -474,6 +475,7 @@ STRATUM_SETS: dict[str, tuple[str, ...]] = {
     EARLY_EXIT_2: (UNFILTERED,),
     EARLY_EXIT_3: (UNFILTERED,),
     SPEC: (UNFILTERED,),
+    SIDE_COUNT: (UNFILTERED,),
     ALL_STRATA: EVERY_DIMENSION,
 }
 """Named combinations of those groups, so a later pass can append the dimensions an earlier one
@@ -2656,6 +2658,61 @@ SPEC_VARIANTS: VariantBuilders = {"EmaCrossover": spec_variants}
 count, each against a control in the same pass. One archetype, because that is where the three
 axes exist -- ``docs/roadmap.md`` § "The build spec's three loose ends, measured"."""
 
+
+class SideCountGates(TypedDict, total=False):
+    """The fields one §M55 arm sets on EmaCrossover's base."""
+
+    phase_filter: int
+    with_trend: bool
+    with_higher_timeframe: bool
+    with_vwap: bool
+    confluence_required: int
+
+
+SIDE_COUNT_PHASES = timeofday.phases_mask([timeofday.SessionPhase.CASH_OPEN, timeofday.SessionPhase.MIDDAY])
+"""The two phases §M28.14 scored highest for EmaCrossover, as one gate."""
+
+SIDE_COUNT_ALL: SideCountGates = {
+    "phase_filter": SIDE_COUNT_PHASES,
+    "with_trend": True,
+    "with_higher_timeframe": True,
+    "with_vwap": True,
+}
+"""The four gates §M55 counts: the phase and the three filters relative to the trade's side."""
+
+SIDE_COUNT_ARMS: dict[str, SideCountGates] = {
+    "gates=none": {},
+    "gates=phase": {"phase_filter": SIDE_COUNT_PHASES},
+    "gates=trend": {"with_trend": True},
+    "gates=htf": {"with_higher_timeframe": True},
+    "gates=vwap": {"with_vwap": True},
+    "gates=1of4": {**SIDE_COUNT_ALL, "confluence_required": 1},
+    "gates=2of4": {**SIDE_COUNT_ALL, "confluence_required": 2},
+    "gates=3of4": {**SIDE_COUNT_ALL, "confluence_required": 3},
+    "gates=4of4": {**SIDE_COUNT_ALL, "confluence_required": REQUIRE_ALL},
+}
+"""The control, each gate alone, and at least one to all four of them --
+``docs/findings/m55-side-count-preregistration.md``."""
+
+
+def side_count_variants(root: str) -> list[Variant]:
+    """Build §M55's arms over the [#74] grid, once per stop, every arm sharing its axes."""
+    return [
+        Variant(
+            name=f"{stop_name} {arm_name}",
+            archetype=archetypes.EMACROSSOVER,
+            base=_costed(replace(EmaCrossoverParams(use_atr_stop=use_atr), **arm), root),
+            axes={**SPEC_SHARED, **stop_axes},
+        )
+        for stop_name, (use_atr, stop_axes) in SPEC_STOPS.items()
+        for arm_name, arm in SIDE_COUNT_ARMS.items()
+    ]
+
+
+SIDE_COUNT_VARIANTS: VariantBuilders = {"EmaCrossover": side_count_variants}
+"""The §M55 run: EmaCrossover's confluence count over the phase and the three side-relative filters.
+Every name carries a ``gates=`` token no stored EmaCrossover row has."""
+
 CAMPAIGN = "campaign"
 
 VARIANT_SETS = {
@@ -2686,6 +2743,7 @@ VARIANT_SETS = {
     ORB_GEOMETRY,
     ORB_REJECTION,
     SPEC,
+    SIDE_COUNT,
 }
 """Which grid ``--variants`` selects. Rows carry the variant's own name, so a narrow re-sweep
 lands in the same database as the campaign it follows and is still separable from it -- pass
@@ -2721,6 +2779,7 @@ def variants_for(which: str) -> VariantBuilders:
         ORB_GEOMETRY: ORB_GEOMETRY_VARIANTS,
         ORB_REJECTION: ORB_REJECTION_VARIANTS,
         SPEC: SPEC_VARIANTS,
+        SIDE_COUNT: SIDE_COUNT_VARIANTS,
     }
 
     return sets.get(which, VARIANTS)

@@ -623,7 +623,7 @@ def elasticband_signal(data: Dataset, params: ElasticBandParams) -> BoolArray:
         counted: IntArray = one_sided_bars(data, direction, params.one_sided_lookback)
         signal &= counted >= params.min_one_sided_bars
 
-    return filters.apply_context_filters(signal, data, params)
+    return filters.apply_context_filters(signal, data, params, lambda: elasticband_long_side(data, params))
 
 
 def elasticband_legs(

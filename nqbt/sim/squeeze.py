@@ -49,7 +49,7 @@ def squeeze_signal(data: Dataset, params: SqueezeBreakoutParams) -> BoolArray:
     if params.min_squeeze_bars > 1:
         squeezed = conditions.consecutive_true(squeezed) >= params.min_squeeze_bars
 
-    return filters.apply_context_filters(squeezed, data, params)
+    return filters.apply_context_filters(squeezed, data, params, lambda: squeeze_long_side(data, params))
 
 
 def squeeze_levels(data: Dataset, params: SqueezeBreakoutParams) -> openingrange.RangeSeries:

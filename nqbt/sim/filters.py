@@ -1,7 +1,8 @@
 """The market-context filters every archetype's signal ends with.
 
 Session phase, market regime, relative volume, compression, the compact trend label and the
-side of a higher-timeframe average, ANDed onto every archetype's own conditions. A gate at its
+side of a higher-timeframe average, ANDed onto every archetype's own conditions, and the trend,
+the higher-timeframe side and the VWAP side required to point the trade's way. A gate at its
 everything value is skipped entirely -- ``nqbt/README.md`` § "sim/filters.py". The same step
 clears every signal before the dataset's first signal bar.
 """
@@ -23,7 +24,7 @@ from nqbt.sim.types import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
 
     from nqbt.arrays import BoolArray, FloatArray, IntArray, LabelArray
     from nqbt.context import Dataset
@@ -43,6 +44,7 @@ __all__ = [
     "context_gates",
     "early_exit",
     "label_sides",
+    "side_gates",
     "stop_tightening",
 ]
 
@@ -64,6 +66,9 @@ class ContextFiltered(Protocol):
     trend_filter: int
     trend_min_agreement: int
     higher_timeframe_filter: int
+    with_trend: bool
+    with_higher_timeframe: bool
+    with_vwap: bool
 
     @property
     def volume_key(self) -> volume.VolumeKey:
@@ -121,11 +126,20 @@ class LabelSized(ContextFiltered, ConfluenceSized, Protocol):
         ...
 
 
-def context_gates(data: Dataset, params: ContextFiltered) -> list[BoolArray]:
-    """Return the masks the six filters contribute, skipping every gate at its everything value.
+type TradeSide = Callable[[], BoolArray]
+"""Return the side each bar would be entered on, ``True`` for long, computed only when asked."""
+
+
+def context_gates(
+    data: Dataset,
+    params: ContextFiltered,
+    long_side: TradeSide | None = None,
+) -> list[BoolArray]:
+    """Return the masks the context filters contribute, skipping every gate at its everything value.
 
     One list rather than a conjunction, so a caller can AND them or count them. A gate at its
-    everything value is absent from the list rather than present as an all-true row.
+    everything value is absent from the list rather than present as an all-true row. A
+    side-relative gate needs ``long_side``, and one switched on without it is refused.
     """
     gates: list[BoolArray] = []
     if params.phase_filter != timeofday.ALL_PHASES:
@@ -169,6 +183,35 @@ def context_gates(data: Dataset, params: ContextFiltered) -> list[BoolArray]:
             data.higher_timeframe_gate(params.higher_timeframe_key, params.higher_timeframe_filter),
         )
 
+    return gates + side_gates(data, params, long_side)
+
+
+def side_gates(data: Dataset, params: ContextFiltered, long_side: TradeSide | None) -> list[BoolArray]:
+    """Return where each side-relative filter switched on points the bar's own trade way.
+
+    ``docs/nt8-fidelity.md``, "Filters relative to the trade's side".
+    """
+    if not (params.with_trend or params.with_higher_timeframe or params.with_vwap):
+        return []
+
+    if long_side is None:
+        msg: str = (
+            "a side-relative filter is on but the signal supplied no trade side; the archetype's "
+            "signal has to pass its long_side to the context filters"
+        )
+        raise ValueError(msg)
+
+    side: BoolArray = long_side()
+    gates: list[BoolArray] = []
+    if params.with_trend:
+        gates.append(_trend_sides(data, params, side).favours)
+
+    if params.with_higher_timeframe:
+        gates.append(_higher_timeframe_sides(data, params, side).favours)
+
+    if params.with_vwap:
+        gates.append(_pointing(side, data.vwap_gate(above=True), data.vwap_gate(above=False)).favours)
+
     return gates
 
 
@@ -178,26 +221,36 @@ def _block_warm_up(signal: BoolArray, data: Dataset) -> None:
         signal[: data.first_signal_bar] = False
 
 
-def apply_context_filters(signal: BoolArray, data: Dataset, params: ContextFiltered) -> BoolArray:
+def apply_context_filters(
+    signal: BoolArray,
+    data: Dataset,
+    params: ContextFiltered,
+    long_side: TradeSide | None = None,
+) -> BoolArray:
     """Narrow an archetype's own signal to the bars it may trade and the context its parameters admit."""
     _block_warm_up(signal, data)
-    for gate in context_gates(data, params):
+    for gate in context_gates(data, params, long_side):
         signal &= gate
 
     return signal
 
 
-def apply_confluence_filters(signal: BoolArray, data: Dataset, params: ConfluenceFiltered) -> BoolArray:
+def apply_confluence_filters(
+    signal: BoolArray,
+    data: Dataset,
+    params: ConfluenceFiltered,
+    long_side: TradeSide | None = None,
+) -> BoolArray:
     """Narrow a signal to bars where at least ``confluence_required`` of the gates agree.
 
     At :data:`REQUIRE_ALL` this is :func:`apply_context_filters` exactly. The count is over the
     *active* gates -- ``docs/roadmap.md`` § "The build spec's three loose ends".
     """
     if params.confluence_required == REQUIRE_ALL:
-        return apply_context_filters(signal, data, params)
+        return apply_context_filters(signal, data, params, long_side)
 
     _block_warm_up(signal, data)
-    gates: list[BoolArray] = context_gates(data, params)
+    gates: list[BoolArray] = context_gates(data, params, long_side)
 
     return signal & (conditions.count_true(np.stack(gates)) >= params.confluence_required)
 
@@ -225,14 +278,14 @@ def _pointing(long_side: BoolArray, up: BoolArray, down: BoolArray) -> LabelSide
     return LabelSides(np.where(long_side, up, down), np.where(long_side, down, up))
 
 
-def _trend_sides(data: Dataset, params: LabelSized, long_side: BoolArray) -> LabelSides:
+def _trend_sides(data: Dataset, params: ContextFiltered, long_side: BoolArray) -> LabelSides:
     def pointing(label: trend.Trend) -> BoolArray:
         return data.trend_gate(params.trend_key, trend.trends_mask([label]), params.trend_min_agreement)
 
     return _pointing(long_side, pointing(trend.Trend.UP), pointing(trend.Trend.DOWN))
 
 
-def _higher_timeframe_sides(data: Dataset, params: LabelSized, long_side: BoolArray) -> LabelSides:
+def _higher_timeframe_sides(data: Dataset, params: ContextFiltered, long_side: BoolArray) -> LabelSides:
     def on(side: higher_timeframe.Side) -> BoolArray:
         return data.higher_timeframe_gate(params.higher_timeframe_key, higher_timeframe.sides_mask([side]))
 

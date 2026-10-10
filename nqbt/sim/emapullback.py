@@ -116,7 +116,7 @@ def emapullback_signal(data: Dataset, params: EmaPullbackParams) -> BoolArray:
     if params.trade_short:
         signal |= side_signal(data, fast, slow, params, trades.SHORT)
 
-    return filters.apply_context_filters(signal, data, params)
+    return filters.apply_context_filters(signal, data, params, lambda: emapullback_long_side(data, params))
 
 
 def trailed_level(

@@ -51,6 +51,7 @@ from nqbt.sim.types import (
     ORB_STOP_OPPOSITE,
     ORB_TARGET_R,
     ORB_TARGET_WIDTH,
+    REQUIRE_ALL,
     SHAPE_ANY,
     SHAPE_REVERSAL,
     SIZING_LABELS,
@@ -69,6 +70,7 @@ from nqbt.sim.types import (
     InsideBarTrailingParams,
     OpeningRangeParams,
     SqueezeBreakoutParams,
+    active_context_filters,
     active_early_exits,
     sizing_labels,
 )
@@ -179,12 +181,17 @@ from tools.campaign_sweep import (
     ROOTS,
     SELECTION_SHARE,
     SERIAL_BELOW_COMBINATION_BARS,
+    SIDE_COUNT,
+    SIDE_COUNT_ARMS,
+    SIDE_COUNT_VARIANTS,
     SIZE_FIXED,
     SIZING_CONFLUENCE,
     SIZING_HIGH_QUANTITIES,
     SIZING_QUANTITIES,
     SIZING_SYMMETRIC,
     SLIPPAGE_TICKS,
+    SPEC_SHARED,
+    SPEC_STOPS,
     SPEC_VARIANTS,
     STALL_BARS,
     STRATUM_SETS,
@@ -2697,6 +2704,72 @@ def test_the_campaign_variant_names_are_the_campaigns_own_and_no_later_sets() ->
     assert {variant.name for variant in VARIANTS["OpeningRange"]("NQ")} <= campaign_variant_names(
         "OpeningRange"
     )
+
+
+# -- §M55's confluence count over the phase and the side-relative filters ----------------------
+
+
+def side_count_variants(root: str = "MNQ") -> list[Variant]:
+    """Return every §M55 arm, both stops, in arm order within each stop."""
+    return SIDE_COUNT_VARIANTS["EmaCrossover"](root)
+
+
+def test_the_side_count_run_states_its_strata_before_it_runs_and_they_are_unfiltered_alone() -> None:
+    """A stratum is a filter too, so it would collide with the gates the arms exist to count."""
+    assert variants_for(SIDE_COUNT) is SIDE_COUNT_VARIANTS
+    assert [name for name, _ in strata(SIDE_COUNT)] == [UNFILTERED]
+
+
+def test_every_side_count_arm_is_the_control_plus_its_own_gates() -> None:
+    """Same grid and costs in every arm of a stop, so ``campaign_paired`` reads each against the control."""
+    for root in COMMISSION:
+        variants = {variant.name: variant for variant in side_count_variants(root)}
+        for stop_name, (_, stop_axes) in SPEC_STOPS.items():
+            control = variants[f"{stop_name} gates=none"]
+            for arm_name, gates in SIDE_COUNT_ARMS.items():
+                arm = variants[f"{stop_name} {arm_name}"]
+                assert arm.axes == {**SPEC_SHARED, **stop_axes}
+                assert arm.base == replace(control.base, **gates)
+
+
+def test_the_count_arms_turn_all_four_gates_on_and_count_from_one_to_all() -> None:
+    counted = [
+        base_as(variant, EmaCrossoverParams)
+        for variant in side_count_variants()
+        if variant.name.endswith("of4")
+    ]
+    assert {active_context_filters(base) for base in counted} == {4}
+    assert sorted({base.confluence_required for base in counted}) == [REQUIRE_ALL, 1, 2, 3]
+
+
+def test_each_single_gate_arm_turns_exactly_one_gate_on() -> None:
+    single = [
+        variant
+        for variant in side_count_variants()
+        if variant.name.split("gates=")[1] in {"phase", "trend", "htf", "vwap"}
+    ]
+    assert len(single) == 2 * 4
+    assert {active_context_filters(base_as(variant, EmaCrossoverParams)) for variant in single} == {1}
+
+
+def test_no_side_count_variant_can_collide_with_any_other_sets_emacrossover_one() -> None:
+    """The sizing set is left out: it needs a fitted cuts file to build, and its names carry ``size=``."""
+    stored = {
+        variant.name
+        for which in VARIANT_SETS - {SIDE_COUNT, CONFLUENCE_SIZING}
+        if "EmaCrossover" in variants_for(which)
+        for variant in variants_for(which)["EmaCrossover"]("MNQ")
+    }
+    names = [variant.name for variant in side_count_variants()]
+    assert len(set(names)) == len(SPEC_STOPS) * len(SIDE_COUNT_ARMS)
+    assert not stored & set(names)
+
+
+def test_every_side_count_grid_can_be_built() -> None:
+    """A grid sweeping an axis its arm leaves unread, or a count its gates cannot meet, is refused here."""
+    for variant in side_count_variants():
+        for _, grid in grids_for(variant, SIDE_COUNT):
+            assert len(grid) == variant.sized()
 
 
 # -- the [#311] confirmation entry ---------------------------------------------------------

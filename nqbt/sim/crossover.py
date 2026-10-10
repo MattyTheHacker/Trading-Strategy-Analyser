@@ -374,7 +374,7 @@ def crossover_signal(data: Dataset, params: EmaCrossoverParams) -> BoolArray:
     if params.trade_short:
         signal |= conditions.cross_below(fast, slow, params.cross_lookback) & (direction == trades.SHORT)
 
-    return filters.apply_confluence_filters(signal, data, params)
+    return filters.apply_confluence_filters(signal, data, params, lambda: crossover_long_side(data, params))
 
 
 def _check_price_basis(data: Dataset, params: EmaCrossoverParams) -> None:

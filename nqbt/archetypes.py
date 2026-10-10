@@ -132,9 +132,9 @@ def _needs_time_of_day(values: Mapping[str, Sequence[AxisValue]]) -> bool:
     return filters or any(values.get("early_exit_on_phase_change", ()))
 
 
-def _sizes_on_vwap(values: Mapping[str, Sequence[AxisValue]]) -> bool:
-    """Return whether some combination sizes on the close's side of the session VWAP."""
-    return any(values.get("size_on_vwap", ()))
+def _reads_vwap(values: Mapping[str, Sequence[AxisValue]]) -> bool:
+    """Return whether some combination sizes or filters on the close's side of the session VWAP."""
+    return any(values.get("size_on_vwap", ())) or any(values.get("with_vwap", ()))
 
 
 def _needs_session_clock(values: Mapping[str, Sequence[AxisValue]]) -> bool:
@@ -154,7 +154,7 @@ def _reads_label(
     everything: int,
     *readers: str,
 ) -> bool:
-    """Return whether some combination filters on a label, or switches on a size or an exit reading it."""
+    """Return whether some combination filters on a label, or switches on anything else reading it."""
     filters: bool = any(int(v) != everything for v in values.get(filter_name, ()))
 
     return filters or any(any(values.get(reader, ())) for reader in readers)
@@ -243,6 +243,7 @@ def _trend_keys(values: Mapping[str, Sequence[AxisValue]]) -> tuple[trend.TrendK
         values,
         "trend_filter",
         trend.ALL_TRENDS,
+        "with_trend",
         "size_on_trend",
         "early_exit_on_trend",
         "early_exit_counter_trend_bars",
@@ -269,6 +270,7 @@ def _higher_timeframe_keys(
         values,
         "higher_timeframe_filter",
         higher_timeframe.ALL_SIDES,
+        "with_higher_timeframe",
         "size_on_higher_timeframe",
         "early_exit_on_higher_timeframe",
     ):
@@ -313,7 +315,7 @@ def moving_average_context(values: Mapping[str, Sequence[AxisValue]]) -> Context
     return ContextSpec(
         ma_keys=_ma_keys(values, MA_GATE_PREFIXES),
         atr_periods=tuple(sorted(_exit_atr_periods(values))),
-        needs_vwap=any(values.get("use_vwap", ())) or _sizes_on_vwap(values),
+        needs_vwap=any(values.get("use_vwap", ())) or _reads_vwap(values),
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
         volume_keys=_volume_keys(values),
@@ -341,7 +343,7 @@ def crossover_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
     return ContextSpec(
         ma_keys=_ma_keys(values, gates),
         atr_periods=tuple(sorted(atr | _exit_atr_periods(values))),
-        needs_vwap=_sizes_on_vwap(values),
+        needs_vwap=_reads_vwap(values),
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
         volume_keys=_volume_keys(values),
@@ -369,7 +371,7 @@ def emapullback_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpe
         ma_keys=_ma_keys(values, gates),
         atr_periods=tuple(sorted(_exit_atr_periods(values))),
         needs_time_of_day=_needs_time_of_day(values),
-        needs_vwap=_sizes_on_vwap(values),
+        needs_vwap=_reads_vwap(values),
         regime_lookbacks=_regime_lookbacks(values),
         volume_keys=_volume_keys(values),
         compression_keys=_compression_keys(values),
@@ -398,7 +400,7 @@ def elasticband_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpe
     return ContextSpec(
         band_periods=tuple(sorted(periods)),
         needs_vwap_band=BAND_VWAP in sources,
-        needs_vwap=_sizes_on_vwap(values),
+        needs_vwap=_reads_vwap(values),
         atr_periods=tuple(sorted(atr | _exit_atr_periods(values))),
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
@@ -440,7 +442,7 @@ def openingrange_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSp
             ),
         ),
         follow_through_sessions=tuple(sorted(scaled)),
-        needs_vwap=_sizes_on_vwap(values),
+        needs_vwap=_reads_vwap(values),
         atr_periods=tuple(sorted(atr | _exit_atr_periods(values))),
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
@@ -479,7 +481,7 @@ def squeeze_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
         volume_keys=_volume_keys(values),
         compression_keys=tuple(sorted({*squeezes, *_compression_keys(values)})),
         window_range_periods=tuple(sorted({int(v) for v in values.get("squeeze_period", ())})),
-        needs_vwap=_sizes_on_vwap(values),
+        needs_vwap=_reads_vwap(values),
         trend_keys=_trend_keys(values),
         higher_timeframe_keys=_higher_timeframe_keys(values),
         needs_session_clock=_needs_session_clock(values),
@@ -497,7 +499,7 @@ def insidebar_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
     return ContextSpec(
         ma_keys=_ma_keys(values, MA_GATE_PREFIXES),
         atr_periods=tuple(sorted({int(v) for v in values.get("atr_length", ())} | _exit_atr_periods(values))),
-        needs_vwap=_sizes_on_vwap(values),
+        needs_vwap=_reads_vwap(values),
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
         volume_keys=_volume_keys(values),
@@ -657,19 +659,26 @@ CONTEXT_GATES: Mapping[str, Gate] = {
     "volume_heavy_above": AnyOf(("volume_filter", "size_on_volume", "early_exit_on_heavy_against")),
     **COMPRESSION_GATES,
     **_read_by_filter_or(
-        TREND_GATES, "size_on_trend", "early_exit_on_trend", "early_exit_counter_trend_bars"
+        TREND_GATES,
+        "with_trend",
+        "size_on_trend",
+        "early_exit_on_trend",
+        "early_exit_counter_trend_bars",
     ),
     **_read_by_filter_or(
-        HIGHER_TIMEFRAME_GATES, "size_on_higher_timeframe", "early_exit_on_higher_timeframe"
+        HIGHER_TIMEFRAME_GATES,
+        "with_higher_timeframe",
+        "size_on_higher_timeframe",
+        "early_exit_on_higher_timeframe",
     ),
     "size_symmetric": "quantity_per_confluence",
     **EARLY_EXIT_GATES,
     **BREAKEVEN_GATES,
     **STOP_TIGHTENING_GATES,
 }
-"""Every archetype's context axes. A label's axes are read under its filter, its ``size_on_*``
-label *or* an early exit on it, and ``size_symmetric`` only beside a confluence size --
-``docs/nt8-fidelity.md`` §M47.
+"""Every archetype's context axes. A label's axes are read under its filter, its side-relative
+filter, its ``size_on_*`` label *or* an early exit on it, and ``size_symmetric`` only beside a
+confluence size -- ``docs/nt8-fidelity.md`` §M47.
 """
 
 # A period and its kind only matter when the filter reading them is switched on.
