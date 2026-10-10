@@ -29,6 +29,7 @@ from tools.campaign_sweep import (
     RegimeCut,
     VolumeCalibration,
     VolumeCut,
+    campaign_variant_names,
     strata,
 )
 
@@ -289,18 +290,26 @@ def main(argv: list[str]) -> int:
         help="score these variants separately instead of the arms every plain stratum shares",
     )
     parser.add_argument(
+        "--campaign-only",
+        action="store_true",
+        help="pool each archetype's own campaign variants instead of the arms every plain stratum shares",
+    )
+    parser.add_argument(
         "--min-score",
         type=int,
         default=8,
         help="how many cells must agree before a stratum is named consistent",
     )
     args = parser.parse_args(argv[1:])
+    if args.campaign_only and args.variant:
+        parser.error("--campaign-only and --variant each choose the variants; give one")
 
     wanted_variants: set[str] | None = set(args.variant) if args.variant else None
     by_variant: bool = wanted_variants is not None
     scores: list[pd.DataFrame] = []
     for name in args.strategies:
-        cells: pd.DataFrame = per_window(name, wanted_variants, by_variant=by_variant)
+        pooled: set[str] | None = set(campaign_variant_names(name)) if args.campaign_only else wanted_variants
+        cells: pd.DataFrame = per_window(name, pooled, by_variant=by_variant)
         if cells.empty:
             logger.warning("no paired strata for %s; run --split first", name)
             continue

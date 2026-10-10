@@ -7,7 +7,7 @@ evidence and caveats: ``docs/roadmap.md`` §M7a.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, replace
+from dataclasses import dataclass, field, fields, replace
 from typing import TYPE_CHECKING, cast
 
 import numpy as np
@@ -48,6 +48,10 @@ DRAWS = (OVER_BARS, OVER_LEVELS)
 session's range shape is traded, for an archetype whose trigger is a level --
 ``docs/roadmap.md`` §M28.1 and §M28.2.
 """
+
+ROBUST_SPREAD_SCALE = 1.4826
+"""The factor turning a median absolute deviation into a standard deviation for normal data --
+``docs/findings/m54-family-wise-null-preregistration.md``."""
 
 MIN_DONOR_SESSIONS = 20
 """Sessions with a range the level draw needs before it is a control at all: at most one session
@@ -110,10 +114,12 @@ class NullResult:
     """Reported on every row, not only the count-sensitive ones."""
     count_sensitive: bool
     """True when the statistic is a sum or a path property -- see :data:`COUNT_SENSITIVE`."""
+    draws: FloatArray = field(default_factory=lambda: np.empty(0), compare=False, repr=False)
+    """Every draw in seed order, non-finite ones included."""
 
     def as_dict(self) -> dict[str, object]:
-        """Return a flat mapping, for a report row or a CSV."""
-        return asdict(self)
+        """Return a flat mapping of everything but the draws, for a report row or a CSV."""
+        return {each.name: getattr(self, each.name) for each in fields(self) if each.name != "draws"}
 
 
 def minute_of_session(
@@ -445,8 +451,8 @@ def compare(  # noqa: PLR0913 - each keyword is an independent knob; a config ba
     results: dict[str, NullResult] = {}
     for name in statistics:
         value: float = float(observed[name])
-        draws: FloatArray = null[name].to_numpy(dtype=float)
-        draws = draws[np.isfinite(draws)]
+        aligned: FloatArray = null[name].to_numpy(dtype=float)
+        draws: FloatArray = aligned[np.isfinite(aligned)]
         if not np.isfinite(value):
             msg = (
                 f"observed {name} is {value}, which no null can be compared against -- a "
@@ -476,14 +482,17 @@ def compare(  # noqa: PLR0913 - each keyword is an independent knob; a config ba
                 msg,
             )
 
-        results[name] = _place(
-            name,
-            value,
-            draws,
-            alpha,
-            iterations,
-            observed_trades=int(observed["trades"]),
-            null_median_trades=float(null["trades"].median()),
+        results[name] = replace(
+            _place(
+                name,
+                value,
+                draws,
+                alpha,
+                iterations,
+                observed_trades=int(observed["trades"]),
+                null_median_trades=float(null["trades"].median()),
+            ),
+            draws=aligned,
         )
 
     return results
@@ -533,3 +542,48 @@ def _place(
 def report(results: dict[str, NullResult]) -> pd.DataFrame:
     """Return one row per statistic, for reading a :func:`compare` at a glance."""
     return pd.DataFrame([r.as_dict() for r in results.values()])
+
+
+def standardised_excess(observed: float, draws: FloatArray) -> tuple[float, FloatArray]:
+    """Return the observation and every draw as distance above the null median, in robust spreads.
+
+    The median and the spread come from the finite draws; an infinite draw stays infinite and an
+    undefined one stays ``nan`` -- ``docs/findings/m54-family-wise-null-preregistration.md``.
+    """
+    finite: FloatArray = draws[np.isfinite(draws)]
+    if finite.size < MIN_FINITE_DRAWS:
+        msg: str = f"only {finite.size} of {draws.size} null draws are finite; there is no spread to scale by"
+        raise RandomEntryError(msg)
+
+    centre: float = float(np.median(finite))
+    spread: float = ROBUST_SPREAD_SCALE * float(np.median(np.abs(finite - centre)))
+    if spread == 0.0:
+        msg = (
+            f"at least half of {finite.size} null draws sit exactly on their median ({centre:.6g}), "
+            "so the null has no spread to standardise by"
+        )
+        raise RandomEntryError(msg)
+
+    return (observed - centre) / spread, (draws - centre) / spread
+
+
+def family_wise_p(observed: FloatArray, draws: FloatArray) -> FloatArray:
+    """Return each test's family-wise p: how often the best test of a draw reached its observation.
+
+    ``observed`` is one standardised excess per test and ``draws`` one row per test, its columns
+    aligned draw by draw. One-sided, with :func:`_place`'s add-one correction; a draw no test
+    defined is dropped.
+    """
+    if draws.ndim != 2 or draws.shape[0] != observed.size:  # noqa: PLR2004 - a matrix has two axes
+        msg: str = f"{observed.size} observations need one row of draws each, not a {draws.shape} array"
+        raise RandomEntryError(msg)
+
+    defined: FloatArray = draws[:, ~np.isnan(draws).all(axis=0)]
+    if defined.shape[1] < MIN_FINITE_DRAWS:
+        msg = f"only {defined.shape[1]} draws are defined for any test; there is no family-wise null"
+        raise RandomEntryError(msg)
+
+    best: FloatArray = np.where(np.isnan(defined), -np.inf, defined).max(axis=0)
+    reached: IntArray = (best[np.newaxis, :] >= observed[:, np.newaxis]).sum(axis=1)
+
+    return (reached + 1) / (best.size + 1)

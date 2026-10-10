@@ -303,6 +303,7 @@ Reads every stored stratum against the same combination run unfiltered.
 ```bash
 uv run tools/campaign_crossread.py
 uv run tools/campaign_crossread.py --dimension phase --min-score 8
+uv run tools/campaign_crossread.py --campaign-only --min-score 8
 ```
 
 `campaign_holdout.py` asks whether a *shortlist* survives, which measures selection as much as the strategy. This asks **does pinning one context filter on beat leaving it off, for the same parameters?** Every filtered row has an unfiltered twin at identical parameters, root, resolution and variant, so the comparison is paired and free of the shortlist-size bias -- `docs/roadmap.md` § "The build spec's three loose ends, measured".
@@ -311,6 +312,7 @@ Each pair is scored in **both** windows independently and the cells are counted,
 
 - **Parameter defaults are read off the archetype.** A sweep predating a parameter leaves its column null, and null is not the value it ran at, so every pair between a row stored before the column and one after would be dropped silently -- `docs/findings/m30-volume-regime-recut.md` is where this cost a campaign.
 - **Only variants every plain filtered stratum holds are compared.** A stratum run by a later campaign carries that campaign's variants (OpeningRange's `regime=CONSOLIDATING` holds the fade and rejection arms), so reading it against a breakout-only stratum would report the entry mechanism under the regime's name. Re-cuts are left out of that intersection, not out of the pairing, because each was run over its own variants and would empty the set; a caller whose every filtered stratum is a re-cut states the variants outright.
+- **`--campaign-only` pools each archetype's own campaign variants instead.** A later set run in every stratum, such as §M49's structure trail, passes the intersection above and would be scored under the campaign's stratum names. Pooling the campaign's variants is what the intersection gave before such sets were stored, so a family named on the re-swept rows means what it meant -- `docs/findings/m54-family-wise-null-preregistration.md`.
 
 ### campaign_crossroot.py
 
@@ -371,7 +373,8 @@ Places a shortlist's configurations against a [matched random entry](../README.m
 ```bash
 uv run tools/campaign_null.py --strategy ElasticBand --root MNQ
 uv run tools/campaign_null.py --strategy InsideBar --variant narrow --top 12
-uv run tools/campaign_null.py --strategy OpeningRange --root MNQ NQ --stratum volume=THIN regime=DIRECTIONAL --draw levels
+uv run tools/campaign_null.py --strategy OpeningRange --root MNQ NQ --stratum volume=THIN regime=DIRECTIONAL --draw levels --out <table>
+uv run tools/campaign_null.py --family-of <table> <table>
 ```
 
 A sweep can say which configuration has the highest profit factor, not whether the **entry** earned it, because a bracket that suits the bars flatters a random entry just as much. The matched null holds the signal count and the time-of-session distribution fixed and randomises the day -- `docs/roadmap.md` §M7a and § "The method that does answer the question". The parameter set is rebuilt from the stored `combos` row, so what is tested is exactly what the sweep ranked. `--top` measures that many and reports **three rankings side by side** -- the observed statistic, the excess over each configuration's own null, and net-to-drawdown -- and where they part, the excess is the one to believe -- `docs/roadmap.md` §M27.3. `profit_factor` and `expectancy` are the verdict; `win_rate` is reported because a mean-reversion entry can beat the null on payoff while losing on frequency -- `docs/roadmap.md` §M26.
@@ -381,6 +384,8 @@ A sweep can say which configuration has the highest profit factor, not whether t
 **`--draw levels` is the second arm, and the one such an entry can use.** It permutes which session's range is traded instead of which day each signal lands on, so the signal itself is held fixed -- `docs/roadmap.md` §M28.2. The two arms ask different questions, so every measured row carries the `draw` it came from.
 
 **Several roots and strata run as one stated family**, printed before the first cell. A p-value is only readable against how many tests it was one of, and a cell chosen after a consistency score has been looked at is the multiple-comparisons load -- `docs/roadmap.md` §M28.16. A family row is a range rather than a mean, because ten configurations of one cell are ten overlapping runs over the same bars.
+
+**Every test also gets a family-wise p**, which is the one to read when the cell was chosen by looking. Each test's profit-factor excess over its null median is divided by the null's robust spread, and the family-wise p is how often the best test of a draw reached it, over every test the run measured; each draw lines up across tests because each test seeds draw *j* the same way. It needs no more draws than the per-test p, where a Bonferroni correction over §M28.16's family needed more than 400 could give. `--out` saves a run's table with its draws, and `--family-of` reads several saved tables as one family, which is how a family crossing archetypes is read; a test is its stored row, and one appearing twice, tables ranked or tested on different windows, or drawn a different number of times, are refused; a test whose null has no spread is named and left out. `--campaign-only` ranks each cell from the archetype's own campaign variants, not from a later set stored under the same stratum name -- `docs/findings/m54-family-wise-null-preregistration.md`.
 
 **A re-run that is not on the stored row's bars is refused**, before the simulations rather than after, since an extended archive moves the split under every row at once. Each configuration is checked against what the **test window** stored for it -- the bars its sweep ran on, then its trade count and net P&L -- using `campaign_shortlist.py`'s `verify`, so the two tools agree on what reproducing means. A configuration the test window never swept is said out loud rather than taken for agreement. Every measured column is the test window's, including net-to-drawdown. The stored rows are read with their own query rather than `campaign_report.load`, for two reasons: that loader drops rows below `MIN_TRADES`, which a held-out row routinely is -- `docs/findings/m36-ema-pullback-volume-recut.md` § "Gate 3 -- 1 of 120, and it is in the wrong direction" -- and the bar range is neither a parameter nor a statistic, so `campaign_holdout.py`'s `paired` would call it a disagreement. Duplicate keys are refused rather than picked between.
 

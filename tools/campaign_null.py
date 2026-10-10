@@ -3,7 +3,8 @@
     uv run tools/campaign_null.py --strategy ElasticBand --root MNQ
     uv run tools/campaign_null.py --strategy InsideBar --variant narrow --top 12
     uv run tools/campaign_null.py --strategy OpeningRange --root MNQ NQ \
-        --stratum volume=THIN regime=DIRECTIONAL --draw levels
+        --stratum volume=THIN regime=DIRECTIONAL --draw levels --out or.parquet
+    uv run tools/campaign_null.py --family-of or.parquet ibt.parquet
 
 Exits 2 when no row could be placed against a null, so a gate that did not run is not read as
 one that passed -- ``tools/README.md`` § "campaign_null.py".
@@ -17,6 +18,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import numpy as np
 import pandas as pd
 
 # Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
@@ -27,10 +29,12 @@ from nqbt.instruments import get_instrument
 from tools.campaign_holdout import JOIN_KEYS
 from tools.campaign_report import NET_TO_DRAWDOWN, narrowing, rank, ratio_to_drawdown, swept_axes
 from tools.campaign_shortlist import rebuild, shortlist, source, verify
-from tools.campaign_sweep import db_path
+from tools.campaign_sweep import campaign_variant_names, db_path
 
 if TYPE_CHECKING:
     from collections.abc import Collection
+
+    from nqbt.arrays import FloatArray
 
 logger = logging.getLogger(__name__)
 
@@ -44,15 +48,29 @@ RANKINGS = ("profit_factor", "expectancy_excess", NET_TO_DRAWDOWN)
 """The orders :func:`rankings` compares. Profit factor is here to be disagreed with rather than
 to be believed -- ``docs/findings/m26-elastic-band.md`` § "The method that does answer the question"."""
 
-CELL_KEYS = ["root", "stratum"]
+CELL_KEYS = ["strategy", "root", "stratum"]
 """What one cell of a family run is. ``--resolution`` is fixed across a run rather than swept,
 because bar size is the largest lever in the campaign and pooling two of them would be one
 number over two populations -- ``docs/roadmap.md`` §M28.14."""
+
+SAVED_CELL_KEYS = [*CELL_KEYS, "resolution"]
+"""A cell of a family read from saved runs, which may each have fixed a different bar size."""
 
 SIGNIFICANT = 0.05
 """The level :func:`family` counts configurations against. It is counted rather than concluded
 from: a family of cells runs one test per configuration, so the count is read against how many
 of them chance alone would put below it -- ``docs/roadmap.md`` § "Standing traps"."""
+
+DRAWS_COLUMN = "profit_factor_draws"
+"""Every null draw's profit factor, in seed order, which :func:`family_wise` reads."""
+
+EXCESS_Z = "profit_factor_z"
+FAMILY_P = "profit_factor_family_p"
+"""The standardised excess and the family-wise p :func:`family_wise` adds to every measured row --
+``docs/findings/m54-family-wise-null-preregistration.md``."""
+
+TEST_KEYS = ["strategy", "sweep_id", "combo_id"]
+"""What one test of a family is: its stored row, since a label names only what varies in one run."""
 
 STORED_SQL = """
     SELECT c.sweep_id, c.combo_id, c.variant, c.stratum, c.resolution,
@@ -193,6 +211,8 @@ def measure_row(  # type: ignore[explicit-any]  # duckdb's dtypes
     params: archetypes.Params = rebuild(row, archetype)
     identity: dict[str, object] = {
         "label": label,
+        "sweep_id": int(row["sweep_id"]),
+        "combo_id": int(row["combo_id"]),
         # Carried so a stored table cannot mix the two arms silently: they ask different
         # questions -- ``docs/roadmap.md`` §M28.2.
         "draw": draw,
@@ -224,6 +244,7 @@ def measure_row(  # type: ignore[explicit-any]  # duckdb's dtypes
         measured[f"{statistic}_null"] = result.null_median
         measured[f"{statistic}_excess"] = result.observed - result.null_median
         measured[f"{statistic}_p"] = result.p_value
+    measured[DRAWS_COLUMN] = placed["profit_factor"].draws
     measured["trades"] = placed[STATISTICS[0]].observed_trades
     measured["null_trades"] = placed[STATISTICS[0]].null_median_trades
     measured[NET_TO_DRAWDOWN] = ratio_to_drawdown(
@@ -291,7 +312,7 @@ def measure(
                 draw,
             )
             verify_observation(stored_for(stored, row), result)
-            measured.append(result)
+            measured.append({"strategy": archetype.name, "test_window": test_window, **result})
 
     return pd.DataFrame(measured)
 
@@ -322,14 +343,14 @@ def rankings(table: pd.DataFrame) -> list[str]:
     return lines
 
 
-def family(table: pd.DataFrame) -> pd.DataFrame:
+def family(table: pd.DataFrame, keys: list[str] = CELL_KEYS) -> pd.DataFrame:
     """Return one row per cell of a family run: what it beat, how often, and at what p.
 
     The row is a range rather than a mean -- ``docs/roadmap.md`` §M28.16.
     """
     rows: list[dict[str, object]] = []
-    for keys, block in table.groupby(CELL_KEYS, sort=False):
-        cell: dict[str, object] = dict(zip(CELL_KEYS, keys, strict=True))
+    for values, block in table.groupby(keys, sort=False):
+        cell: dict[str, object] = dict(zip(keys, values, strict=True))
         measured: pd.DataFrame = block[block["refused"].isna()]
         if measured.empty:
             rows.append({**cell, "measured": 0, "refused": len(block)})
@@ -350,12 +371,111 @@ def family(table: pd.DataFrame) -> pd.DataFrame:
                 "excess_high": measured["profit_factor_excess"].max(),
                 "beat_null": int((measured["profit_factor_excess"] > 0).sum()),
                 "p_under_05": int((measured["profit_factor_p"] < SIGNIFICANT).sum()),
+                **({"family_p_low": measured[FAMILY_P].min()} if FAMILY_P in measured else {}),
                 "net_to_drawdown_low": measured[NET_TO_DRAWDOWN].min(),
                 "net_to_drawdown_high": measured[NET_TO_DRAWDOWN].max(),
             }
         )
 
     return pd.DataFrame(rows)
+
+
+def family_wise(table: pd.DataFrame) -> pd.DataFrame:
+    """Return ``table`` with every measured row's standardised excess and family-wise p added.
+
+    The family is every measured row, whichever cell or run it came from. A refused row carries
+    neither, and nor does a row whose null has no spread, which is named and left out --
+    ``docs/findings/m54-family-wise-null-preregistration.md``.
+    """
+    widened: pd.DataFrame = table.assign(**{EXCESS_Z: np.nan, FAMILY_P: np.nan})
+    measured: pd.DataFrame = table[table["refused"].isna()]
+    if measured.empty:
+        return widened
+
+    refuse_a_mixed_family(measured)
+    standardised: dict[object, tuple[float, FloatArray]] = {}
+    for index, row in measured.iterrows():
+        try:
+            standardised[index] = randomentry.standardised_excess(
+                float(row["profit_factor"]), np.asarray(row[DRAWS_COLUMN], dtype=float)
+            )
+        except randomentry.RandomEntryError as refused:
+            logger.warning(
+                "%s %s %s %s is left out of the family: %s", *row[CELL_KEYS], row["label"], refused
+            )
+
+    if not standardised:
+        return widened
+
+    rows: list[object] = list(standardised)
+    observed_z: FloatArray = np.array([standardised[index][0] for index in rows])
+    widened.loc[rows, EXCESS_Z] = observed_z
+    widened.loc[rows, FAMILY_P] = randomentry.family_wise_p(
+        observed_z, np.vstack([standardised[index][1] for index in rows])
+    )
+
+    return widened
+
+
+def refuse_a_mixed_family(measured: pd.DataFrame) -> None:
+    """Refuse a family that repeats a test, mixes test windows, or holds draws that do not line up."""
+    duplicated: pd.DataFrame = measured[measured.duplicated(TEST_KEYS, keep=False)]
+    if not duplicated.empty:
+        msg: str = (
+            f"{len(duplicated)} rows repeat a test, so the family would count them twice: "
+            f"{duplicated[TEST_KEYS].to_dict('records')}"
+        )
+        raise RuntimeError(msg)
+
+    for column, what in (("test_window", "tested on"), ("ranked_on", "ranked on")):
+        windows: list[str] = sorted(measured[column].unique())
+        if len(windows) > 1:
+            msg = f"the rows were {what} {windows}, which are different questions and not one family"
+            raise RuntimeError(msg)
+
+    draw_counts: set[int] = {len(draws) for draws in measured[DRAWS_COLUMN]}
+    if len(draw_counts) > 1:
+        msg = f"the rows were drawn {sorted(draw_counts)} times, so their draws do not line up one to one"
+        raise RuntimeError(msg)
+
+
+def printable(table: pd.DataFrame) -> pd.DataFrame:
+    """Return ``table`` without the columns no one reads off a screen: the refusal text and the draws."""
+    return table.drop(columns=["refused", DRAWS_COLUMN], errors="ignore")
+
+
+def family_headline(table: pd.DataFrame) -> str:
+    """Name the family's best test, its family-wise p, and how many tests that p was taken over."""
+    measured: pd.DataFrame = table[table[FAMILY_P].notna()]
+    if measured.empty:
+        return "nothing was measured, so there is no family-wise p"
+
+    best = measured.sort_values([FAMILY_P, EXCESS_Z], ascending=[True, False], kind="stable").iloc[0]
+
+    return (
+        f"the best of {len(measured)} tests is {best['strategy']} {best['root']} {best['stratum']} "
+        f"{best['label']}, at a one-sided family-wise p of {best[FAMILY_P]:.3f} "
+        f"(its own two-sided p: {best['profit_factor_p']:.3f})"
+    )
+
+
+def read_family(paths: list[Path]) -> int:
+    """Read saved tables as one family, report it, and return the process exit code."""
+    table: pd.DataFrame = pd.concat([pd.read_parquet(path) for path in paths], ignore_index=True)
+    if table["refused"].notna().all():
+        logger.info("NO MATCHED NULL in any of %d tables", len(paths))
+
+        return NO_NULL_AVAILABLE
+
+    table = family_wise(table)
+    show("every configuration against the best of every draw", printable(table.sort_values(FAMILY_P)))
+    show("the family, one row per cell", family(table, SAVED_CELL_KEYS))
+    logger.info("")
+    logger.info("%s", family_headline(table))
+    if table[FAMILY_P].isna().all():
+        return NO_NULL_AVAILABLE
+
+    return 0
 
 
 def show(title: str, frame: pd.DataFrame) -> None:
@@ -386,7 +506,7 @@ def cell(
         args.top,
         stratum,
         args.resolution,
-        args.variant,
+        campaign_variant_names(args.strategy) if args.campaign_only else args.variant,
     )
     logger.info("")
     logger.info(
@@ -400,7 +520,7 @@ def cell(
         args.test_window,
     )
 
-    return measure(
+    measured: pd.DataFrame = measure(
         rows,
         archetype,
         root,
@@ -410,12 +530,13 @@ def cell(
         args.draw,
     )
 
+    return measured.assign(ranked_on="+".join(args.window))
 
-def main(argv: list[str]) -> int:
-    """Compare the shortlist against a matched random entry and return the process exit code."""
-    logsetup.configure(__name__)
+
+def parse(argv: list[str]) -> argparse.Namespace:
+    """Read the command line, refusing options that contradict each other before anything runs."""
     parser = argparse.ArgumentParser(description="Matched-null test of a campaign shortlist.")
-    parser.add_argument("--strategy", required=True)
+    parser.add_argument("--strategy", help="the archetype to measure; required unless --family-of is given")
     parser.add_argument("--root", nargs="+", default=["MNQ"])
     parser.add_argument("--window", nargs="+", default=["full"], help="which stored rows rank")
     parser.add_argument(
@@ -433,6 +554,11 @@ def main(argv: list[str]) -> int:
     )
     parser.add_argument("--resolution", type=int, default=None, help="restrict it to one bar size")
     parser.add_argument("--variant", default=None, help="restrict it to one variant of the grid")
+    parser.add_argument(
+        "--campaign-only",
+        action="store_true",
+        help="rank only the archetype's own campaign variants, not later sets sharing a stratum name",
+    )
     parser.add_argument("--top", type=int, default=1, help="how many configurations to place")
     parser.add_argument("--iterations", type=int, default=200)
     parser.add_argument("--n-jobs", type=int, default=8)
@@ -442,7 +568,40 @@ def main(argv: list[str]) -> int:
         default=randomentry.OVER_BARS,
         help="what the null randomises; levels is for a trigger that is a level",
     )
+    parser.add_argument("--out", type=Path, default=None, help="save the measured table, draws included")
+    parser.add_argument(
+        "--family-of",
+        nargs="+",
+        type=Path,
+        default=None,
+        help="read tables saved with --out as one family instead of measuring",
+    )
     args = parser.parse_args(argv[1:])
+    if args.family_of and (args.strategy or args.out):
+        parser.error("--family-of reads saved tables; it takes no --strategy and writes no --out")
+
+    if args.family_of:
+        return args
+
+    if args.strategy is None:
+        parser.error("--strategy is required unless --family-of is given")
+
+    if args.campaign_only and args.variant is not None:
+        parser.error("--campaign-only and --variant each choose the variants; give one")
+
+    for option, values in (("--root", args.root), ("--stratum", args.stratum or [])):
+        if len(set(values)) < len(values):
+            parser.error(f"{option} names a value twice, which would measure one cell twice")
+
+    return args
+
+
+def main(argv: list[str]) -> int:
+    """Compare the shortlist against a matched random entry and return the process exit code."""
+    logsetup.configure(__name__)
+    args: argparse.Namespace = parse(argv)
+    if args.family_of:
+        return read_family(args.family_of)
 
     archetype: archetypes.Archetype = archetypes.get(args.strategy)
     strata: list[str | None] = args.stratum or [None]
@@ -458,6 +617,10 @@ def main(argv: list[str]) -> int:
         [cell(args, archetype, root, stratum) for root in args.root for stratum in strata],
         ignore_index=True,
     )
+    if args.out is not None:
+        table.to_parquet(args.out, index=False)
+        logger.info("saved the measured table to %s", args.out)
+
     refused: pd.DataFrame = table[table["refused"].notna()]
     if len(refused) == len(table):
         logger.info("")
@@ -470,7 +633,8 @@ def main(argv: list[str]) -> int:
 
         return NO_NULL_AVAILABLE
 
-    show("every configuration against its own null", table.drop(columns=["refused"]))
+    table = family_wise(table)
+    show("every configuration against its own null", printable(table))
     if not refused.empty:
         logger.info("")
         logger.info(
@@ -485,6 +649,9 @@ def main(argv: list[str]) -> int:
         logger.info("--- the rankings for %s, side by side ---", ", ".join(str(key) for key in keys))
         for line in rankings(block):
             logger.info("%s", line)
+
+    logger.info("")
+    logger.info("%s", family_headline(table))
 
     return 0
 
