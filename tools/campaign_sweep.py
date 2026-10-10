@@ -182,6 +182,7 @@ ELASTIC_RECOVERY = "elastic-recovery"
 ELASTIC_BAND_STOP = "elastic-band-stop"
 ELASTIC_INVERT = "elastic-invert"
 EMAPULLBACK_TRAIL = "emapullback-trail"
+EMAPULLBACK_MA_TRAIL = "emapullback-ma-trail"
 EMAPULLBACK_CONFIRM = "emapullback-confirm"
 IBT_SIZING = "ibt-sizing"
 IBT_STRUCTURE = "ibt-structure"
@@ -461,6 +462,7 @@ STRATUM_SETS: dict[str, tuple[str, ...]] = {
     ELASTIC_BAND_STOP: (UNFILTERED,),
     ELASTIC_INVERT: EVERY_DIMENSION,
     EMAPULLBACK_TRAIL: EVERY_DIMENSION,
+    EMAPULLBACK_MA_TRAIL: EVERY_DIMENSION,
     EMAPULLBACK_CONFIRM: EVERY_DIMENSION,
     IBT_SIZING: (UNFILTERED, MIDDAY),
     IBT_SIZING_HIGH: (UNFILTERED, MIDDAY),
@@ -2037,6 +2039,35 @@ EMAPULLBACK_TRAIL_VARIANTS: VariantBuilders = {"EmaPullback": emapullback_trail_
 Every name carries a ``trail=`` token no stored row has, so the two runs cannot collide in one
 database -- ``docs/findings/m37-ema-pullback-trail-on-slow.md``."""
 
+EMAPULLBACK_MA_TRAILS: dict[str, tuple[dict[str, bool], dict[str, list[AxisValue]]]] = {
+    "trail2=off": (EMAPULLBACK_TRAILS["trail=off"], {}),
+    "trail2=slow": (EMAPULLBACK_TRAILS["trail=slow"], {}),
+    "trail2=ma": ({"trail_ma_stop": True, "trail_on_slow": False}, SPEC_TRAILS["trail=on"][1]),
+}
+"""§M37's two stops, and the stop trailed on an average of its own over EmaCrossover's trail grid,
+each with the axes only that arm reads."""
+
+
+def emapullback_ma_trail_variants(root: str) -> list[Variant]:
+    """Build §M35's variant once per stop, the third average's axes added to the arm that trails on it."""
+    (campaign,) = emapullback_variants(root)
+
+    return [
+        replace(
+            campaign,
+            name=f"{campaign.name} {trail_name}",
+            base=replace(campaign.base, **trail),
+            axes=campaign.axes | trail_axes,
+        )
+        for trail_name, (trail, trail_axes) in EMAPULLBACK_MA_TRAILS.items()
+    ]
+
+
+EMAPULLBACK_MA_TRAIL_VARIANTS: VariantBuilders = {"EmaPullback": emapullback_ma_trail_variants}
+"""The §M53 run: EmaPullback's stored grid with the stop fixed, trailed on the slow average and
+trailed on a third. Every name carries a ``trail2=`` token, which neither the stored rows nor
+§M37's carry -- ``docs/findings/m53-ema-pullback-ma-trail-preregistration.md``."""
+
 EMAPULLBACK_ENTRIES: dict[str, dict[str, bool | int]] = {
     "entry=market": {"confirm_entry": False},
     "entry=confirm life=1": {"confirm_entry": True, "entry_order_lifetime_bars": 1},
@@ -2630,6 +2661,7 @@ VARIANT_SETS = {
     ELASTIC_BAND_STOP,
     ELASTIC_INVERT,
     EMAPULLBACK_CONFIRM,
+    EMAPULLBACK_MA_TRAIL,
     EMAPULLBACK_TRAIL,
     ELASTIC_CHANNEL,
     ELASTIC_RECOVERY,
@@ -2664,6 +2696,7 @@ def variants_for(which: str) -> VariantBuilders:
         ELASTIC_BAND_STOP: ELASTIC_BAND_STOP_VARIANTS,
         ELASTIC_INVERT: ELASTIC_INVERT_VARIANTS,
         EMAPULLBACK_CONFIRM: EMAPULLBACK_CONFIRM_VARIANTS,
+        EMAPULLBACK_MA_TRAIL: EMAPULLBACK_MA_TRAIL_VARIANTS,
         EMAPULLBACK_TRAIL: EMAPULLBACK_TRAIL_VARIANTS,
         ELASTIC_CHANNEL: ELASTIC_CHANNEL_VARIANTS,
         ELASTIC_RECOVERY: ELASTIC_RECOVERY_VARIANTS,

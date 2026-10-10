@@ -14,7 +14,7 @@ import json
 import logging
 import math
 from dataclasses import replace
-from itertools import chain
+from itertools import chain, product
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -124,6 +124,8 @@ from tools.campaign_sweep import (
     EMAPULLBACK_CONFIRM,
     EMAPULLBACK_CONFIRM_VARIANTS,
     EMAPULLBACK_HELD_KINDS,
+    EMAPULLBACK_MA_TRAIL,
+    EMAPULLBACK_MA_TRAIL_VARIANTS,
     EMAPULLBACK_TRAIL,
     EMAPULLBACK_TRAIL_VARIANTS,
     GIVE_BACK_FROM_R,
@@ -183,6 +185,7 @@ from tools.campaign_sweep import (
     SIZING_QUANTITIES,
     SIZING_SYMMETRIC,
     SLIPPAGE_TICKS,
+    SPEC_VARIANTS,
     STALL_BARS,
     STRATUM_SETS,
     STRUCTURE_TRAIL_BARS,
@@ -190,6 +193,7 @@ from tools.campaign_sweep import (
     STRUCTURE_TRAIL_WIDE_BARS,
     STRUCTURE_TRAIL_WIDE_CUSHIONS,
     UNFILTERED,
+    VARIANT_SETS,
     VARIANTS,
     VOLUME_BASELINE_SESSIONS,
     VOLUME_FORMS,
@@ -2563,6 +2567,117 @@ def conditions_free_of_the_third_grid(grid: sweep.Grid) -> bool:
     periods = {period for _, period in grid.required_context().ma_keys}
 
     return periods == set(grid.axes["fast_period"]) | set(grid.axes["slow_period"])
+
+
+# -- §M53's trail on an average of its own ---------------------------------------------------
+
+THIRD_GRID_AXES = ("trail_ma_kind", "trail_ma_period", "trail_offset_ticks")
+
+
+def ma_trail_variants(root: str = "MNQ") -> list[Variant]:
+    """Return all three arms of the third-average run: the fixed stop, the slow trail, the third average."""
+    return EMAPULLBACK_MA_TRAIL_VARIANTS["EmaPullback"](root)
+
+
+def pullback_combinations(variant: Variant) -> list[EmaPullbackParams]:
+    """Return every combination of ``variant``'s unfiltered grid, checked to be EmaPullback's."""
+    combinations: list[EmaPullbackParams] = []
+    for combination in grids_for(variant, UNFILTERED)[0][1].combinations():
+        assert isinstance(combination, EmaPullbackParams)
+        combinations.append(combination)
+
+    return combinations
+
+
+def test_the_ma_trail_run_states_its_strata_before_it_runs_and_they_are_the_campaigns() -> None:
+    assert variants_for(EMAPULLBACK_MA_TRAIL) is EMAPULLBACK_MA_TRAIL_VARIANTS
+    assert [name for name, _ in strata(EMAPULLBACK_MA_TRAIL)] == [name for name, _ in strata(ALL_STRATA)]
+
+
+def test_the_fixed_and_slow_arms_are_m37s_under_new_names() -> None:
+    """Same base and axes as §M37's two arms, so each can be checked against §M37's rows on the same bars."""
+    for root in COMMISSION:
+        fixed, on_slow, _ = ma_trail_variants(root)
+        m37_fixed, m37_slow = trail_variants(root)
+
+        assert (fixed.base, fixed.axes) == (m37_fixed.base, m37_fixed.axes)
+        assert (on_slow.base, on_slow.axes) == (m37_slow.base, m37_slow.axes)
+
+
+def test_the_third_average_arm_adds_emacrossovers_trail_grid_and_nothing_else() -> None:
+    """Every §M35 axis is shared, so ``campaign_paired`` keys on them and takes the median over the trail."""
+    for root in COMMISSION:
+        (campaign,) = VARIANTS["EmaPullback"](root)
+        crossover_trail = next(
+            variant for variant in SPEC_VARIANTS["EmaCrossover"](root) if variant.name == "stop=atr trail=on"
+        )
+        *_, on_third = ma_trail_variants(root)
+
+        assert on_third.base == replace(campaign.base, trail_ma_stop=True, trail_on_slow=False)
+        assert {axis: values for axis, values in on_third.axes.items() if axis not in THIRD_GRID_AXES} == (
+            campaign.axes
+        )
+        assert {axis: on_third.axes[axis] for axis in THIRD_GRID_AXES} == {
+            axis: crossover_trail.axes[axis] for axis in THIRD_GRID_AXES
+        }
+
+
+def test_no_ma_trail_variant_can_collide_with_any_other_sets_emapullback_one() -> None:
+    """One database holds every EmaPullback run and the variant name is all that separates them.
+
+    The sizing set is left out: it needs a fitted cuts file to build, and its names carry ``size=``.
+    """
+    stored = {
+        variant.name
+        for which in VARIANT_SETS - {EMAPULLBACK_MA_TRAIL, CONFLUENCE_SIZING}
+        if "EmaPullback" in variants_for(which)
+        for variant in variants_for(which)["EmaPullback"]("MNQ")
+    }
+    names = [variant.name for variant in ma_trail_variants()]
+
+    assert not stored & set(names)
+    assert names == ["stop=slow trail2=off", "stop=slow trail2=slow", "stop=slow trail2=ma"]
+
+
+def test_every_ma_trail_variant_grid_can_be_built() -> None:
+    """A grid sweeping an axis its arm leaves unread is refused here, not an hour into the run.
+
+    Unfiltered only: a stratum adds a filter the trail never reads, and §M37's test builds the two
+    repeated arms at every cell. The third average's 23 cells take most of a minute to build.
+    """
+    for variant in ma_trail_variants():
+        assert len(grids_for(variant, UNFILTERED)[0][1]) == variant.sized()
+
+
+def test_the_third_average_arm_holds_a_twin_of_every_slow_trail_it_can_reach() -> None:
+    """Where the third average is the slow one at the stop's offset, the two arms trail the same stop.
+
+    ``test_trailing_on_the_slow_average_is_the_third_grid_pointed_at_it`` pins that they trade
+    identically, so those rows have to agree exactly -- the pre-registration's reproduction check.
+    """
+    _, on_slow, on_third = ma_trail_variants()
+    default = EmaPullbackParams()
+    reachable = set(product(on_third.axes["trail_ma_kind"], on_third.axes["trail_ma_period"]))
+    twins = [
+        replace(
+            combination,
+            trail_on_slow=True,
+            trail_ma_kind=default.trail_ma_kind,
+            trail_ma_period=default.trail_ma_period,
+            trail_offset_ticks=default.trail_offset_ticks,
+        )
+        for combination in pullback_combinations(on_third)
+        if (combination.trail_ma_kind, combination.trail_ma_period, combination.trail_offset_ticks)
+        == (combination.slow_kind, combination.slow_period, combination.stop_offset_ticks)
+    ]
+    slow_trails = [
+        combination
+        for combination in pullback_combinations(on_slow)
+        if (combination.slow_kind, combination.slow_period) in reachable
+    ]
+
+    assert slow_trails
+    assert sorted(map(dataclasses.astuple, twins)) == sorted(map(dataclasses.astuple, slow_trails))
 
 
 # -- the [#311] confirmation entry ---------------------------------------------------------

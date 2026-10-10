@@ -742,6 +742,10 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 **Pre-registered, not yet run: 36 arms of #369's third tier over every archetype's stored grid, at 5, 10 and 15 minutes, read with §M48's and §M50's bar over a family of 33 cells.** Pre-registered in [`docs/findings/m52-early-exit-tier-3-preregistration.md`](findings/m52-early-exit-tier-3-preregistration.md); the rules and the NinjaScript each would be written as are [`nt8-fidelity.md`](nt8-fidelity.md), "The conditional early exit".
 
+### M53 — EmaPullback's stop trailed on an average of its own ([#439])
+
+**Pre-registered, not yet run: EmaCrossover's moving-average trail on the trend archetype, three arms over §M35's grid — the fixed stop, §M37's slow-average trail and a third average over EmaCrossover's trail grid — in all 23 strata at 2, 5, 10 and 15 minutes, read with §M37's paired bar over a family of 8.** Pre-registered in [`docs/findings/m53-ema-pullback-ma-trail-preregistration.md`](findings/m53-ema-pullback-ma-trail-preregistration.md); the rules are [`nt8-fidelity.md`](nt8-fidelity.md), "The build spec's three loose ends: the trail, the round number and the count" and §M34.
+
 ### Do the shortlists travel? ([#330])
 
 **Most of what a shortlist loses is selection rather than instrument — the drop from selection window to own holdout is two to five times the further drop to a market never seen — and the two inside-bar archetypes travel with almost no additional cost, while nothing clears a profit factor of 1.1 anywhere.** Moved to [`docs/findings/cross-root-transfer.md`](findings/cross-root-transfer.md).
@@ -1522,6 +1526,7 @@ ______________________________________________________________________
 [#42]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/42
 [#43]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/43
 [#430]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/430
+[#439]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/439
 [#44]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/44
 [#440]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/440
 [#45]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/45
