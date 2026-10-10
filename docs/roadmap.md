@@ -750,6 +750,10 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 **Pre-registered, not yet run: gate 3's matched null read family-wise — each test's standardised profit-factor excess against the best of every draw across its family — over §M44's consistent cells, named on the re-swept rows, and §M28.16's ten, each family on its own and both from the campaign's own variants; a cell clears where a configuration reaches a family-wise p below 0.05 on both roots.** Pre-registered in [`docs/findings/m54-family-wise-null-preregistration.md`](findings/m54-family-wise-null-preregistration.md).
 
+### M55 — EmaCrossover's confluence count over filters that point the trade's way ([#439])
+
+**Pre-registered, not yet run: the confluence count over the cash-open and midday phases and the trend, higher-timeframe and VWAP sides relative to the trade, in nine arms per stop — the control, each gate alone and at least one to all four — unfiltered at five bar sizes, read with §M37's paired bar over a family of 80 and gate 3 family-wise.** Pre-registered in [`docs/findings/m55-side-count-preregistration.md`](findings/m55-side-count-preregistration.md); the filters and their NinjaScript are [`nt8-fidelity.md`](nt8-fidelity.md), "Filters relative to the trade's side".
+
 ### Do the shortlists travel? ([#330])
 
 **Most of what a shortlist loses is selection rather than instrument — the drop from selection window to own holdout is two to five times the further drop to a market never seen — and the two inside-bar archetypes travel with almost no additional cost, while nothing clears a profit factor of 1.1 anywhere.** Moved to [`docs/findings/cross-root-transfer.md`](findings/cross-root-transfer.md).

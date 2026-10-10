@@ -46,7 +46,7 @@ def pullback_signal(data: Dataset, params: PullBackAndGoParams) -> BoolArray:
     if params.use_vwap:
         signal &= data.vwap_gate(above=True)
 
-    return filters.apply_context_filters(signal, data, params)
+    return filters.apply_context_filters(signal, data, params, lambda: pullback_long_side(data, params))
 
 
 def pullback_long_side(data: Dataset, _params: PullBackAndGoParams) -> BoolArray:

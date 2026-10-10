@@ -48,7 +48,7 @@ def deadcat_signal(data: Dataset, params: DeadCatParams) -> BoolArray:
     if params.use_vwap:
         signal &= data.vwap_gate(above=False)
 
-    return filters.apply_context_filters(signal, data, params)
+    return filters.apply_context_filters(signal, data, params, lambda: deadcat_long_side(data, params))
 
 
 def deadcat_long_side(data: Dataset, _params: DeadCatParams) -> BoolArray:

@@ -1353,6 +1353,25 @@ if (Close[0] > MAX(High, StructureTrailBars)[1])
 
 **A hit is still `EXIT_STOP`**, and it can trigger the trend violation exactly as the high-water trail's does (§M23). The bracketed lot is untouched. The breakeven stop still moves both lots, and whichever level is nearer the market holds. `insidebartrailing.structure_level` is the one decision and `tightened_stop` the one ratchet, so **do not fork either**.
 
+### Filters relative to the trade's side
+
+**Three filters on every archetype require a label to point the way the bar would be entered** (#439): `with_trend`, `with_higher_timeframe` and `with_vwap`. Each reads its label exactly as §M47's confluence size does and keeps a signal only where the label *favours* the trade, in §M47's table: the trend `UP` for a long and `DOWN` for a short, the close above the higher-timeframe average for a long and below it for a short, and the close above the session VWAP for a long and below it for a short. **A bar the label cannot classify fails the filter**: a `MIXED` trend, a close `AT` the coarse average, or a bar before any coarse bar has closed. A close exactly on the VWAP passes for either side, as it favours both in §M47.
+
+**The side is the archetype's own `long_side`**, the series §M47's size is read against, at the signal bar: EmaCrossover's fast average above its slow one, and fixed on the one-sided archetypes. Each archetype's signal hands it to the filters, which compute it only when one of the three is on.
+
+**Off by default, so every NinjaScript as ported is unchanged, and a row using one is `TIER1_ONLY`.** A side-relative filter beside the absolute filter on the same label is refused: `with_trend` with a `trend_filter` that admits less than every trend, and `with_higher_timeframe` with a `higher_timeframe_filter` that admits less than every side. The absolute filter names one direction for both sides, so the pair would quietly trade one side. On DeadCatBounce and PullBackAndGo, `with_vwap` beside the archetype's own `use_vwap` is refused too: each is one-sided, so the two are the same gate twice. In EmaCrossover's confluence count each side-relative filter is one more active gate.
+
+A port tests the label against the side it is about to enter, in `OnBarUpdate`, at the signal bar, with each label computed as §M47's port computes it:
+
+```csharp
+bool goingLong = fastEMA[0] > slowEMA[0];
+if (WithTrend && !(goingLong ? trendUp : trendDown)) return;
+if (WithHigherTimeframe && !(goingLong ? htfAbove : htfBelow)) return;
+if (WithVwap && !(goingLong ? Close[0] >= vwap[0] : Close[0] <= vwap[0])) return;
+```
+
+None of the labels exists in NT8 (§M45), so a port of any of the three ports its label too.
+
 ## Order lifetime and the session edge (#67)
 
 Four questions reflection could not answer, settled by `NqbtOrderLifetimeProbe.cs` rather than by a trade list — three of them are questions about **cancels**, and a Trades export carries only fills, so "cancelled the resting order" and "refused the second fill" are indistinguishable in one by construction. The probe places no bracket and writes its own `OnOrderUpdate` log. Eleven runs over `MNQ 03-24`, 1 minute, `2023-12-01` → `2024-03-15`, Standard fill resolution, zero costs; the outputs are kept in `verification/` and are machine-local (#91), and every figure below is reproduced by passing each run's events log to:

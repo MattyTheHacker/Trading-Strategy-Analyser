@@ -303,7 +303,7 @@ def insidebar_signal(data: Dataset, params: InsideBarParams) -> BoolArray:
     if params.no_entry_minutes_before_close > 0:
         signal &= data.session_end_gate(params.no_entry_minutes_before_close)
 
-    return filters.apply_context_filters(signal, data, params)
+    return filters.apply_context_filters(signal, data, params, lambda: insidebar_long_side(data, params))
 
 
 def insidebar_legs(

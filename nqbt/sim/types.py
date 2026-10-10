@@ -40,7 +40,7 @@ from nqbt.sim.bracket import (
 
 
 class ContextFilterParams(Protocol):
-    """The six context filters and every field behind them, as one shape.
+    """The context filters and every field behind them, as one shape.
 
     What has to be checked, where :class:`nqbt.sim.filters.ContextFiltered` is what the signal
     reads.
@@ -71,6 +71,9 @@ class ContextFilterParams(Protocol):
     higher_timeframe_filter: int
     higher_timeframe_minutes: int
     higher_timeframe_period: int
+    with_trend: bool
+    with_higher_timeframe: bool
+    with_vwap: bool
 
 
 def validate_context_filters(params: ContextFilterParams) -> None:
@@ -99,6 +102,40 @@ def validate_context_filters(params: ContextFilterParams) -> None:
     higher_timeframe.validate_mask(params.higher_timeframe_filter)
     higher_timeframe.validate_minutes(params.higher_timeframe_minutes)
     higher_timeframe.validate_period(params.higher_timeframe_period)
+    validate_side_filters(params)
+
+
+def validate_side_filters(params: ContextFilterParams) -> None:
+    """Refuse a side-relative filter beside the absolute filter on the same label.
+
+    ``docs/nt8-fidelity.md``, "Filters relative to the trade's side".
+    """
+    for side_relative, name, absolute, everything in (
+        (params.with_trend, "trend_filter", params.trend_filter, trend.ALL_TRENDS),
+        (
+            params.with_higher_timeframe,
+            "higher_timeframe_filter",
+            params.higher_timeframe_filter,
+            higher_timeframe.ALL_SIDES,
+        ),
+    ):
+        if side_relative and absolute != everything:
+            msg: str = (
+                f"{name} is {absolute} beside its side-relative filter; one names a direction for "
+                "both sides and the other the trade's own, so give one of them"
+            )
+            raise ValueError(msg)
+
+
+def validate_vwap_side(use_vwap: bool, with_vwap: bool) -> None:  # noqa: FBT001 - two fields of one class, checked together
+    """Refuse a one-sided archetype's own VWAP condition beside the side-relative VWAP filter.
+
+    Each requires the close on the archetype's one side of the VWAP, so together they are the same
+    gate twice -- ``docs/nt8-fidelity.md``, "Filters relative to the trade's side".
+    """
+    if use_vwap and with_vwap:
+        msg: str = "use_vwap and with_vwap ask this one-sided archetype for the same VWAP side; give one"
+        raise ValueError(msg)
 
 
 MIN_CONFLUENCE_FILTERS = 2
@@ -110,7 +147,7 @@ REQUIRE_ALL = 0
 
 
 def active_context_filters(params: ContextFilterParams) -> int:
-    """Count how many of the six context filters this combination actually restricts anything with."""
+    """Count how many context filters this combination actually restricts anything with."""
     return sum(
         (
             params.phase_filter != timeofday.ALL_PHASES,
@@ -119,6 +156,9 @@ def active_context_filters(params: ContextFilterParams) -> int:
             params.compression_filter != compression.ALL_STATES,
             params.trend_filter != trend.ALL_TRENDS,
             params.higher_timeframe_filter != higher_timeframe.ALL_SIDES,
+            params.with_trend,
+            params.with_higher_timeframe,
+            params.with_vwap,
         ),
     )
 
@@ -763,6 +803,19 @@ class DeadCatParams:
     """Bars of *that* resolution the average is taken over, never 1-minute bars. An EMA, and
     inert while :attr:`higher_timeframe_filter` admits every side."""
 
+    with_trend: bool = False
+    """Admit an entry only where the trend label points its way: ``UP`` for a long, ``DOWN`` for a
+    short. Refused while :attr:`trend_filter` admits less than every trend --
+    ``docs/nt8-fidelity.md``, "Filters relative to the trade's side"."""
+
+    with_higher_timeframe: bool = False
+    """Admit an entry only on its own side of the higher-timeframe average: above it for a long,
+    below it for a short. Refused while :attr:`higher_timeframe_filter` admits less than every side."""
+
+    with_vwap: bool = False
+    """Admit an entry only on its own side of the session VWAP: above it for a long, below it for a
+    short."""
+
     quantity_per_confluence: int = 0
     """Contracts every leg gains for each ``size_on_*`` label favouring the trade at its signal
     bar, and with :attr:`size_symmetric` loses for each one opposing it. ``0`` is fixed size.
@@ -979,6 +1032,7 @@ class DeadCatParams:
                 msg,
             )
 
+        validate_vwap_side(self.use_vwap, self.with_vwap)
         for gate in ("ema", "slow_sma", "fast_sma"):
             if getattr(self, f"{gate}_period") < 1:
                 msg = f"{gate}_period must be >= 1"
@@ -1134,6 +1188,11 @@ class PullBackAndGoParams:
     """The coarse resolution and the period averaged over it --
     see :attr:`DeadCatParams.higher_timeframe_period`."""
 
+    with_trend: bool = False
+    with_higher_timeframe: bool = False
+    with_vwap: bool = False
+    """Admit an entry only where that label points its way -- see :attr:`DeadCatParams.with_trend`."""
+
     quantity_per_confluence: int = 0
     size_on_trend: bool = False
     size_on_higher_timeframe: bool = False
@@ -1235,6 +1294,7 @@ class PullBackAndGoParams:
                 msg,
             )
 
+        validate_vwap_side(self.use_vwap, self.with_vwap)
         for gate in ("ema", "slow_sma", "fast_sma"):
             if getattr(self, f"{gate}_period") < 1:
                 msg = f"{gate}_period must be >= 1"
@@ -1383,6 +1443,11 @@ class EmaCrossoverParams:
     higher_timeframe_period: int = 50
     """The coarse resolution and the period averaged over it --
     see :attr:`DeadCatParams.higher_timeframe_period`."""
+
+    with_trend: bool = False
+    with_higher_timeframe: bool = False
+    with_vwap: bool = False
+    """Admit an entry only where that label points its way -- see :attr:`DeadCatParams.with_trend`."""
 
     quantity_per_confluence: int = 0
     size_on_trend: bool = False
@@ -1718,6 +1783,11 @@ class InsideBarParams:
     higher_timeframe_period: int = 50
     """The coarse resolution and the period averaged over it --
     see :attr:`DeadCatParams.higher_timeframe_period`."""
+
+    with_trend: bool = False
+    with_higher_timeframe: bool = False
+    with_vwap: bool = False
+    """Admit an entry only where that label points its way -- see :attr:`DeadCatParams.with_trend`."""
 
     quantity_per_confluence: int = 0
     size_on_trend: bool = False
@@ -2328,6 +2398,11 @@ class ElasticBandParams:
     """The coarse resolution and the period averaged on it -- see
     :attr:`DeadCatParams.higher_timeframe_period`."""
 
+    with_trend: bool = False
+    with_higher_timeframe: bool = False
+    with_vwap: bool = False
+    """Admit an entry only where that label points its way -- see :attr:`DeadCatParams.with_trend`."""
+
     quantity_per_confluence: int = 0
     size_on_trend: bool = False
     size_on_higher_timeframe: bool = False
@@ -2826,6 +2901,11 @@ class OpeningRangeParams:
     """The coarse resolution and the period averaged on it -- see
     :attr:`DeadCatParams.higher_timeframe_period`."""
 
+    with_trend: bool = False
+    with_higher_timeframe: bool = False
+    with_vwap: bool = False
+    """Admit an entry only where that label points its way -- see :attr:`DeadCatParams.with_trend`."""
+
     quantity_per_confluence: int = 0
     size_on_trend: bool = False
     size_on_higher_timeframe: bool = False
@@ -3256,6 +3336,11 @@ class EmaPullbackParams:
     """The coarse resolution and the period averaged over it --
     see :attr:`DeadCatParams.higher_timeframe_period`."""
 
+    with_trend: bool = False
+    with_higher_timeframe: bool = False
+    with_vwap: bool = False
+    """Admit an entry only where that label points its way -- see :attr:`DeadCatParams.with_trend`."""
+
     quantity_per_confluence: int = 0
     size_on_trend: bool = False
     size_on_higher_timeframe: bool = False
@@ -3551,6 +3636,11 @@ class SqueezeBreakoutParams:
     higher_timeframe_period: int = 50
     """The coarse resolution and the period averaged on it -- see
     :attr:`DeadCatParams.higher_timeframe_period`."""
+
+    with_trend: bool = False
+    with_higher_timeframe: bool = False
+    with_vwap: bool = False
+    """Admit an entry only where that label points its way -- see :attr:`DeadCatParams.with_trend`."""
 
     quantity_per_confluence: int = 0
     size_on_trend: bool = False
