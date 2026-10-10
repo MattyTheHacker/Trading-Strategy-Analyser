@@ -2623,10 +2623,13 @@ def test_the_third_average_arm_adds_emacrossovers_trail_grid_and_nothing_else() 
 
 
 def test_no_ma_trail_variant_can_collide_with_any_other_sets_emapullback_one() -> None:
-    """One database holds every EmaPullback run and the variant name is all that separates them."""
+    """One database holds every EmaPullback run and the variant name is all that separates them.
+
+    The sizing set is left out: it needs a fitted cuts file to build, and its names carry ``size=``.
+    """
     stored = {
         variant.name
-        for which in VARIANT_SETS - {EMAPULLBACK_MA_TRAIL}
+        for which in VARIANT_SETS - {EMAPULLBACK_MA_TRAIL, CONFLUENCE_SIZING}
         if "EmaPullback" in variants_for(which)
         for variant in variants_for(which)["EmaPullback"]("MNQ")
     }
