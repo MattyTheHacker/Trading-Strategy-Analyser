@@ -94,6 +94,16 @@ def test_a_variant_restricted_shortlist_holds_only_rows_of_that_variant(
     assert len(shortlist(STRATEGY, ROOT, ["full"], "profit_factor", 10)) == 4
 
 
+def test_a_shortlist_over_several_variants_holds_every_one_named_and_no_other(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A campaign with several variants of its own ranks them together, and a later set's rows not at all."""
+    frame = stored_rows(variant=["breakout", "fade", "retest", "fade"])
+    monkeypatch.setattr(campaign_shortlist, "load", lambda *_: frame)
+    confined = shortlist(STRATEGY, ROOT, ["full"], "profit_factor", 10, None, None, {"breakout", "retest"})
+    assert set(confined["variant"]) == {"breakout", "retest"}
+
+
 def test_a_selection_matching_no_stored_row_raises_rather_than_ranking_nothing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

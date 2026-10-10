@@ -206,6 +206,7 @@ from tools.campaign_sweep import (
     VolumeCut,
     calibrate,
     calibrate_volume,
+    campaign_variant_names,
     check_confluence_request,
     check_volume_request,
     confluence_arms,
@@ -2678,6 +2679,24 @@ def test_the_third_average_arm_holds_a_twin_of_every_slow_trail_it_can_reach() -
 
     assert slow_trails
     assert sorted(map(dataclasses.astuple, twins)) == sorted(map(dataclasses.astuple, slow_trails))
+
+
+def test_the_campaign_variant_names_are_the_campaigns_own_and_no_later_sets() -> None:
+    """What a family read ranks once later sets have stored rows under the same stratum names."""
+    later = {
+        variant.name
+        for builders in (
+            EMAPULLBACK_TRAIL_VARIANTS,
+            EMAPULLBACK_CONFIRM_VARIANTS,
+            EMAPULLBACK_MA_TRAIL_VARIANTS,
+        )
+        for variant in builders["EmaPullback"]("MNQ")
+    }
+    assert campaign_variant_names("EmaPullback") == {"stop=slow"}
+    assert not campaign_variant_names("EmaPullback") & later
+    assert {variant.name for variant in VARIANTS["OpeningRange"]("NQ")} <= campaign_variant_names(
+        "OpeningRange"
+    )
 
 
 # -- the [#311] confirmation entry ---------------------------------------------------------

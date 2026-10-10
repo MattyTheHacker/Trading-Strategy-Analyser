@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 import pandas as pd
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Collection, Iterator
 
 # Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -99,7 +99,7 @@ def shortlist(
     top: int = 1,
     stratum: str | None = None,
     resolution: int | None = None,
-    variant: str | None = None,
+    variant: str | Collection[str] | None = None,
 ) -> pd.DataFrame:
     """Return the highest-ranked stored combinations for one archetype, root and stratum.
 
@@ -114,7 +114,7 @@ def shortlist(
         frame = frame[frame["resolution"] == resolution]
 
     if variant is not None:
-        frame = frame[frame["variant"] == variant]
+        frame = frame[frame["variant"].isin([variant] if isinstance(variant, str) else variant)]
 
     if frame.empty:
         msg: str = f"no stored rows for {name} on {root} in windows {window}, stratum {stratum}"

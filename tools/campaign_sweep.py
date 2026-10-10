@@ -1679,6 +1679,12 @@ This is what §M27 measured, so a re-sweep that changes an axis belongs in its o
 :data:`VARIANT_SETS`.
 """
 
+
+def campaign_variant_names(name: str) -> frozenset[str]:
+    """Return the names of one archetype's own campaign variants, over every root."""
+    return frozenset(variant.name for root in ROOTS for variant in VARIANTS[name](root))
+
+
 NARROW_VARIANTS: VariantBuilders = {"InsideBar": insidebar_narrow_variants}
 """The §M27.3 re-sweep: one archetype, the bracket pair §M27 could not cross."""
 

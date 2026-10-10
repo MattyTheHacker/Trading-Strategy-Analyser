@@ -9,7 +9,10 @@ the bars it was swept on.
 
 from __future__ import annotations
 
+import argparse
+from dataclasses import replace
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
@@ -24,9 +27,12 @@ from tools.campaign_null import (
     RANKINGS,
     STATISTICS,
     family,
+    family_headline,
+    family_wise,
     label_of,
     measure_row,
     rankings,
+    read_family,
     series_moved,
     stored_for,
     stored_rows,
@@ -34,6 +40,10 @@ from tools.campaign_null import (
     verify_observation,
 )
 from tools.campaign_report import NET_TO_DRAWDOWN
+from tools.campaign_sweep import campaign_variant_names
+
+if TYPE_CHECKING:
+    from nqbt.arrays import FloatArray
 
 
 def measured(**columns: object) -> pd.DataFrame:
@@ -68,7 +78,16 @@ def refused_row(monkeypatch: pytest.MonkeyPatch, draw: str) -> dict[str, object]
 
     monkeypatch.setattr(campaign_null, "rebuild", lambda *_: object())
     monkeypatch.setattr(randomentry, "compare", refuse)
-    row = pd.Series({"stratum": "unfiltered", "resolution": 10, NET_TO_DRAWDOWN: 1.0, "trades": 5})
+    row = pd.Series(
+        {
+            "stratum": "unfiltered",
+            "resolution": 10,
+            NET_TO_DRAWDOWN: 1.0,
+            "trades": 5,
+            "sweep_id": 1,
+            "combo_id": 0,
+        }
+    )
 
     return measure_row(row, object(), object(), "MNQ", "a", 2, 1, draw)  # type: ignore[arg-type]  # rebuild and compare are stubbed
 
@@ -94,7 +113,16 @@ def test_the_draw_defaults_to_the_one_every_archetype_has(monkeypatch: pytest.Mo
         "compare",
         lambda *_a, **kwargs: (_ for _ in ()).throw(AssertionError(kwargs["draw"])),
     )
-    row = pd.Series({"stratum": "unfiltered", "resolution": 10, NET_TO_DRAWDOWN: 1.0, "trades": 5})
+    row = pd.Series(
+        {
+            "stratum": "unfiltered",
+            "resolution": 10,
+            NET_TO_DRAWDOWN: 1.0,
+            "trades": 5,
+            "sweep_id": 1,
+            "combo_id": 0,
+        }
+    )
 
     with pytest.raises(AssertionError, match=randomentry.OVER_BARS):
         measure_row(row, object(), object(), "MNQ", "a", 2, 1)  # type: ignore[arg-type]  # rebuild and compare are stubbed
@@ -224,8 +252,15 @@ def test_net_to_drawdown_needs_the_two_statistics_it_is_built_from() -> None:
 def family_rows(**columns: object) -> pd.DataFrame:
     """Build a table shaped like :func:`~tools.campaign_null.measure`'s output over two cells."""
     base = {
+        "strategy": "OpeningRange",
+        "test_window": "holdout",
+        "ranked_on": "selection",
         "root": ["MNQ", "MNQ", "NQ", "NQ"],
         "stratum": "phase=MIDDAY",
+        "resolution": 5,
+        "label": ["a", "b", "a", "b"],
+        "sweep_id": [1, 1, 2, 2],
+        "combo_id": [0, 1, 0, 1],
         "refused": None,
         "trades": [100, 200, 300, 400],
         "profit_factor": [1.0, 1.2, 0.9, 1.1],
@@ -245,7 +280,20 @@ def test_a_family_reports_one_row_per_root_and_stratum() -> None:
     """
     summary = family(family_rows())
     assert list(summary["root"]) == ["MNQ", "NQ"]
-    assert campaign_null.CELL_KEYS == ["root", "stratum"]
+    assert campaign_null.CELL_KEYS == ["strategy", "root", "stratum"]
+
+
+def test_a_family_from_saved_runs_keeps_two_bar_sizes_of_one_stratum_apart() -> None:
+    """Each saved run may have fixed a different bar size, and two bar sizes are not one population."""
+    rows = family_rows(resolution=[5, 10, 5, 10])
+    assert len(family(rows)) == 2
+    assert len(family(rows, campaign_null.SAVED_CELL_KEYS)) == 4
+
+
+def test_two_archetypes_sharing_a_stratum_are_two_cells() -> None:
+    """A family read from several runs crosses archetypes, and their midday cells are not one cell."""
+    rows = pd.concat([family_rows(), family_rows(strategy="InsideBarTrailing")], ignore_index=True)
+    assert len(family(rows)) == 4
 
 
 def test_a_cell_is_summarised_as_a_range_rather_than_a_mean() -> None:
@@ -296,6 +344,261 @@ def test_a_partly_refused_cell_summarises_only_what_ran() -> None:
     assert summary.loc["MNQ", "measured"] == 1
     assert summary.loc["MNQ", "refused"] == 1
     assert summary.loc["MNQ", "profit_factor_high"] == pytest.approx(1.0)
+
+
+# -- the family-wise null, over one run or several saved ones --------------------------------
+
+NOISE_DRAWS = 199
+"""Draws per test in the family-wise fixtures, so a p resolves in steps of 1/200."""
+
+
+def drawn_rows(seed: int = 3, **columns: object) -> pd.DataFrame:
+    """Build :func:`family_rows` with every row carrying its own profit-factor draws, as ``measure`` does."""
+    rng = np.random.default_rng(seed)
+    draws = [1.0 + rng.normal(0.0, 0.1, NOISE_DRAWS) for _ in range(4)]
+
+    return family_rows(**{campaign_null.DRAWS_COLUMN: draws, **columns})
+
+
+def with_draws(rows: pd.DataFrame, row: int, draws: FloatArray) -> pd.DataFrame:
+    """Return ``rows`` with one row's draws replaced, which no cell setter takes as a single value."""
+    column = pd.Series(
+        [draws if index == row else kept for index, kept in enumerate(rows[campaign_null.DRAWS_COLUMN])],
+        index=rows.index,
+        dtype=object,
+    )
+
+    return rows.assign(**{campaign_null.DRAWS_COLUMN: column})
+
+
+def test_a_measured_row_carries_its_profit_factor_draws(monkeypatch: pytest.MonkeyPatch) -> None:
+    """What the family-wise null reads has to be what ``measure_row`` writes, not a hand-built column."""
+    draws = np.array([0.9, 1.1, np.inf, np.nan])
+    placed = {statistic: null_result(statistic, 1.0, 40) for statistic in STATISTICS}
+    placed["profit_factor"] = replace(placed["profit_factor"], draws=draws)
+    monkeypatch.setattr(campaign_null, "rebuild", lambda *_: object())
+    monkeypatch.setattr(randomentry, "compare", lambda *_a, **_k: placed)
+    row = pd.Series(
+        {
+            "stratum": "unfiltered",
+            "resolution": 5,
+            NET_TO_DRAWDOWN: 1.0,
+            "trades": 5,
+            "sweep_id": 1,
+            "combo_id": 0,
+        }
+    )
+    measured_row_ = measure_row(row, object(), object(), "MNQ", "a", 2, 1)  # type: ignore[arg-type]  # rebuild and compare are stubbed
+    assert measured_row_[campaign_null.DRAWS_COLUMN] is draws
+
+
+def test_every_measured_row_gets_a_standardised_excess_and_a_family_wise_p() -> None:
+    widened = family_wise(drawn_rows())
+    assert widened[campaign_null.EXCESS_Z].notna().all()
+    assert widened[campaign_null.FAMILY_P].between(0.0, 1.0).all()
+
+
+def test_a_family_of_one_reads_its_own_one_sided_p() -> None:
+    """The family-wise p of a lone test is that test's own p, one-sided, on its standardised draws."""
+    one = drawn_rows().iloc[[0]]
+    observed, draws = randomentry.standardised_excess(1.0, one.iloc[0][campaign_null.DRAWS_COLUMN])
+    expected = ((draws >= observed).sum() + 1) / (NOISE_DRAWS + 1)
+    assert family_wise(one)[campaign_null.FAMILY_P].iloc[0] == pytest.approx(expected)
+
+
+def test_a_wider_family_never_lowers_a_tests_family_wise_p() -> None:
+    narrow = family_wise(drawn_rows().iloc[:2])
+    wide = family_wise(drawn_rows())
+    assert np.all(
+        wide[campaign_null.FAMILY_P].iloc[:2].to_numpy() >= narrow[campaign_null.FAMILY_P].to_numpy()
+    )
+
+
+def test_a_refused_row_is_left_out_of_the_family_and_carries_no_family_wise_p() -> None:
+    rows = drawn_rows(refused=[None, None, "dense", None])
+    widened = family_wise(rows)
+    assert pd.isna(widened.loc[2, campaign_null.FAMILY_P])
+    assert widened[campaign_null.FAMILY_P].drop(index=2).notna().all()
+    alone = family_wise(rows.drop(index=2))
+    assert widened[campaign_null.FAMILY_P].drop(index=2).to_numpy() == pytest.approx(
+        alone[campaign_null.FAMILY_P].to_numpy()
+    )
+
+
+def test_a_table_with_nothing_measured_gets_the_columns_and_no_values() -> None:
+    widened = family_wise(drawn_rows(refused="dense"))
+    assert widened[campaign_null.FAMILY_P].isna().all()
+
+
+def test_a_test_read_twice_is_refused_rather_than_counted_twice() -> None:
+    rows = drawn_rows()
+    with pytest.raises(RuntimeError, match="repeat a test"):
+        family_wise(pd.concat([rows, rows.iloc[[0]]], ignore_index=True))
+
+
+def test_rows_drawn_a_different_number_of_times_are_refused() -> None:
+    rows = with_draws(drawn_rows(), 0, np.ones(NOISE_DRAWS + 1))
+    with pytest.raises(RuntimeError, match="do not line up one to one"):
+        family_wise(rows)
+
+
+def test_a_cell_reports_its_lowest_family_wise_p_once_there_is_one() -> None:
+    assert "family_p_low" not in family(family_rows()).columns
+    widened = family_wise(drawn_rows())
+    summary = family(widened).set_index("root")
+    assert summary.loc["MNQ", "family_p_low"] == pytest.approx(
+        widened.loc[widened["root"] == "MNQ", campaign_null.FAMILY_P].min()
+    )
+
+
+def test_the_headline_names_the_best_test_and_the_family_size() -> None:
+    widened = family_wise(drawn_rows(profit_factor=[1.0, 1.5, 0.9, 1.1]))
+    headline = family_headline(widened)
+    assert "the best of 4 tests is OpeningRange MNQ phase=MIDDAY b" in headline
+
+
+def test_the_headline_says_so_when_nothing_was_measured() -> None:
+    assert family_headline(family_wise(drawn_rows(refused="dense"))) == (
+        "nothing was measured, so there is no family-wise p"
+    )
+
+
+def test_saved_tables_read_back_as_one_family_with_their_draws_intact(tmp_path: Path) -> None:
+    """Several runs, one family: the round trip through saved tables moves no family-wise p."""
+    gapped = np.append(drawn_rows(seed=3)[campaign_null.DRAWS_COLUMN].iloc[0][:-2], [np.inf, np.nan])
+    original = [with_draws(drawn_rows(seed=3), 0, gapped), drawn_rows(seed=4, strategy="InsideBarTrailing")]
+    paths = [tmp_path / "first.parquet", tmp_path / "second.parquet"]
+    for table, path in zip(original, paths, strict=True):
+        table.to_parquet(path, index=False)
+
+    read_back = pd.concat([pd.read_parquet(path) for path in paths], ignore_index=True)
+    together = pd.concat(original, ignore_index=True)
+    assert np.array_equal(read_back[campaign_null.DRAWS_COLUMN].iloc[0], gapped, equal_nan=True)
+    assert family_wise(read_back)[campaign_null.FAMILY_P].to_numpy() == pytest.approx(
+        family_wise(together)[campaign_null.FAMILY_P].to_numpy()
+    )
+    assert read_family(paths) == 0
+
+
+def test_saved_tables_with_nothing_measured_exit_as_a_gate_that_did_not_run(tmp_path: Path) -> None:
+    """A wholly refused run is saved without a draws column, since no row was ever drawn."""
+    path = tmp_path / "refused.parquet"
+    family_rows(refused="dense").to_parquet(path, index=False)
+    assert read_family([path]) == campaign_null.NO_NULL_AVAILABLE
+
+
+def test_a_wholly_refused_table_beside_a_measured_one_still_reads(tmp_path: Path) -> None:
+    paths = [tmp_path / "refused.parquet", tmp_path / "measured.parquet"]
+    family_rows(refused="dense", strategy="DeadCatBounce").to_parquet(paths[0], index=False)
+    drawn_rows().to_parquet(paths[1], index=False)
+    assert read_family(paths) == 0
+
+
+def test_a_null_with_no_spread_leaves_its_test_out_and_the_rest_in() -> None:
+    """One degenerate configuration must not cost a family read that took hours to measure."""
+    rows = with_draws(drawn_rows(), 1, np.ones(NOISE_DRAWS))
+    widened = family_wise(rows)
+    assert pd.isna(widened.loc[1, campaign_null.FAMILY_P])
+    assert widened[campaign_null.FAMILY_P].drop(index=1).notna().all()
+    assert "the best of 3 tests" in family_headline(widened)
+
+
+def test_a_family_mixing_test_windows_is_refused() -> None:
+    with pytest.raises(RuntimeError, match=r"tested on .* different questions and not one family"):
+        family_wise(drawn_rows(test_window=["holdout", "holdout", "full", "holdout"]))
+
+
+def test_a_family_mixing_ranking_windows_is_refused() -> None:
+    with pytest.raises(RuntimeError, match=r"ranked on .* different questions and not one family"):
+        family_wise(drawn_rows(ranked_on=["selection", "full", "selection", "selection"]))
+
+
+def test_a_family_read_with_every_test_left_out_exits_as_a_gate_that_did_not_run(tmp_path: Path) -> None:
+    path = tmp_path / "flat.parquet"
+    flat = drawn_rows()
+    for row in range(len(flat)):
+        flat = with_draws(flat, row, np.ones(NOISE_DRAWS))
+    flat.to_parquet(path, index=False)
+    assert read_family([path]) == campaign_null.NO_NULL_AVAILABLE
+
+
+def test_the_headline_names_which_p_is_one_sided_and_which_two_sided() -> None:
+    """The per-test p is two-sided and the family-wise one one-sided, so the second can be the smaller."""
+    headline = family_headline(family_wise(drawn_rows()))
+    assert "one-sided family-wise p" in headline
+    assert "its own two-sided p" in headline
+
+
+def test_ties_at_the_floor_name_the_largest_excess_whatever_the_row_order() -> None:
+    widened = family_wise(drawn_rows(profit_factor=[9.0, 8.0, 0.9, 1.1]))
+    assert widened[campaign_null.FAMILY_P].iloc[0] == widened[campaign_null.FAMILY_P].iloc[1]
+    assert family_headline(widened) == family_headline(widened.iloc[::-1])
+    assert "MNQ phase=MIDDAY a," in family_headline(widened)
+
+
+@pytest.mark.parametrize("option", ["--root", "--stratum"])
+def test_a_cell_named_twice_is_refused_before_anything_is_measured(option: str) -> None:
+    with pytest.raises(SystemExit) as refused:
+        campaign_null.main(["campaign_null.py", "--strategy", "EmaPullback", option, "MNQ", "MNQ"])
+    assert refused.value.code == 2
+
+
+@pytest.mark.parametrize("extra", [["--strategy", "EmaPullback"], ["--out", "x.parquet"]])
+def test_the_family_read_refuses_the_options_it_would_ignore(extra: list[str]) -> None:
+    with pytest.raises(SystemExit) as refused:
+        campaign_null.main(["campaign_null.py", "--family-of", "a.parquet", *extra])
+    assert refused.value.code == 2
+
+
+def test_one_label_on_two_stored_rows_is_two_tests() -> None:
+    """A label names only what varied in its own run, so it cannot say whether two rows are one test."""
+    widened = family_wise(drawn_rows(label="a"))
+    assert widened[campaign_null.FAMILY_P].notna().all()
+
+
+def test_campaign_only_ranks_the_archetypes_own_campaign_variants(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A later set storing rows under the cell's stratum name must not reach its shortlist."""
+    asked: dict[str, object] = {}
+
+    def record(*shortlist_args: object) -> pd.DataFrame:
+        asked["variant"] = shortlist_args[7]
+
+        return pd.DataFrame()
+
+    monkeypatch.setattr(campaign_null, "shortlist", record)
+    monkeypatch.setattr(campaign_null, "measure", lambda *_a, **_k: pd.DataFrame())
+    args = argparse.Namespace(
+        strategy="EmaPullback",
+        window=["selection"],
+        test_window="holdout",
+        by="profit_factor",
+        top=10,
+        resolution=5,
+        variant=None,
+        campaign_only=True,
+        iterations=2,
+        n_jobs=1,
+        draw=randomentry.OVER_BARS,
+    )
+    campaign_null.cell(args, archetypes.EMAPULLBACK, "MNQ", "phase=MIDDAY")
+    assert asked["variant"] == campaign_variant_names("EmaPullback")
+
+
+def test_campaign_only_and_a_named_variant_are_refused_together() -> None:
+    with pytest.raises(SystemExit) as refused:
+        campaign_null.main(
+            ["campaign_null.py", "--strategy", "EmaPullback", "--campaign-only", "--variant", "stop=slow"]
+        )
+    assert refused.value.code == 2
+
+
+def test_the_family_read_needs_no_strategy_and_a_measured_run_does(tmp_path: Path) -> None:
+    path = tmp_path / "table.parquet"
+    drawn_rows().to_parquet(path, index=False)
+    assert campaign_null.main(["campaign_null.py", "--family-of", str(path)]) == 0
+    with pytest.raises(SystemExit) as refused:
+        campaign_null.main(["campaign_null.py"])
+    assert refused.value.code == 2
 
 
 # -- the bars a stored row was swept on ------------------------------------------------------
@@ -566,7 +869,16 @@ def measured_row(monkeypatch: pytest.MonkeyPatch, trades: int, net_pnl: float) -
     placed["max_drawdown"] = null_result("max_drawdown", 100.0, trades)
     monkeypatch.setattr(campaign_null, "rebuild", lambda *_: object())
     monkeypatch.setattr(randomentry, "compare", lambda *_a, **_k: placed)
-    row = pd.Series({"stratum": "unfiltered", "resolution": 5, NET_TO_DRAWDOWN: 1.0, "trades": 5})
+    row = pd.Series(
+        {
+            "stratum": "unfiltered",
+            "resolution": 5,
+            NET_TO_DRAWDOWN: 1.0,
+            "trades": 5,
+            "sweep_id": 1,
+            "combo_id": 0,
+        }
+    )
 
     return measure_row(row, object(), object(), "MNQ", "a", 2, 1)  # type: ignore[arg-type]  # rebuild and compare are stubbed
 

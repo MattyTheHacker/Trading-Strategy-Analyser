@@ -677,3 +677,121 @@ def test_the_refusal_survives_the_parallel_path_as_the_same_exception(
                 iterations=2,
                 n_jobs=jobs,
             )
+
+
+# -- the draws kept, and the family-wise null over them --------------------------
+
+
+def test_every_draw_is_kept_in_seed_order_beside_the_summary(prepared: Prepared) -> None:
+    """The draws are the null's own rows, non-finite ones included, so two results can line up."""
+    data, params, _ = prepared
+    got = randomentry.compare(data, params, instrument=NQ, iterations=20, seed=3)
+    null = randomentry.null_summaries(data, params, instrument=NQ, iterations=20, seed=3)
+    for name, result in got.items():
+        assert np.array_equal(result.draws, null[name].to_numpy(dtype=float), equal_nan=True)
+
+
+def test_the_report_leaves_the_draws_out(prepared: Prepared) -> None:
+    data, params, _ = prepared
+    got = randomentry.compare(data, params, instrument=NQ, iterations=20)
+    assert "draws" not in randomentry.report(got).columns
+    assert "draws" not in next(iter(got.values())).as_dict()
+
+
+SPREAD_DRAWS = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+"""Median 3 and a median absolute deviation of 1, so the robust spread is the scale alone."""
+
+
+def test_the_excess_is_measured_from_the_null_median_in_robust_spreads() -> None:
+    observed, draws = randomentry.standardised_excess(6.0, SPREAD_DRAWS)
+    assert observed == pytest.approx(3.0 / randomentry.ROBUST_SPREAD_SCALE)
+    assert draws == pytest.approx((SPREAD_DRAWS - 3.0) / randomentry.ROBUST_SPREAD_SCALE)
+
+
+def test_the_excess_is_the_same_whatever_scale_and_level_the_statistic_has() -> None:
+    """What makes two cells' tests comparable: a null twice as wide halves the same excess."""
+    observed, draws = randomentry.standardised_excess(6.0, SPREAD_DRAWS)
+    moved, moved_draws = randomentry.standardised_excess(6.0 * 4.0 + 7.0, SPREAD_DRAWS * 4.0 + 7.0)
+    assert moved == pytest.approx(observed)
+    assert moved_draws == pytest.approx(draws)
+
+
+def test_a_non_finite_draw_keeps_its_place_without_moving_the_centre_or_the_spread() -> None:
+    with_gaps = np.array([*SPREAD_DRAWS, np.inf, np.nan])
+    observed, draws = randomentry.standardised_excess(6.0, with_gaps)
+    assert observed == pytest.approx(randomentry.standardised_excess(6.0, SPREAD_DRAWS)[0])
+    assert draws[-2] == np.inf
+    assert np.isnan(draws[-1])
+
+
+def test_a_null_with_too_few_finite_draws_is_refused() -> None:
+    with pytest.raises(randomentry.RandomEntryError, match="only 1 of 3 null draws are finite"):
+        randomentry.standardised_excess(1.0, np.array([1.0, np.nan, np.inf]))
+
+
+def test_a_null_with_no_spread_is_refused_rather_than_divided_by() -> None:
+    with pytest.raises(randomentry.RandomEntryError, match="no spread to standardise by"):
+        randomentry.standardised_excess(1.0, np.array([2.0, 2.0, 2.0, 5.0]))
+
+
+def test_a_family_of_one_is_the_one_sided_p_with_the_add_one_correction() -> None:
+    draws = np.arange(10.0)
+    family_p = randomentry.family_wise_p(np.array([7.5]), draws[np.newaxis, :])
+    assert family_p == pytest.approx([(2 + 1) / (10 + 1)])
+
+
+def test_adding_a_test_never_lowers_any_other_tests_family_wise_p() -> None:
+    rng = np.random.default_rng(5)
+    draws = rng.normal(size=(3, 50))
+    observed = np.array([1.5, 0.5, 2.5])
+    alone = randomentry.family_wise_p(observed, draws)
+    added = rng.normal(1.0, size=50)
+    widened = randomentry.family_wise_p(np.append(observed, 0.0), np.vstack([draws, added]))
+    assert np.all(widened[:3] >= alone)
+    assert np.any(widened[:3] > alone)
+
+
+def test_an_observation_above_every_draw_of_every_test_reaches_the_floor() -> None:
+    draws = np.arange(20.0).reshape(2, 10)
+    assert randomentry.family_wise_p(np.array([100.0, 0.0]), draws)[0] == pytest.approx(1 / 11)
+
+
+def test_an_infinite_draw_counts_against_every_observation() -> None:
+    """A draw with no losing trade beats anything, which keeps the family-wise p conservative."""
+    draws = np.array([[0.0, 0.0, np.inf], [0.0, 0.0, 0.0]])
+    assert randomentry.family_wise_p(np.array([50.0, 50.0]), draws) == pytest.approx([2 / 4, 2 / 4])
+
+
+def test_a_draw_undefined_for_one_test_is_not_its_best_and_one_undefined_for_all_is_dropped() -> None:
+    draws = np.array([[np.nan, 1.0, 1.0, np.nan], [5.0, 0.0, 0.0, np.nan]])
+    family_p = randomentry.family_wise_p(np.array([2.0, 2.0]), draws)
+    assert family_p == pytest.approx([(1 + 1) / (3 + 1), (1 + 1) / (3 + 1)])
+
+
+def test_draws_that_do_not_match_the_observations_are_refused() -> None:
+    with pytest.raises(randomentry.RandomEntryError, match="2 observations need one row of draws each"):
+        randomentry.family_wise_p(np.array([1.0, 2.0]), np.zeros((3, 10)))
+
+
+def test_a_family_with_fewer_than_two_defined_draws_is_refused() -> None:
+    with pytest.raises(randomentry.RandomEntryError, match="only 1 draws are defined"):
+        randomentry.family_wise_p(np.array([1.0]), np.array([[1.0, np.nan]]))
+
+
+def test_on_noise_the_family_wise_p_clears_about_as_often_as_its_level_and_the_raw_p_does_not() -> None:
+    """The multiple-comparisons machine it exists to stop, measured on families with no signal.
+
+    Twenty tests per family, each observation drawn from its own null: the best raw p clears
+    0.05 in most families, the family-wise p in about one in twenty.
+    """
+    rng = np.random.default_rng(11)
+    families, tests, iterations = 400, 20, 199
+    cleared_raw = cleared_family = 0
+    for _ in range(families):
+        draws = rng.normal(size=(tests, iterations))
+        observed = rng.normal(size=tests)
+        raw_p = ((draws >= observed[:, np.newaxis]).sum(axis=1) + 1) / (iterations + 1)
+        cleared_raw += int(raw_p.min() < randomentry.DEFAULT_ALPHA)
+        cleared_family += int(randomentry.family_wise_p(observed, draws).min() < randomentry.DEFAULT_ALPHA)
+    assert cleared_raw / families > 0.5
+    assert 0.01 < cleared_family / families < 0.1

@@ -13,6 +13,7 @@ import pytest
 
 from nqbt import archetypes
 from nqbt.sim.types import DeadCatParams, OpeningRangeParams
+from tools import campaign_crossread
 from tools.campaign_crossread import (
     CELL_KEYS,
     MISSING,
@@ -27,6 +28,7 @@ from tools.campaign_crossread import (
     ran_at,
 )
 from tools.campaign_report import TAGS, UNFILTERED
+from tools.campaign_sweep import campaign_variant_names
 
 
 def rows(**columns: object) -> pd.DataFrame:
@@ -453,3 +455,28 @@ def test_the_default_scoring_path_is_unchanged_by_the_variant_option() -> None:
 
     assert agreement(block).equals(agreement(block, by_variant=False))
     assert "variant" not in agreement(block).columns
+
+
+def test_campaign_only_pools_each_archetypes_own_campaign_variants(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pooled like the shared-arms default, so a cell means what it meant before later sets were stored."""
+    asked: list[tuple[str, set[str] | None, bool]] = []
+
+    def record(name: str, variants: set[str] | None = None, *, by_variant: bool = False) -> pd.DataFrame:
+        asked.append((name, variants, by_variant))
+
+        return pd.DataFrame()
+
+    monkeypatch.setattr(campaign_crossread, "per_window", record)
+    campaign_crossread.main(
+        ["campaign_crossread.py", "--strategies", "EmaPullback", "OpeningRange", "--campaign-only"]
+    )
+    assert asked == [
+        ("EmaPullback", set(campaign_variant_names("EmaPullback")), False),
+        ("OpeningRange", set(campaign_variant_names("OpeningRange")), False),
+    ]
+
+
+def test_campaign_only_and_named_variants_are_refused_together() -> None:
+    with pytest.raises(SystemExit) as refused:
+        campaign_crossread.main(["campaign_crossread.py", "--campaign-only", "--variant", "stop=slow"])
+    assert refused.value.code == 2
