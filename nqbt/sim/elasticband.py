@@ -12,10 +12,11 @@ from typing import TYPE_CHECKING, NamedTuple
 import numpy as np
 from numba import njit
 
-from nqbt import conditions, indicators, trades
+from nqbt import conditions, indicators, noise, trades
 from nqbt.instruments import MNQ, Instrument
 from nqbt.sim import bracket, filters
 from nqbt.sim.types import (
+    BAND_NOISE,
     BAND_VWAP,
     SHAPE_ANY,
     SHAPE_RECLAIM,
@@ -44,6 +45,20 @@ NO_ATR = np.zeros(0, dtype=np.float64)
 Numba needs an array of the right dtype whether or not the branch reading it runs.
 """
 
+NO_SERIES = NO_ATR
+"""Stand-in for a noise-trail series while the trail is off, which the loop never indexes."""
+
+
+def _read_only(flags: BoolArray) -> BoolArray:
+    """Return ``flags`` locked, as the dataset's shared gates are, so numba types every flag alike."""
+    flags.flags.writeable = False
+
+    return flags
+
+
+NO_FLAGS = _read_only(np.zeros(0, dtype=np.bool_))
+"""Stand-in for a per-bar flag while the exit reading it is off, which the loop never indexes."""
+
 
 class BandSeries(NamedTuple):
     """The derived per-bar series this archetype reads, beyond the OHLC in :class:`bracket.Bars`.
@@ -56,6 +71,15 @@ class BandSeries(NamedTuple):
     excursion_extreme: FloatArray
     atr: FloatArray
     """Empty outside :data:`STOP_ATR`, where the loop never indexes it."""
+    upper_anchor: FloatArray = NO_SERIES
+    lower_anchor: FloatArray = NO_SERIES
+    width: FloatArray = NO_SERIES
+    vwap: FloatArray = NO_SERIES
+    """The noise area and the VWAP from the cash open the noise trail reads; empty while it is off."""
+    decides: BoolArray = NO_FLAGS
+    """Bars whose close the noise trail is decided on; empty while it is off."""
+    cash_closed: BoolArray = NO_FLAGS
+    """Bars closing at or after the cash close; empty while that exit is off."""
 
 
 class ElasticBandRules(NamedTuple):
@@ -79,6 +103,8 @@ class ElasticBandRules(NamedTuple):
     early_exit: bracket.EarlyExit = bracket.EARLY_EXIT_OFF
     breakeven: bracket.Breakeven = bracket.BREAKEVEN_OFF
     stop_tightening: bracket.StopTightening = bracket.STOP_TIGHTENING_OFF
+    noise_trail_exit: bool = False
+    exit_at_cash_close: bool = False
 
 
 @njit(cache=True)
@@ -156,6 +182,31 @@ def _protective_stop(
         return basis - direction * level * stddev
 
     return fill - direction * rules.catastrophe_distance
+
+
+@njit(cache=True)
+def noise_trail_level(band: BandSeries, i: int, direction: float, entry_std: float) -> float:
+    """Return where a position on ``direction``'s side leaves when a decided close falls back past it.
+
+    The noise area's edge at ``entry_std`` or the VWAP from the cash open, whichever is nearer, and
+    either alone where the other is missing -- ``docs/nt8-fidelity.md``, "The noise area".
+    """
+    if direction > 0.0:
+        edge = float(band.upper_anchor[i] * (1.0 + entry_std * band.width[i]))
+    else:
+        edge = float(band.lower_anchor[i] * (1.0 - entry_std * band.width[i]))
+
+    vwap = float(band.vwap[i])
+    if np.isnan(edge):
+        return vwap
+
+    if np.isnan(vwap):
+        return edge
+
+    if direction > 0.0:
+        return max(edge, vwap)
+
+    return min(edge, vwap)
 
 
 @njit(cache=True)
@@ -351,7 +402,23 @@ def simulate_elasticband(  # noqa: C901, PLR0912, PLR0915 - one branch per rule,
             pending_exit = True
             pending_exit_reason = trades.EXIT_SIGNAL
 
-        # After the invalidation, which would have closed the position on this bar anyway.
+        if in_position and not pending_exit and rules.exit_at_cash_close and band.cash_closed[i]:
+            # The clock's exit, ahead of the trail on its bar, so it counts wherever the session
+            # close's share is read.
+            pending_exit = True
+            pending_exit_reason = trades.EXIT_SESSION_CLOSE
+
+        if (
+            in_position
+            and not pending_exit
+            and rules.noise_trail_exit
+            and band.decides[i]
+            and d * (bars.close[i] - noise_trail_level(band, i, d, rules.entry_std)) < 0.0
+        ):
+            pending_exit = True
+            pending_exit_reason = trades.EXIT_SIGNAL
+
+        # After the archetype's own exits, which would have closed the position on this bar anyway.
         if in_position and not pending_exit:
             pending_exit_reason = bracket.market_exit_reason(
                 trade, bars, excursion, i, rules.max_hold_bars, rules.early_exit
@@ -419,10 +486,16 @@ def against_lagged_band(
 def band_series(data: Dataset, params: ElasticBandParams) -> tuple[FloatArray, FloatArray, FloatArray]:
     """Return the basis, dispersion and extension this combination reads, at its band lag.
 
-    One coordinate system, two windows: a rolling ``band_period`` under :data:`BAND_BOLLINGER`
-    and the session so far under :data:`BAND_VWAP`. The lag moves the band and never the close
-    -- ``docs/nt8-fidelity.md`` §M26.
+    One coordinate system, three windows: a rolling ``band_period`` under :data:`BAND_BOLLINGER`,
+    the session so far under :data:`BAND_VWAP` and the noise area's prior sessions under
+    :data:`BAND_NOISE`, whose basis is the anchor the close is nearer. The lag moves the band and
+    never the close -- ``docs/nt8-fidelity.md`` §M26.
     """
+    if params.band_source == BAND_NOISE:
+        band: noise.NoiseBand = data.noise_band(params.noise_lookback_sessions)
+
+        return band.basis, band.stddev, band.stretch
+
     if params.band_source == BAND_VWAP:
         basis, stddev, stretch = data.vwap_band_basis(), data.vwap_band_stddev(), data.vwap_band_stretch()
     else:
@@ -463,10 +536,23 @@ def trade_direction(stretch: FloatArray, params: ElasticBandParams) -> FloatArra
     return followed
 
 
+def bar_side(data: Dataset, params: ElasticBandParams, stretch: FloatArray) -> FloatArray:
+    """Return what each bar's side is read off: its extension, or the close against the noise area's midpoint.
+
+    Between the noise area's anchors a close has no extension, and the random-entry arm draws such
+    bars, so their side comes from the close against the anchors' midpoint --
+    ``docs/nt8-fidelity.md``, "The noise area".
+    """
+    if params.band_source != BAND_NOISE:
+        return stretch
+
+    return data.noise_band(params.noise_lookback_sessions).side
+
+
 def elasticband_long_side(data: Dataset, params: ElasticBandParams) -> BoolArray:
     """Return the bars one combination would enter long: below the basis for a fade, above it inverted."""
     _, _, stretch = band_series(data, params)
-    long_side: BoolArray = trade_direction(stretch, params) == trades.LONG
+    long_side: BoolArray = trade_direction(bar_side(data, params, stretch), params) == trades.LONG
 
     return long_side
 
@@ -616,6 +702,15 @@ def elasticband_signal(data: Dataset, params: ElasticBandParams) -> BoolArray:
     if params.band_source == BAND_VWAP:
         signal &= vwap_band_warmed_up(data, params)
 
+    if params.band_source == BAND_NOISE:
+        signal &= data.closes_by(noise.LAST_ENTRY_MINUTES)
+
+    if params.check_every_minutes:
+        signal &= data.closes_every(params.check_every_minutes)
+
+    if params.exit_at_cash_close:
+        signal &= data.closes_by(noise.CASH_CLOSE_MINUTES - 1)
+
     if params.signal_shape != SHAPE_ANY:
         signal &= signal_bar_shape(data, direction, params)
 
@@ -624,6 +719,44 @@ def elasticband_signal(data: Dataset, params: ElasticBandParams) -> BoolArray:
         signal &= counted >= params.min_one_sided_bars
 
     return filters.apply_context_filters(signal, data, params, lambda: elasticband_long_side(data, params))
+
+
+def band_series_for(
+    data: Dataset,
+    params: ElasticBandParams,
+    basis: FloatArray,
+    stddev: FloatArray,
+    extremes: FloatArray,
+    atr: FloatArray,
+) -> BandSeries:
+    """Return the per-bar series the loop reads, with the noise trail's and the cash close's only where on."""
+    cash_closed: BoolArray = (
+        data.closes_from(noise.CASH_CLOSE_MINUTES) if params.exit_at_cash_close else NO_FLAGS
+    )
+    if not params.noise_trail_exit:
+        return BandSeries(
+            basis=basis, stddev=stddev, excursion_extreme=extremes, atr=atr, cash_closed=cash_closed
+        )
+
+    band: noise.NoiseBand = data.noise_band(params.noise_lookback_sessions)
+    decides: BoolArray = (
+        data.closes_every(params.check_every_minutes)
+        if params.check_every_minutes
+        else _read_only(np.ones(len(data), dtype=np.bool_))
+    )
+
+    return BandSeries(
+        basis=basis,
+        stddev=stddev,
+        excursion_extreme=extremes,
+        atr=atr,
+        upper_anchor=band.upper_anchor,
+        lower_anchor=band.lower_anchor,
+        width=band.width,
+        vwap=data.noise_vwap(),
+        decides=decides,
+        cash_closed=cash_closed,
+    )
 
 
 def elasticband_legs(
@@ -639,7 +772,7 @@ def elasticband_legs(
     is *not* overridden, so a drawn bar is traded on whichever side its stretch puts it.
     """
     basis, stddev, stretch = band_series(data, params)
-    direction_at: FloatArray = trade_direction(stretch, params)
+    direction_at: FloatArray = trade_direction(bar_side(data, params, stretch), params)
     extremes: FloatArray = run_extreme(
         data.low,
         data.high,
@@ -661,7 +794,7 @@ def elasticband_legs(
         bracket.Bars(data.open, data.high, data.low, data.close, data.force_flat),
         signal,
         direction_at,
-        BandSeries(basis=basis, stddev=stddev, excursion_extreme=extremes, atr=atr),
+        band_series_for(data, params, basis, stddev, extremes, atr),
         sizing,
         levels,
         bracket.Costs(
@@ -694,6 +827,8 @@ def elasticband_legs(
             early_exit=filters.early_exit(data, params),
             breakeven=filters.breakeven(data, params),
             stop_tightening=filters.stop_tightening(data, params),
+            noise_trail_exit=params.noise_trail_exit,
+            exit_at_cash_close=params.exit_at_cash_close,
         ),
         out,
     )

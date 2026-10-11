@@ -45,7 +45,9 @@ __all__ = [
     "gate",
     "key",
     "label",
+    "read_back",
     "relative_to_bar_of_session",
+    "session_grid",
     "session_ids",
     "states_in",
     "states_mask",
@@ -388,7 +390,7 @@ def _median_of(buffer: FloatArray, held: int) -> float:
 
 
 @njit(cache=True)
-def _session_grid(
+def session_grid(
     values: FloatArray,
     session_id: IntArray,
     bar_of_session: IntArray,
@@ -436,7 +438,7 @@ def _trailing_medians(grid: FloatArray, window: int, min_observations: int) -> F
 
 
 @njit(cache=True)
-def _gather(medians: FloatArray, session_id: IntArray, bar_of_session: IntArray) -> FloatArray:
+def read_back(medians: FloatArray, session_id: IntArray, bar_of_session: IntArray) -> FloatArray:
     """Read one value per bar back out of a ``[session, bar of session]`` layout."""
     n_indices = medians.shape[1]
     out = np.full(session_id.size, np.nan, dtype=np.float64)
@@ -547,10 +549,10 @@ def relative_to_bar_of_session(
     if n_sessions == 0 or n_indices == 0:
         return np.full(values.size, np.nan, dtype=np.float64)
 
-    grid: FloatArray = _session_grid(values, sessions, indices, n_sessions, n_indices)
+    grid: FloatArray = session_grid(values, sessions, indices, n_sessions, n_indices)
     medians: FloatArray = _trailing_medians(grid, int(baseline_sessions), int(min_observations))
 
-    return _ratio(values, _gather(medians, sessions, indices))
+    return _ratio(values, read_back(medians, sessions, indices))
 
 
 def label(relative: FloatArray, thin_below: float, heavy_above: float) -> LabelArray:

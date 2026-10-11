@@ -28,6 +28,7 @@ from nqbt import (
     context,
     higher_timeframe,
     logsetup,
+    noise,
     paths,
     regime,
     resample,
@@ -52,6 +53,7 @@ from nqbt.sim.bracket import (
 )
 from nqbt.sim.types import (
     BAND_BOLLINGER,
+    BAND_NOISE,
     BAND_VWAP,
     EARLINESS_FIRST_BREAKOUT,
     EARLINESS_SMA_EXTENSION,
@@ -181,6 +183,7 @@ ELASTIC_CHANNEL = "elastic-channel"
 ELASTIC_RECOVERY = "elastic-recovery"
 ELASTIC_BAND_STOP = "elastic-band-stop"
 ELASTIC_INVERT = "elastic-invert"
+ELASTIC_NOISE = "elastic-noise"
 EMAPULLBACK_TRAIL = "emapullback-trail"
 EMAPULLBACK_MA_TRAIL = "emapullback-ma-trail"
 EMAPULLBACK_CONFIRM = "emapullback-confirm"
@@ -478,6 +481,7 @@ STRATUM_SETS: dict[str, tuple[str, ...]] = {
     ELASTIC_RECOVERY: (UNFILTERED,),
     ELASTIC_BAND_STOP: (UNFILTERED,),
     ELASTIC_INVERT: EVERY_DIMENSION,
+    ELASTIC_NOISE: EVERY_DIMENSION,
     EMAPULLBACK_TRAIL: EVERY_DIMENSION,
     EMAPULLBACK_MA_TRAIL: EVERY_DIMENSION,
     EMAPULLBACK_CONFIRM: EVERY_DIMENSION,
@@ -782,6 +786,13 @@ ELASTIC_TARGET_R = "target=R"
 """The name token of an ElasticBand variant on R targets, which runs the default R ladder."""
 
 
+ELASTIC_RUNNER = "target=runner"
+"""One leg and no target, which the noise area's momentum arms hold. Kept out of
+:data:`ELASTIC_LADDERS`, which earlier sets iterate."""
+
+ELASTIC_RUNNER_LADDER: tuple[float, ...] = (NAN,)
+
+
 def elastic_ladder(variant: str) -> tuple[float, ...]:
     """Return the target ladder a stored ElasticBand variant name carries.
 
@@ -792,7 +803,13 @@ def elastic_ladder(variant: str) -> tuple[float, ...]:
         if token in ELASTIC_LADDERS:
             return ELASTIC_LADDERS[token]
 
-    msg = f"no target ladder in the ElasticBand variant name {variant!r}; known: {sorted(ELASTIC_LADDERS)}"
+        if token == ELASTIC_RUNNER:
+            return ELASTIC_RUNNER_LADDER
+
+    msg = (
+        f"no target ladder in the ElasticBand variant name {variant!r}; "
+        f"known: {sorted([*ELASTIC_LADDERS, ELASTIC_RUNNER])}"
+    )
     raise KeyError(msg)
 
 
@@ -1759,6 +1776,85 @@ ELASTIC_INVERT_VARIANTS: VariantBuilders = {"ElasticBand": elasticband_invert_va
 """The §M26.7 run: the inverted signal against the fade on the same bars, in every stratum. The
 names carry an ``invert=`` token no stored ElasticBand row carries --
 ``docs/findings/m26-7-inverted-signal-preregistration.md``."""
+
+NOISE_CHECK_MINUTES = noise.DECISION_MINUTES
+"""The noise area's decision cadence: the closes on the half hour."""
+
+
+def decision_resolutions(resolutions: Sequence[int]) -> tuple[int, ...]:
+    """Return the bar sizes whose closes land on every decision, so a run asked for another skips it."""
+    return tuple(minutes for minutes in resolutions if NOISE_CHECK_MINUTES % minutes == 0)
+
+
+NOISE_RESOLUTIONS = decision_resolutions(RESOLUTIONS)
+"""Every campaign bar size, since each divides the half hour."""
+
+
+class NoiseArm(NamedTuple):
+    """One §M57 arm: the side traded, the decision cadence, the trail and the legs' targets."""
+
+    invert: bool
+    check_every_minutes: int
+    trail: bool
+    targets: tuple[float, ...]
+
+
+ELASTIC_NOISE_ARMS: dict[str, NoiseArm] = {
+    f"noise=rule {ELASTIC_RUNNER}": NoiseArm(
+        invert=True, check_every_minutes=NOISE_CHECK_MINUTES, trail=True, targets=ELASTIC_RUNNER_LADDER
+    ),
+    f"noise=every-bar {ELASTIC_RUNNER}": NoiseArm(
+        invert=True, check_every_minutes=0, trail=True, targets=ELASTIC_RUNNER_LADDER
+    ),
+    f"noise=no-trail {ELASTIC_RUNNER}": NoiseArm(
+        invert=True, check_every_minutes=NOISE_CHECK_MINUTES, trail=False, targets=ELASTIC_RUNNER_LADDER
+    ),
+    "noise=fade target=0.0s": NoiseArm(
+        invert=False,
+        check_every_minutes=NOISE_CHECK_MINUTES,
+        trail=False,
+        targets=ELASTIC_LADDERS["target=0.0s"],
+    ),
+}
+"""The full rule, each of its two timing pieces taken away, and the same bars faded towards the
+nearer anchor -- ``docs/findings/m57-noise-area-preregistration.md``."""
+
+ELASTIC_NOISE_AXES: dict[str, list[AxisValue]] = {
+    "entry_std": [1.0, 1.5, 2.0],
+    "exit_at_cash_close": [False, True],
+    "stop_mode": [STOP_CATASTROPHE, STOP_ATR],
+}
+"""12 combinations in every arm: the band's multiple, flat at the cash close or the session close,
+and a stop that is an account limit or one in ATRs."""
+
+
+def elasticband_noise_variants(root: str) -> list[Variant]:
+    """Build §M57's run: the noise-area rule, two of its pieces removed, and its fade, on one grid."""
+    return [
+        Variant(
+            name=name,
+            archetype=archetypes.ELASTICBAND,
+            base=_costed(
+                ElasticBandParams(
+                    band_source=BAND_NOISE,
+                    invert_signal=arm.invert,
+                    check_every_minutes=arm.check_every_minutes,
+                    noise_trail_exit=arm.trail,
+                    target_mode=TARGET_STRETCH,
+                    target_stretch_levels=arm.targets,
+                ),
+                root,
+            ),
+            axes=dict(ELASTIC_NOISE_AXES),
+            resolutions=NOISE_RESOLUTIONS,
+        )
+        for name, arm in ELASTIC_NOISE_ARMS.items()
+    ]
+
+
+ELASTIC_NOISE_VARIANTS: VariantBuilders = {"ElasticBand": elasticband_noise_variants}
+"""The §M57 run, in every stratum. The names carry a ``noise=`` token no stored ElasticBand row
+carries -- ``docs/findings/m57-noise-area-preregistration.md``."""
 
 HOLD_BARS = (0, 5, 10, 20, 40, 80)
 """Maximum hold times in bars, ``0`` being the uncapped arm every stored campaign ran."""
@@ -2739,6 +2835,7 @@ VARIANT_SETS = {
     EARLY_EXIT_3,
     ELASTIC_BAND_STOP,
     ELASTIC_INVERT,
+    ELASTIC_NOISE,
     EMAPULLBACK_CONFIRM,
     EMAPULLBACK_MA_TRAIL,
     EMAPULLBACK_TRAIL,
@@ -2775,6 +2872,7 @@ def variants_for(which: str) -> VariantBuilders:
         EARLY_EXIT_3: EARLY_EXIT_3_VARIANTS,
         ELASTIC_BAND_STOP: ELASTIC_BAND_STOP_VARIANTS,
         ELASTIC_INVERT: ELASTIC_INVERT_VARIANTS,
+        ELASTIC_NOISE: ELASTIC_NOISE_VARIANTS,
         EMAPULLBACK_CONFIRM: EMAPULLBACK_CONFIRM_VARIANTS,
         EMAPULLBACK_MA_TRAIL: EMAPULLBACK_MA_TRAIL_VARIANTS,
         EMAPULLBACK_TRAIL: EMAPULLBACK_TRAIL_VARIANTS,
