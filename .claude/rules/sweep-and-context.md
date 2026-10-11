@@ -66,14 +66,15 @@ paths:
 - **Everything expensive is precomputed once in `prepare`; the sweep loop must stay cheap.**
   Never recompute an indicator inside a combination. Moving-average grids keep only the boolean
   gate unless `keep_values=True` — an order-of-magnitude difference in memory.
-- **A label gate is shared, so narrow a copy of it.** The phase, regime, volume, compression,
-  trend and higher-timeframe gates are built on the first read of their arguments and handed
-  read-only to every later reader (#407). A signal that ANDs into one in place raises rather
-  than corrupting the next combination's entry; `squeeze_signal` copies its squeeze for exactly
-  that. `nqbt/README.md` § "context.py".
-- **`phase_filter`, `regime_filter`, `volume_filter`, `trend_filter` and
+- **A label gate is shared, so narrow a copy of it.** The phase, slot, regime, volume,
+  compression, trend and higher-timeframe gates are built on the first read of their
+  arguments and handed read-only to every later reader (#407). A signal that ANDs into one in
+  place raises rather than corrupting the next combination's entry; `squeeze_signal` copies its
+  squeeze for exactly that. `nqbt/README.md` § "context.py".
+- **`phase_filter`, `slot_filter`, `regime_filter`, `volume_filter`, `trend_filter` and
   `higher_timeframe_filter` are bitmask ints so they are sweepable**, and each signal skips the
-  conjunction entirely at `ALL_PHASES`/`ALL_REGIMES`/`ALL_STATES`/`ALL_TRENDS`/`ALL_SIDES`.
+  conjunction entirely at
+  `ALL_PHASES`/`ALL_SLOTS`/`ALL_REGIMES`/`ALL_STATES`/`ALL_TRENDS`/`ALL_SIDES`.
   That is not an optimisation: an efficiency-ratio warm-up bar, a session with no volume
   baseline yet, a bar whose slope cannot be measured and a bar no coarse bar has closed before
   each pass *no* mask, so ANDing at the default would quietly drop them. A mask is therefore

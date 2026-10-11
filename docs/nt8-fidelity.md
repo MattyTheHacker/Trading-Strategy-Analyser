@@ -1372,6 +1372,23 @@ if (WithVwap && !(goingLong ? Close[0] >= vwap[0] : Close[0] <= vwap[0])) return
 
 None of the labels exists in NT8 (§M45), so a port of any of the three ports its label too.
 
+### Entries in one half-hour slot of the session
+
+**`slot_filter` narrows every archetype's entries to some of the session's 46 half-hour slots** (#439), counted from the 18:00 ET open, so slot 31 is 09:30–10:00 ET. It cuts the clock `phase_filter` cuts in seven, and is a bitmask like the phase's, so it is a sweep axis. **Off at `ALL_SLOTS`**, where the signal skips it entirely, so every NinjaScript as ported is unchanged, and a row using it is `TIER1_ONLY`. In EmaCrossover's confluence count it is one more active gate.
+
+**A bar belongs to the slot its body falls in**, by the minute it occupies rather than the minute it is stamped at, which is the phases' rule: the bar stamped 10:00 ET is the 09:30 slot's last. **Every phase boundary falls on a slot boundary**, so each phase is a run of whole slots and the phase gate is the slot gate over that run, at 1, 2, 5, 10 and 15 minutes and on both sides of a DST transition — `tests/test_session_slots.py` pins it.
+
+**A bar size that does not divide 30 minutes is refused**, because its bars straddle two slots and a slot would hold a span other than the one it is named for. Where every active gate has to pass, a slot mask with no slot inside the phases `phase_filter` admits is refused too, because it would trade nothing; under a confluence count the two are separate votes and either can admit a bar.
+
+**A port is the entry trading window InsideBarTrailing's NinjaScript already carries**, set to the slot's bounds in Eastern time — § "The entry trading window, and the zone it is measured in". Its start is exclusive and its end inclusive, which is the rule above; it reconciled leg for leg at 1 and 5 minutes, and its boundary agrees with the phase labels on every bar at all five campaign bar sizes. For `slot=0930`:
+
+```csharp
+EntryWindowStart = 93000;
+EntryWindowEnd = 100000;
+```
+
+Every other archetype's port takes the same two properties and the same test.
+
 ## Order lifetime and the session edge (#67)
 
 Four questions reflection could not answer, settled by `NqbtOrderLifetimeProbe.cs` rather than by a trade list — three of them are questions about **cancels**, and a Trades export carries only fills, so "cancelled the resting order" and "refused the second fill" are indistinguishable in one by construction. The probe places no bracket and writes its own `OnOrderUpdate` log. Eleven runs over `MNQ 03-24`, 1 minute, `2023-12-01` → `2024-03-15`, Standard fill resolution, zero costs; the outputs are kept in `verification/` and are machine-local (#91), and every figure below is reproduced by passing each run's events log to:

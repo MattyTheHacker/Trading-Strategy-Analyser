@@ -47,6 +47,7 @@ class ContextFilterParams(Protocol):
     """
 
     phase_filter: int
+    slot_filter: int
     regime_filter: int
     regime_lookback: int
     regime_consolidating_below: float
@@ -76,9 +77,20 @@ class ContextFilterParams(Protocol):
     with_vwap: bool
 
 
+@runtime_checkable
+class ConfluenceCounted(Protocol):
+    """A parameter class whose context gates may be counted rather than all required."""
+
+    confluence_required: int
+
+
 def validate_context_filters(params: ContextFilterParams) -> None:
     """Check every shared context-filter field, whatever its filter admits, raising on the first bad one."""
     timeofday.validate_mask(params.phase_filter)
+    timeofday.validate_slot_mask(params.slot_filter)
+    if not isinstance(params, ConfluenceCounted) or params.confluence_required == REQUIRE_ALL:
+        timeofday.validate_slots_in_phases(params.slot_filter, params.phase_filter)
+
     regime.validate_mask(params.regime_filter)
     regime.validate_lookback(params.regime_lookback)
     regime.validate_thresholds(params.regime_consolidating_below, params.regime_directional_above)
@@ -151,6 +163,7 @@ def active_context_filters(params: ContextFilterParams) -> int:
     return sum(
         (
             params.phase_filter != timeofday.ALL_PHASES,
+            params.slot_filter != timeofday.ALL_SLOTS,
             params.regime_filter != regime.ALL_REGIMES,
             params.volume_filter != volume.ALL_STATES,
             params.compression_filter != compression.ALL_STATES,
@@ -730,6 +743,11 @@ class DeadCatParams:
     default. Every context filter is absent from the NinjaScript -- ``nqbt/README.md``
     § "Context-filter fields"."""
 
+    slot_filter: int = timeofday.ALL_SLOTS
+    """Which half-hour slots of the session an entry may be taken in, as a :mod:`nqbt.timeofday`
+    slot bitmask; off by default -- ``docs/nt8-fidelity.md``, "Entries in one half-hour slot of
+    the session"."""
+
     regime_filter: int = regime.ALL_REGIMES
     """Which market regimes an entry may be taken in, as a :mod:`nqbt.regime` bitmask."""
 
@@ -1137,6 +1155,9 @@ class PullBackAndGoParams:
     phase_filter: int = timeofday.ALL_PHASES
     """Session phases an entry may be taken in -- see :attr:`DeadCatParams.phase_filter`."""
 
+    slot_filter: int = timeofday.ALL_SLOTS
+    """Half-hour slots an entry may be taken in -- see :attr:`DeadCatParams.slot_filter`."""
+
     regime_filter: int = regime.ALL_REGIMES
     """Market regimes an entry may be taken in -- see :attr:`DeadCatParams.regime_filter`."""
 
@@ -1392,6 +1413,9 @@ class EmaCrossoverParams:
 
     phase_filter: int = timeofday.ALL_PHASES
     """Session phases an entry may be taken in -- see :attr:`DeadCatParams.phase_filter`."""
+
+    slot_filter: int = timeofday.ALL_SLOTS
+    """Half-hour slots an entry may be taken in -- see :attr:`DeadCatParams.slot_filter`."""
 
     regime_filter: int = regime.ALL_REGIMES
     """Market regimes an entry may be taken in -- see :attr:`DeadCatParams.regime_filter`."""
@@ -1732,6 +1756,9 @@ class InsideBarParams:
 
     phase_filter: int = timeofday.ALL_PHASES
     """Session phases an entry may be taken in -- see :attr:`DeadCatParams.phase_filter`."""
+
+    slot_filter: int = timeofday.ALL_SLOTS
+    """Half-hour slots an entry may be taken in -- see :attr:`DeadCatParams.slot_filter`."""
 
     regime_filter: int = regime.ALL_REGIMES
     """Market regimes an entry may be taken in -- see :attr:`DeadCatParams.regime_filter`."""
@@ -2347,6 +2374,9 @@ class ElasticBandParams:
     phase_filter: int = timeofday.ALL_PHASES
     """Session phases an entry may be taken in -- see :attr:`DeadCatParams.phase_filter`."""
 
+    slot_filter: int = timeofday.ALL_SLOTS
+    """Half-hour slots an entry may be taken in -- see :attr:`DeadCatParams.slot_filter`."""
+
     regime_filter: int = regime.ALL_REGIMES
     """Market regimes an entry may be taken in -- see :attr:`DeadCatParams.regime_filter`."""
 
@@ -2850,6 +2880,9 @@ class OpeningRangeParams:
     phase_filter: int = timeofday.ALL_PHASES
     """Session phases an entry may be taken in -- see :attr:`DeadCatParams.phase_filter`."""
 
+    slot_filter: int = timeofday.ALL_SLOTS
+    """Half-hour slots an entry may be taken in -- see :attr:`DeadCatParams.slot_filter`."""
+
     regime_filter: int = regime.ALL_REGIMES
     """Market regimes an entry may be taken in -- see :attr:`DeadCatParams.regime_filter`."""
 
@@ -3285,6 +3318,9 @@ class EmaPullbackParams:
     phase_filter: int = timeofday.ALL_PHASES
     """Session phases an entry may be taken in -- see :attr:`DeadCatParams.phase_filter`."""
 
+    slot_filter: int = timeofday.ALL_SLOTS
+    """Half-hour slots an entry may be taken in -- see :attr:`DeadCatParams.slot_filter`."""
+
     regime_filter: int = regime.ALL_REGIMES
     """Market regimes an entry may be taken in -- see :attr:`DeadCatParams.regime_filter`."""
 
@@ -3584,6 +3620,9 @@ class SqueezeBreakoutParams:
 
     phase_filter: int = timeofday.ALL_PHASES
     """Session phases an entry may be taken in -- see :attr:`DeadCatParams.phase_filter`."""
+
+    slot_filter: int = timeofday.ALL_SLOTS
+    """Half-hour slots an entry may be taken in -- see :attr:`DeadCatParams.slot_filter`."""
 
     regime_filter: int = regime.ALL_REGIMES
     """Market regimes an entry may be taken in -- see :attr:`DeadCatParams.regime_filter`."""

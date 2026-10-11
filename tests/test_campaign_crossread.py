@@ -233,6 +233,14 @@ def test_a_plain_cell_is_not_a_recut() -> None:
     assert not is_recut(UNFILTERED)
 
 
+def test_a_dimension_only_a_recut_group_writes_is_a_recut() -> None:
+    """The slots carry no ``@``, and running fewer variants than the plain strata is what re-cuts do."""
+    assert is_recut("slot=0930")
+    midday = rows(stratum="phase=MIDDAY", phase_filter=16)
+    slot = rows(stratum="slot=0930", slot_filter=1 << 31, variant="campaign-only")
+    assert common_variants(pd.concat([rows(), midday, slot], ignore_index=True)) == {"bracket"}
+
+
 # -- the counting rule ----------------------------------------------------------------------
 
 

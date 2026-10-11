@@ -1,7 +1,7 @@
 """The market-context filters every archetype's signal ends with.
 
-Session phase, market regime, relative volume, compression, the compact trend label and the
-side of a higher-timeframe average, ANDed onto every archetype's own conditions, and the trend,
+Session phase and half-hour slot, market regime, relative volume, compression, the compact trend
+label and the side of a higher-timeframe average, ANDed onto every archetype's own conditions, and the trend,
 the higher-timeframe side and the VWAP side required to point the trade's way. A gate at its
 everything value is skipped entirely -- ``nqbt/README.md`` § "sim/filters.py". The same step
 clears every signal before the dataset's first signal bar.
@@ -50,9 +50,10 @@ __all__ = [
 
 
 class ContextFiltered(Protocol):
-    """The parameters :func:`apply_context_filters` reads; declaring them gives an archetype all six."""
+    """The parameters :func:`apply_context_filters` reads; declaring them gives an archetype all seven."""
 
     phase_filter: int
+    slot_filter: int
     regime_filter: int
     regime_lookback: int
     regime_consolidating_below: float
@@ -144,6 +145,9 @@ def context_gates(
     gates: list[BoolArray] = []
     if params.phase_filter != timeofday.ALL_PHASES:
         gates.append(data.phase_gate(params.phase_filter))
+
+    if params.slot_filter != timeofday.ALL_SLOTS:
+        gates.append(data.slot_gate(params.slot_filter))
 
     if params.regime_filter != regime.ALL_REGIMES:
         gates.append(

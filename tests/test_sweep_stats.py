@@ -22,6 +22,7 @@ from nqbt import (
     sessions,
     stats,
     sweep,
+    timeofday,
     trades,
 )
 from nqbt import archetypes as registry
@@ -1449,6 +1450,22 @@ def test_a_type_that_does_give_the_value_back_still_inserts(db: Path) -> None:
     save(db, results_frame=whole)
     stored = results.query("SELECT atr_multiplier FROM combos ORDER BY sweep_id, combo_id", db)
     assert list(stored["atr_multiplier"]) == [5, 10, 20, 5, 10, 20]
+
+
+def test_a_slot_mask_past_32_bits_survives_the_widening(db: Path) -> None:
+    """The cash slots sit at bits 31 to 43, so a 32-bit column would lose every one of them."""
+    save(db)
+    slotted = fake_results()
+    slotted["slot_filter"] = [timeofday.ALL_SLOTS, timeofday.slot_bit(31), timeofday.slot_bit(43)]
+    save(db, results_frame=slotted)
+    stored = results.query("SELECT slot_filter FROM combos WHERE sweep_id = 2 ORDER BY combo_id", db)
+    assert list(stored["slot_filter"]) == [(1 << 46) - 1, 1 << 31, 1 << 43]
+    typed = results.query(
+        "SELECT data_type FROM information_schema.columns "
+        "WHERE table_name = 'combos' AND column_name = 'slot_filter'",
+        db,
+    )
+    assert list(typed["data_type"]) == ["BIGINT"]
 
 
 def test_a_column_named_like_a_sql_keyword_survives_the_widening(db: Path) -> None:

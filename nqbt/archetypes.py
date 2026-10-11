@@ -126,10 +126,11 @@ MA_GATE_PREFIXES = ("ema", "fast_sma", "slow_sma")
 
 
 def _needs_time_of_day(values: Mapping[str, Sequence[AxisValue]]) -> bool:
-    """Return whether any combination restricts its entries to some phases, or exits on leaving one."""
-    filters: bool = any(int(v) != timeofday.ALL_PHASES for v in values.get("phase_filter", ()))
+    """Return whether any combination narrows its entries by phase or slot, or exits on a phase change."""
+    phases: bool = any(int(v) != timeofday.ALL_PHASES for v in values.get("phase_filter", ()))
+    slots: bool = any(int(v) != timeofday.ALL_SLOTS for v in values.get("slot_filter", ()))
 
-    return filters or any(values.get("early_exit_on_phase_change", ()))
+    return phases or slots or any(values.get("early_exit_on_phase_change", ()))
 
 
 def _reads_vwap(values: Mapping[str, Sequence[AxisValue]]) -> bool:
