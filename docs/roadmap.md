@@ -754,6 +754,10 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 **Pre-registered, not yet run: the confluence count over the cash-open and midday phases and the trend, higher-timeframe and VWAP sides relative to the trade, in nine arms per stop — the control, each gate alone and at least one to all four — unfiltered at five bar sizes, read with §M37's paired bar over a family of 80 and gate 3 family-wise.** Pre-registered in [`docs/findings/m55-side-count-preregistration.md`](findings/m55-side-count-preregistration.md); the filters and their NinjaScript are [`nt8-fidelity.md`](nt8-fidelity.md), "Filters relative to the trade's side".
 
+### M56 — every archetype in half-hour slots of the cash session ([#439])
+
+**Pre-registered, not yet run: every archetype's campaign variants in the 13 half-hour slots from 09:30 to 16:00 ET, a stratum each, at 2, 5, 10 and 15 minutes; gates 1 and 2 per slot, and gate 3 on every slot clearing gate 2 on both roots, read family-wise with one family per archetype.** Pre-registered in [`docs/findings/m56-session-slots-preregistration.md`](findings/m56-session-slots-preregistration.md); the filter and its NinjaScript are [`nt8-fidelity.md`](nt8-fidelity.md), "Entries in one half-hour slot of the session".
+
 ### Do the shortlists travel? ([#330])
 
 **Most of what a shortlist loses is selection rather than instrument — the drop from selection window to own holdout is two to five times the further drop to a market never seen — and the two inside-bar archetypes travel with almost no additional cost, while nothing clears a profit factor of 1.1 anywhere.** Moved to [`docs/findings/cross-root-transfer.md`](findings/cross-root-transfer.md).
