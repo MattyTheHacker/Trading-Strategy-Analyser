@@ -528,6 +528,10 @@ class RecordingGates:
         """Return a new mask for one gate, recording the build."""
         return self.gate_for(*args)
 
+    def slot_gate(self, *args: object) -> BoolArray:
+        """Return a new mask for one slot gate, recording the build."""
+        return self.gate_for(*args)
+
     def gate_for(self, *args: object) -> BoolArray:
         """Return a new mask for one label grid, recording the build."""
         self.built.append(args)
@@ -546,6 +550,7 @@ def recorded() -> tuple[context.Dataset, RecordingGates]:
 
 LABEL_GATES = {
     "phase_gate": ((1,), (2,)),
+    "slot_gate": ((1,), (2,)),
     "regime_gate": ((20, 1, 0.3, 0.6), (10, 2, 0.2, 0.7)),
     "volume_gate": (("per-bar", 1, 0.7, 1.3), ("rolling", 2, 0.6, 1.5)),
     "compression_gate": (("bandwidth", 1, 0.2, 0.8), ("range", 2, 0.1, 0.9)),
@@ -582,6 +587,14 @@ def test_two_gates_read_with_the_same_arguments_are_still_two_gates() -> None:
         getattr(data, method)("same", 1, 0.3, 0.6)
 
     assert len(gates.built) == 3
+
+
+def test_a_phase_mask_and_a_slot_mask_of_the_same_value_are_two_gates() -> None:
+    data, gates = recorded()
+    data.phase_gate(1)
+    data.slot_gate(1)
+
+    assert len(gates.built) == 2
 
 
 @pytest.mark.parametrize("method", LABEL_GATES)

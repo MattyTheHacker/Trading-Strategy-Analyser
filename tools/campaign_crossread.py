@@ -12,6 +12,7 @@ import argparse
 import logging
 import sys
 from dataclasses import fields
+from functools import cache
 from pathlib import Path
 
 import pandas as pd
@@ -22,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from nqbt import archetypes, logsetup, volume
 from tools.campaign_report import UNFILTERED, dimension_of, load, parameter_columns
 from tools.campaign_sweep import (
+    EVERY_DIMENSION,
     STRATUM_GROUPS,
     VARIANTS,
     Calibration,
@@ -103,13 +105,22 @@ def pairing_columns(frame: pd.DataFrame) -> list[str]:
     return [column for column in parameter_columns(frame) if column not in context]
 
 
+@cache
+def plain_dimensions() -> frozenset[str]:
+    """Return the dimensions the every-dimension groups write, read out of the generators themselves."""
+    return frozenset(
+        dimension_of(name) for group in EVERY_DIMENSION for name, _ in strata(group, probe_cuts())
+    )
+
+
 def is_recut(stratum: str) -> bool:
     """Return whether a stratum re-cuts a dimension another group already owns.
 
-    ``volume=HEAVY@per_bar_20 q=0.20/0.80`` and ``regime=CONSOLIDATING@n=20`` are the shape --
-    ``campaign_sweep.RECUTS``, and :func:`campaign_report.dimension_of` documents the ``@``.
+    ``volume=HEAVY@per_bar_20 q=0.20/0.80`` and ``regime=CONSOLIDATING@n=20`` carry their cut
+    after an ``@``, which :func:`campaign_report.dimension_of` documents; ``slot=0930`` is a
+    dimension only a re-cut group writes -- ``campaign_sweep.RECUTS``.
     """
-    return "@" in stratum
+    return "@" in stratum or dimension_of(stratum) not in plain_dimensions()
 
 
 def common_variants(frame: pd.DataFrame) -> set[str]:

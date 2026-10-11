@@ -196,6 +196,7 @@ EARLY_EXIT_2 = "early-exit-2"
 EARLY_EXIT_3 = "early-exit-3"
 SPEC = "spec"
 SIDE_COUNT = "side-count"
+SLOT = "slot"
 ALL_STRATA = "all"
 
 
@@ -305,6 +306,19 @@ def _midday() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
     """
     phase: timeofday.SessionPhase = timeofday.SessionPhase.MIDDAY
     yield f"phase={phase.name}", {"phase_filter": [phase.bit]}
+
+
+CASH_PHASES = timeofday.phases_mask(
+    (timeofday.SessionPhase.CASH_OPEN, timeofday.SessionPhase.MIDDAY, timeofday.SessionPhase.AFTERNOON),
+)
+"""The cash open to the cash close: the span the slot stratum cuts, stated before it ran --
+``docs/findings/m56-session-slots-preregistration.md``."""
+
+
+def _slots() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
+    """Yield once per half-hour slot of the cash hours, named by the Eastern time it begins."""
+    for slot in timeofday.slots_in(timeofday.phase_slots(CASH_PHASES)):
+        yield f"slot={timeofday.slot_start(slot):%H%M}", {"slot_filter": [timeofday.slot_bit(slot)]}
 
 
 def _volume() -> Iterator[tuple[str, dict[str, list[AxisValue]]]]:
@@ -421,6 +435,7 @@ STRATUM_GROUPS = {
     CONSOLIDATING: _consolidating,
     "phase": _phase,
     MIDDAY: _midday,
+    SLOT: _slots,
     "volume": _volume,
     VOLUME_FORMS: _volume_forms,
     "compression": _compression,
@@ -436,8 +451,9 @@ REGIME_GROUPS = frozenset({REGIME, DIRECTIONAL, CONSOLIDATING})
 """Groups whose cells ``--regime-quantiles`` splits per lookback. Membership rather than one
 name, so that a group yielding a single regime cell is calibrated like the full one."""
 
-RECUTS = frozenset({DIRECTIONAL, CONSOLIDATING, TREND_UP, MIDDAY, VOLUME_FORMS, COMPRESSION_FORMS})
-"""Groups that re-cut a dimension another group already owns, so ``all`` leaves them out."""
+RECUTS = frozenset({DIRECTIONAL, CONSOLIDATING, TREND_UP, MIDDAY, SLOT, VOLUME_FORMS, COMPRESSION_FORMS})
+"""Groups that re-cut a dimension another group already owns, so ``all`` leaves them out. The
+slots cut the phases' clock finer."""
 
 EVERY_DIMENSION = tuple(group for group in STRATUM_GROUPS if group not in RECUTS)
 """Each context dimension once, at the cut the campaign ran -- what ``all`` names."""
@@ -3048,6 +3064,20 @@ def planned_combinations(argv: argparse.Namespace) -> int:
     return per_window * (2 if argv.split else 1)
 
 
+def check_slot_request(argv: argparse.Namespace) -> None:
+    """Refuse the slot stratum at a bar size whose bars straddle its slots, before anything runs."""
+    if SLOT not in STRATUM_SETS[argv.strata]:
+        return
+
+    straddling: list[int] = [minutes for minutes in argv.resolutions if timeofday.SLOT_MINUTES % minutes]
+    if straddling:
+        msg: str = (
+            f"--strata {argv.strata} cuts {timeofday.SLOT_MINUTES}-minute slots, which bars of "
+            f"{straddling} minutes straddle; drop them from --resolutions"
+        )
+        raise SystemExit(msg)
+
+
 def check_confluence_request(argv: argparse.Namespace) -> None:
     """Refuse a sizing run cut anywhere but at its own fit, or under a stratum named for another cut.
 
@@ -3299,6 +3329,7 @@ def main(argv: list[str]) -> int:
     # defaults to the unfiltered stratum alone unless one is named.
     args.strata = args.strata or (UNFILTERED if args.split else CORE)
     check_confluence_request(args)
+    check_slot_request(args)
 
     logger.info("planned combinations: %s", f"{planned_combinations(args):,}")
     started: float = time.perf_counter()

@@ -448,6 +448,16 @@ class Dataset:
         """
         return self._cached_gate(("phase", mask), self.time_of_day, lambda: self._time_of_day().gate(mask))
 
+    def slot_gate(self, mask: int) -> BoolArray:
+        """Return a per-bar boolean: does the half-hour slot this bar falls in pass ``mask``?
+
+        Callers skip this entirely at :data:`nqbt.timeofday.ALL_SLOTS` -- see
+        :meth:`nqbt.timeofday.TimeOfDay.slot_gate`.
+        """
+        return self._cached_gate(
+            ("slot", mask), self.time_of_day, lambda: self._time_of_day().slot_gate(mask)
+        )
+
     def phase_values(self) -> LabelArray:
         """Return the per-bar :class:`nqbt.timeofday.SessionPhase`, for stratifying results."""
         return self._time_of_day().phase
