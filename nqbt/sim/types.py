@@ -14,6 +14,7 @@ from nqbt import (
     compression,
     conditions,
     higher_timeframe,
+    noise,
     regime,
     sessionrange,
     timeofday,
@@ -2260,10 +2261,12 @@ was measured against.
 
 BAND_BOLLINGER = 0
 BAND_VWAP = 1
-BAND_SOURCES = {BAND_BOLLINGER: "bollinger", BAND_VWAP: "vwap"}
+BAND_NOISE = 2
+BAND_SOURCES = {BAND_BOLLINGER: "bollinger", BAND_VWAP: "vwap", BAND_NOISE: "noise"}
 """Which channel the extension is measured against. ``bollinger`` is ``nt8_sma`` +- k *
 ``nt8_stddev`` over :attr:`ElasticBandParams.band_period`; ``vwap`` is the session VWAP and
-its volume-weighted dispersion over the session so far -- ``docs/roadmap.md`` §M26.4.
+its volume-weighted dispersion over the session so far -- ``docs/roadmap.md`` §M26.4;
+``noise`` is the noise area around the cash open -- ``docs/nt8-fidelity.md``, "The noise area".
 """
 
 TARGET_STRETCH = 0
@@ -2321,6 +2324,10 @@ class ElasticBandParams:
     """Bars a session's VWAP band must have before it can signal, under :data:`BAND_VWAP` --
     ``docs/roadmap.md`` §M26.4."""
 
+    noise_lookback_sessions: int = 14
+    """Prior sessions the noise area's width is the mean move from the open over, under
+    :data:`BAND_NOISE` -- ``docs/nt8-fidelity.md``, "The noise area"."""
+
     entry_std: float = 2.0
     """How far outside the basis a close must sit to signal, in standard deviations."""
 
@@ -2345,6 +2352,10 @@ class ElasticBandParams:
     band_lag: int = 0
     """Bars back the band is read from: ``0`` is the signal bar's own, ``1`` the previous one, each
     against the signal bar's own close -- ``docs/nt8-fidelity.md`` §M26."""
+
+    check_every_minutes: int = 0
+    """Minutes between the closes an entry and the noise trail are decided on, counted from the
+    session open; ``0`` decides on every bar -- ``docs/nt8-fidelity.md``, "The noise area"."""
 
     signal_shape: int = SHAPE_ANY
     """One of :data:`SHAPE_MODES` -- what the signal bar's own candle has to look like --
@@ -2495,6 +2506,14 @@ class ElasticBandParams:
     """Leave at the next open when a close passes the adverse extreme of the run the trade read:
     further outside for a fade, back through the base of the run under :attr:`invert_signal`."""
 
+    noise_trail_exit: bool = False
+    """Leave at the next open when a decided close falls back past the noise area's edge or the
+    VWAP from the cash open, whichever is nearer, under :data:`BAND_NOISE` and :attr:`invert_signal`."""
+
+    exit_at_cash_close: bool = False
+    """Leave at the next open after the first close at or after 16:00 ET, and enter on none from
+    then -- ``docs/nt8-fidelity.md``, "The noise area"."""
+
     max_hold_bars: int = 0
     """See :attr:`DeadCatParams.max_hold_bars` -- same rule, same default."""
 
@@ -2607,7 +2626,25 @@ class ElasticBandParams:
             msg = "trade_long and trade_short are both off, so nothing can ever be entered"
             raise ValueError(msg)
 
+        self._validate_noise_entry()
         self._validate_signal_bar()
+
+    def _validate_noise_entry(self) -> None:
+        """Check the noise area's lookback, its refusal of a lag and the decision cadence."""
+        noise.validate_lookback(self.noise_lookback_sessions)
+        if self.band_source == BAND_NOISE and self.band_lag:
+            msg: str = (
+                f"band_lag {self.band_lag} cannot move the noise area, whose extension is measured past "
+                "whichever anchor the close is beyond; give 0"
+            )
+            raise ValueError(msg)
+
+        if self.check_every_minutes < 0 or (self.check_every_minutes and 60 % self.check_every_minutes):
+            msg = (
+                f"check_every_minutes must be 0 or divide 60, so its closes fall on the same minutes of "
+                f"every hour; got {self.check_every_minutes}"
+            )
+            raise ValueError(msg)
 
     def _validate_signal_bar(self) -> None:
         """Check the two requirements the signal bar's own candle has to meet."""
@@ -2660,6 +2697,7 @@ class ElasticBandParams:
             raise ValueError(msg)
 
         self._validate_band_levels()
+        self._validate_noise_exits()
         validate_tp_multiplier(self.tp_multiplier)
         validate_max_hold_bars(self.max_hold_bars)
         validate_early_exit(self)
@@ -2692,6 +2730,32 @@ class ElasticBandParams:
                     "sits at or behind that close"
                 )
                 raise ValueError(msg)
+
+    def _validate_noise_exits(self) -> None:
+        """Refuse the noise trail off the noise area, or on a fade it would close at once."""
+        if not self.noise_trail_exit:
+            return
+
+        if self.band_source != BAND_NOISE:
+            msg: str = (
+                "noise_trail_exit reads the noise area's edge, but band_source is "
+                f"{BAND_SOURCES.get(self.band_source, self.band_source)}"
+            )
+            raise ValueError(msg)
+
+        if not self.invert_signal:
+            msg = (
+                "noise_trail_exit follows a break out of the noise area; a fade sits on the far side of "
+                "its edge already and would leave at the first decided close, so it needs invert_signal"
+            )
+            raise ValueError(msg)
+
+        if self.entry_trigger == TRIGGER_RECOVERY:
+            msg = (
+                "noise_trail_exit follows a close that is still outside the noise area; a recovery entry "
+                "has already closed back inside its edge and would leave at the first decided close"
+            )
+            raise ValueError(msg)
 
     @property
     def target_levels(self) -> tuple[float, ...]:

@@ -1389,6 +1389,39 @@ EntryWindowEnd = 100000;
 
 Every other archetype's port takes the same two properties and the same test.
 
+### The noise area
+
+**ElasticBand's third band source is the noise area** (#439, §M28.2): Zarattini, Aziz and Barbon's intraday-momentum band. **Read from public replications of the paper, not from the paper itself**, whose text could not be extracted here; the replications agree on everything below except the trail, which one describes.
+
+**The band.** Each session is anchored at its cash open, the open of the bar whose body starts at 09:30 ET. A session with no such bar has no band, which is what keeps a held-out window that starts mid-session from anchoring on its first bar, and a bar size that does not open at 09:30 and close at 15:30 and 16:00 is refused. The upper anchor is the higher of that open and the previous session's cash close, the close of its last bar ending by 16:00 ET; the lower anchor is the lower of the two, so a gap leaves room between them. **A previous close read on another contract is dropped**, so the first session after a roll is anchored at its open alone: on the raw spliced series the old contract's close carries the calendar spread, not a gap. **The width is the mean absolute move from the cash open, as a share of it, at the same bar of session over the prior `noise_lookback_sessions` sessions** (14, the paper's), strictly prior, needing at least five observations as relative volume's baseline does. The edges are the anchors times `1 ± entry_std × width`, so `entry_std` is the paper's volatility multiplier. There is no band before the cash open.
+
+**In ElasticBand's coordinates** a close is measured in widths past the nearer anchor, and between the anchors it reads zero. The basis is the nearer anchor, so a fade's `0.0s` target is back to it. **A bar between the anchors takes its side from the close against their midpoint**, which only the random-entry arm reads, since such a bar never signals; reading it off a zero extension would put every drawn gap bar on one side. A lag cannot move a band measured that way, so `band_lag` is refused under it.
+
+**Entries** are decided on closes after the cash open and no later than 15:30 ET, the paper's last check, and fill at the next bar's open as every ElasticBand entry does. **`check_every_minutes = 30` decides only on the half-hour closes**, 10:00 first, as the paper checks; a bar size that does not divide the cadence is refused. Off at 0, deciding on every bar.
+
+**`noise_trail_exit`**: at a decided close, a long leaves at the next open when the close is below the upper edge or the VWAP, whichever is higher, and a short when it is above the lower edge or the VWAP, whichever is lower. **The VWAP is anchored at the cash open**, as the paper's regular-hours VWAP is, not at the 18:00 session open. It is a market exit decided at a close, `EXIT_SIGNAL`, checked after the invalidation exit and the cash close and before the hold cap and the early exit, and not a resting stop. It follows a break, so it is refused off the noise area, on a fade and under the recovery trigger, each of which would leave at the first decided close.
+
+**`exit_at_cash_close`**: a position leaves at the next open after the first close at or after 16:00 ET, and no entry is decided from then. **It is recorded as `EXIT_SESSION_CLOSE`**, because it is the clock's exit, so `session_close_share` and gate 4's exclusion count it as they count the flatten; it is checked ahead of the trail, so at 16:00, itself a decided close, the exit is the clock's. It counts forward from the template's open, so a port can reproduce it as InsideBarTrailing's trading window does. A session whose bars stop before 16:00, a half day, is closed by the session flatten as before. Every ElasticBand band source can take it.
+
+**Not modelled**: the paper's position sizing, which targets volatility, and its reversal from one side to the other on the same check, which the flat-to-flat loop cannot take. **All four rules are off by default**, so every stored ElasticBand row is unchanged, and ElasticBand has no NinjaScript, so every row is `TIER1_ONLY`.
+
+A port computes the width in `OnBarUpdate` from an array per bar of session, and decides at the half-hour closes:
+
+```csharp
+double width = MeanMoveAtThisBarOfSession(14);              // |Close / cashOpen - 1|, prior sessions
+double upper = Math.Max(cashOpen, priorCashClose) * (1 + Multiplier * width);
+double lower = Math.Min(cashOpen, priorCashClose) * (1 - Multiplier * width);
+bool decides = minutesPastOpen % 30 == 0;
+if (decides && minutesPastOpen <= LastEntry && Position.MarketPosition == MarketPosition.Flat)
+{
+    if (Close[0] >= upper) EnterLong();       // an edge itself signals, as on every ElasticBand band
+    else if (Close[0] <= lower) EnterShort();
+}
+if (decides && Position.MarketPosition == MarketPosition.Long && Close[0] < Math.Max(upper, cashVwap)) ExitLong();
+if (decides && Position.MarketPosition == MarketPosition.Short && Close[0] > Math.Min(lower, cashVwap)) ExitShort();
+if (ExitAtCashClose && minutesPastOpen >= CashClose) { ExitLong(); ExitShort(); }
+```
+
 ## Order lifetime and the session edge (#67)
 
 Four questions reflection could not answer, settled by `NqbtOrderLifetimeProbe.cs` rather than by a trade list — three of them are questions about **cancels**, and a Trades export carries only fills, so "cancelled the resting order" and "refused the second fill" are indistinguishable in one by construction. The probe places no bracket and writes its own `OnOrderUpdate` log. Eleven runs over `MNQ 03-24`, 1 minute, `2023-12-01` → `2024-03-15`, Standard fill resolution, zero costs; the outputs are kept in `verification/` and are machine-local (#91), and every figure below is reproduced by passing each run's events log to:

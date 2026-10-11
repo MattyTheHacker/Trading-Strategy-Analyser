@@ -20,6 +20,7 @@ from nqbt import (
     conditions,
     higher_timeframe,
     indicators,
+    noise,
     regime,
     sessionrange,
     sessions,
@@ -90,6 +91,10 @@ class ContextSpec:
     needs_time_of_day: bool = False
     """Build the session-phase and bar-of-session labels (:mod:`nqbt.timeofday`)."""
 
+    noise_lookbacks: tuple[int, ...] = ()
+    """Noise-area lookbacks to build (:mod:`nqbt.noise`), in sessions. Empty builds nothing, and
+    any entry implies the time-of-day labels the band is measured over."""
+
     range_keys: tuple[sessionrange.RangeKey, ...] = ()
     """Session-anchored ranges to build (:mod:`nqbt.sessionrange`), each an
     ``(anchor_minutes, window_minutes)`` pair. Empty builds nothing, and a key the bar size
@@ -140,6 +145,7 @@ class ContextSpec:
             needs_vwap=self.needs_vwap or other.needs_vwap,
             needs_vwap_band=self.needs_vwap_band or other.needs_vwap_band,
             needs_time_of_day=self.needs_time_of_day or other.needs_time_of_day,
+            noise_lookbacks=tuple(sorted({*self.noise_lookbacks, *other.noise_lookbacks})),
             range_keys=tuple(sorted({*self.range_keys, *other.range_keys})),
             follow_through_sessions=tuple(
                 sorted({*self.follow_through_sessions, *other.follow_through_sessions}),
@@ -213,6 +219,9 @@ class Dataset:
 
     time_of_day: timeofday.TimeOfDay | None = None
     """Session phase and bar of session, or ``None`` when nothing asked for them."""
+
+    noise_bands: noise.NoiseBandGrid | None = None
+    """The noise area per declared lookback, or ``None`` when nothing asked for it."""
 
     session_ranges: sessionrange.SessionRangeGrid | None = None
     """Opening ranges per declared key, or ``None`` when nothing asked for them."""
@@ -465,6 +474,49 @@ class Dataset:
     def bar_of_session(self) -> IndexArray:
         """Return the per-bar index from the session open, the fine form of the same clock."""
         return self._time_of_day().bar_of_session
+
+    def closes_by(self, minutes: int) -> BoolArray:
+        """Return a per-bar boolean: does this bar close no later than ``minutes`` past the open?"""
+        return self._cached_gate(
+            ("closes_by", minutes), self.time_of_day, lambda: self._time_of_day().closes_by(minutes)
+        )
+
+    def closes_from(self, minutes: int) -> BoolArray:
+        """Return a per-bar boolean: does this bar close at or after ``minutes`` past the open?"""
+        return self._cached_gate(
+            ("closes_from", minutes), self.time_of_day, lambda: self._time_of_day().closes_from(minutes)
+        )
+
+    def closes_every(self, minutes: int) -> BoolArray:
+        """Return a per-bar boolean: does this bar close on a multiple of ``minutes`` past the open?
+
+        :meth:`nqbt.timeofday.TimeOfDay.closes_every`, shared read-only as the label gates are.
+        """
+        return self._cached_gate(
+            ("closes_every", minutes),
+            self.time_of_day,
+            lambda: self._time_of_day().closes_every(minutes),
+        )
+
+    def _noise_bands(self) -> noise.NoiseBandGrid:
+        if self.noise_bands is None:
+            msg: str = (
+                "no noise band in this dataset; prepare() was not asked for one. "
+                "Add the lookback to noise_lookbacks on the archetype's ContextSpec."
+            )
+            raise ContextError(
+                msg,
+            )
+
+        return self.noise_bands
+
+    def noise_band(self, lookback: int) -> noise.NoiseBand:
+        """Return the noise area at one lookback, or raise a pointed error."""
+        return self._noise_bands().band(lookback)
+
+    def noise_vwap(self) -> FloatArray:
+        """Return the VWAP from the cash open the noise area's trail reads, or raise a pointed error."""
+        return self._noise_bands().vwap
 
     def _session_ranges(self) -> SessionRangeGrid:
         if self.session_ranges is None:
@@ -774,6 +826,7 @@ class Dataset:
             self.band,
             self.vwap_band,
             self.time_of_day,
+            self.noise_bands,
             self.session_ranges,
             self.follow_through,
             self.regimes,
@@ -795,6 +848,16 @@ class Dataset:
         except the index, so an index-only frame is enough. The arrays are shared, not copied.
         """
         return replace(self, bars=self.bars.iloc[:, :0])
+
+
+def contract_codes(bars: pd.DataFrame) -> IntArray:
+    """Return an integer code per bar for the contract it traded on, one code for a frame of one contract."""
+    if "contract" not in bars.columns:
+        return np.zeros(len(bars), dtype=np.int64)
+
+    codes, _ = pd.factorize(bars["contract"])
+
+    return np.asarray(codes, dtype=np.int64)
 
 
 def _check_first_signal_bar(first_signal_bar: int, n_bars: int) -> None:
@@ -873,10 +936,26 @@ def prepare(
     open_, high, low, close = ohlc(bars)
     info: SessionInfo = sessions.classify(pd.DatetimeIndex(bars.index))
 
-    # Relative volume is defined per bar of session, so asking for it builds the clock too.
+    # Relative volume and the noise area are defined per bar of session, so asking for either
+    # builds the clock too.
     tod: TimeOfDay | None = (
         timeofday.classify(pd.DatetimeIndex(bars.index), bar_minutes=bar_minutes, info=info)
-        if spec.needs_time_of_day or spec.volume_keys
+        if spec.needs_time_of_day or spec.volume_keys or spec.noise_lookbacks
+        else None
+    )
+    noise_bands: noise.NoiseBandGrid | None = (
+        noise.noise_band_grid(
+            open_,
+            high,
+            low,
+            close,
+            float_column(bars, "volume"),
+            contract_codes(bars),
+            volume.session_ids(info.trading_day, info.in_session),
+            tod,  # type: ignore[arg-type]  # built above whenever lookbacks exist
+            spec.noise_lookbacks,
+        )
+        if spec.noise_lookbacks
         else None
     )
     # The only series whose existence depends on the bar size -- ``docs/roadmap.md`` §M28.
@@ -983,6 +1062,7 @@ def prepare(
         above_vwap=above_vwap,
         vwap_band=vwap_band,
         time_of_day=tod,
+        noise_bands=noise_bands,
         session_ranges=ranges,
         follow_through=follow_through,
         regimes=regimes,

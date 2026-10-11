@@ -1188,7 +1188,7 @@ def test_a_vwap_run_produces_a_valid_trade_log() -> None:
 
 
 def test_an_unknown_band_source_is_refused_by_name() -> None:
-    with pytest.raises(ValueError, match=r"unknown band_source 7; use one of \[0, 1\]"):
+    with pytest.raises(ValueError, match=r"unknown band_source 7; use one of \[0, 1, 2\]"):
         ElasticBandParams(band_source=7)
 
 

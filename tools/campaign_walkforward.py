@@ -18,7 +18,7 @@ import pandas as pd
 # Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from nqbt import archetypes, context, logsetup, resample, splice, sweep, walkforward
+from nqbt import archetypes, context, logsetup, resample, splice, sweep, timeofday, walkforward
 from nqbt.costs import TradingCosts
 from nqbt.dispersion import MIN_TRADES
 from nqbt.instruments import get_instrument
@@ -42,10 +42,13 @@ def warmup_for(spec: context.ContextSpec, minutes: int) -> int:
     """Return the longest lookback the shortlist's own context declares, in bars of its resolution.
 
     Relative volume's baseline is counted in sessions, not bars, so raise ``--warmup-bars`` by
-    hand for a volume-stratified shortlist.
+    hand for a volume-stratified shortlist. The noise area's width is counted in sessions too,
+    and is counted here as whole sessions of bars, one more than its lookback.
     """
     coarse: list[int] = [math.ceil(key.period * key.minutes / minutes) for key in spec.higher_timeframe_keys]
     trend: list[int] = [max(key) for key in spec.trend_keys]
+    per_session: int = math.ceil(timeofday.session_minutes() / minutes)
+    noise_sessions: list[int] = [(lookback + 1) * per_session for lookback in spec.noise_lookbacks]
 
     return max(
         [
@@ -55,6 +58,7 @@ def warmup_for(spec: context.ContextSpec, minutes: int) -> int:
             *spec.regime_lookbacks,
             *trend,
             *coarse,
+            *noise_sessions,
         ],
         default=0,
     )

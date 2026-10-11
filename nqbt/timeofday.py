@@ -364,6 +364,35 @@ class TimeOfDay:
         # The extra last entry stays False, and it is what an out-of-session bar's -1 indexes.
         return admits[self.slot]
 
+    def close_minutes(self) -> IntArray:
+        """Return the minutes past the session open each bar closes at, :data:`OUT_OF_SESSION` outside."""
+        closes: IntArray = (self.bar_of_session.astype(np.int64) + 1) * self.bar_minutes
+
+        return np.where(self.bar_of_session >= 0, closes, OUT_OF_SESSION)
+
+    def closes_by(self, minutes: int) -> BoolArray:
+        """Return a per-bar boolean: does this bar close no later than ``minutes`` past the session open?"""
+        closes: IntArray = self.close_minutes()
+
+        return np.asarray((closes > 0) & (closes <= minutes))
+
+    def closes_from(self, minutes: int) -> BoolArray:
+        """Return a per-bar boolean: does this bar close at or after ``minutes`` past the session open?"""
+        return np.asarray(self.close_minutes() >= minutes)
+
+    def closes_every(self, minutes: int) -> BoolArray:
+        """Return a per-bar boolean: does this bar close on a multiple of ``minutes`` past the session open?
+
+        A bar size that does not divide ``minutes`` is refused, since its closes would miss some marks.
+        """
+        if minutes < 1 or minutes % self.bar_minutes:
+            msg: str = f"{self.bar_minutes}-minute bars cannot close on every {minutes}-minute mark"
+            raise TimeOfDayError(msg)
+
+        closes: IntArray = self.close_minutes()
+
+        return np.asarray((closes > 0) & (closes % minutes == 0))
+
 
 def classify(
     index: pd.DatetimeIndex,

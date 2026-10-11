@@ -111,9 +111,10 @@ paths:
 - **ElasticBand's stop and target axes cannot be gated at all, and that is a known blind spot.**
   They are inert at every `stop_mode`/`target_mode` but one, and `dead_axes` compares a toggle
   against a single off value. Sweeping `atr_stop_multiple` under `STOP_EXCURSION` runs identical
-  combinations and nothing will say so — same shape as `volume_rolling_bars` below. **`band_period`
-  and `vwap_min_session_bars` are the same blind spot against `band_source`**, so sweeping either
-  under the source that does not read it runs identical combinations silently. **So are the two
+  combinations and nothing will say so — same shape as `volume_rolling_bars` below. **`band_period`,
+  `vwap_min_session_bars` and `noise_lookback_sessions` are the same blind spot against
+  `band_source`**, so sweeping any of them under a source that does not read it runs identical
+  combinations silently. The noise trail is refused off the noise area instead. **So are the two
   signal-bar requirements**: `rejection_close_fraction` is read under `SHAPE_REJECTION` alone and
   `one_sided_lookback` only while `min_one_sided_bars` is above 0, which is why the shape is a
   variant dimension in `campaign_sweep.py` and the count is an axis carrying its own off value —

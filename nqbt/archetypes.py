@@ -32,6 +32,7 @@ from nqbt.sim import (
 )
 from nqbt.sim.filters import EarlyExiting, LabelSized
 from nqbt.sim.types import (
+    BAND_NOISE,
     BAND_VWAP,
     EARLINESS_OFF,
     LOSING_OPTIONAL_EXITS,
@@ -383,15 +384,29 @@ def emapullback_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpe
     )
 
 
+def _elasticband_clock(values: Mapping[str, Sequence[AxisValue]]) -> bool:
+    """Return whether some combination reads the clock: a filter on it, a cadence or the cash close."""
+    cadence: bool = any(int(v) > 0 for v in values.get("check_every_minutes", ()))
+
+    return _needs_time_of_day(values) or cadence or any(values.get("exit_at_cash_close", ()))
+
+
 def elasticband_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
     """Return what ElasticBand reads: whichever bands its sources name, and an ATR where a stop needs one.
 
     No moving-average grid, and the band multiple is not part of the key -- ``docs/roadmap.md``
-    §M26. A grid that never selects a Bollinger source builds no period grid, and one that never
-    selects the VWAP source builds no VWAP band. A breakeven trigger in ATRs adds its own period.
+    §M26. A grid that never selects a Bollinger source builds no period grid, one that never
+    selects the VWAP source builds no VWAP band and one that never selects the noise area builds
+    no noise band. A breakeven trigger in ATRs adds its own period.
     """
     sources: set[int] = {int(v) for v in values.get("band_source", ())}
-    periods: set[int] = {int(v) for v in values.get("band_period", ())} if sources != {BAND_VWAP} else set()
+    periodless: set[int] = {BAND_VWAP, BAND_NOISE}
+    periods: set[int] = (
+        {int(v) for v in values.get("band_period", ())} if not sources or sources - periodless else set()
+    )
+    lookbacks: set[int] = (
+        {int(v) for v in values.get("noise_lookback_sessions", ())} if BAND_NOISE in sources else set()
+    )
     atr: set[int] = (
         {int(v) for v in values.get("atr_period", ())}
         if any(int(v) == STOP_ATR for v in values.get("stop_mode", ()))
@@ -401,9 +416,10 @@ def elasticband_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpe
     return ContextSpec(
         band_periods=tuple(sorted(periods)),
         needs_vwap_band=BAND_VWAP in sources,
+        noise_lookbacks=tuple(sorted(lookbacks)),
         needs_vwap=_reads_vwap(values),
         atr_periods=tuple(sorted(atr | _exit_atr_periods(values))),
-        needs_time_of_day=_needs_time_of_day(values),
+        needs_time_of_day=_elasticband_clock(values),
         regime_lookbacks=_regime_lookbacks(values),
         volume_keys=_volume_keys(values),
         compression_keys=_compression_keys(values),

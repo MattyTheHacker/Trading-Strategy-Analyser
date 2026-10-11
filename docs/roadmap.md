@@ -758,6 +758,10 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 **Pre-registered, not yet run: every archetype's campaign variants in the 13 half-hour slots from 09:30 to 16:00 ET, a stratum each, at 2, 5, 10 and 15 minutes; gates 1 and 2 per slot, and gate 3 on every slot clearing gate 2 on both roots, read family-wise with one family per archetype.** Pre-registered in [`docs/findings/m56-session-slots-preregistration.md`](findings/m56-session-slots-preregistration.md); the filter and its NinjaScript are [`nt8-fidelity.md`](nt8-fidelity.md), "Entries in one half-hour slot of the session".
 
+### M57 — the noise area, followed, against its pieces and its fade ([#439])
+
+**Pre-registered, not yet run: ElasticBand on the noise area in four arms — the paper's rule, decided on the half hour and trailed on the band's edge or the VWAP; the same decided on every bar; the same without the trail; and its fade — over one grid in all 23 strata at five bar sizes, read with §M37's paired bar over a family of 15 and the rule through gate 3 family-wise.** Pre-registered in [`docs/findings/m57-noise-area-preregistration.md`](findings/m57-noise-area-preregistration.md); the band and its rules are [`nt8-fidelity.md`](nt8-fidelity.md), "The noise area".
+
 ### Do the shortlists travel? ([#330])
 
 **Most of what a shortlist loses is selection rather than instrument — the drop from selection window to own holdout is two to five times the further drop to a market never seen — and the two inside-bar archetypes travel with almost no additional cost, while nothing clears a profit factor of 1.1 anywhere.** Moved to [`docs/findings/cross-root-transfer.md`](findings/cross-root-transfer.md).
