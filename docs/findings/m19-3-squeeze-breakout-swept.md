@@ -125,7 +125,7 @@ Read on a **balanced panel**: a level counts only where every level of that axis
 - **The volume and regime strata used the raw threshold pairs.** §M30 is why a raw-cut gate result does not transfer to the label; `volume=THIN` and `regime=DIRECTIONAL` are raw-cut cells.
 - **The two-sided entry was not measured, and on the managed approach it cannot be built**: NinjaTrader ignores whichever opposite entry is submitted second — [`nt8-fidelity.md`](../nt8-fidelity.md) § "The managed approach refuses the opposite-direction submission outright". The long/short split above says what it would have measured unmanaged: a squeeze taken on whichever side breaks first pools a side that pays with a side that does not.
 - **Per-year and per-contract dispersion were not read.** §M19.2 asked for them before a pooled figure is believed; nothing here reached the gate that reads them.
-- **One minute was not swept**, and the latched squeeze §M19.2 deferred is still deferred.
+- **One minute was not swept**, and the latched squeeze §M19.2 deferred was not built. [§M58](m58-squeeze-latch-preregistration.md) has since built it and pre-registered its campaign.
 - **Nothing here is a Tier-2 measurement.** `Tier2Status` is `TIER1_ONLY` and no NinjaScript exists.
 
 [#51]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/51

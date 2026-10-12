@@ -3652,7 +3652,8 @@ class SqueezeBreakoutParams:
 
     While a window's width ranks below :attr:`squeeze_below` of its own recent past, rest a stop
     order just beyond that window's extreme on the side :attr:`direction` names, resubmitted at
-    every bar close. One side per combination, as for :class:`OpeningRangeParams`.
+    every bar close; under :attr:`latch_bars`, only once the squeeze ends, beyond the window
+    frozen there. One side per combination, as for :class:`OpeningRangeParams`.
 
     Its rules: ``docs/nt8-fidelity.md`` §M19.2. The design and the alternatives rejected:
     ``docs/findings/m19-2-squeeze-breakout-spec.md``.
@@ -3681,6 +3682,11 @@ class SqueezeBreakoutParams:
     entry_offset_ticks: int = 1
     """Ticks beyond the window's extreme the stop entry rests. At ``0`` a bar closing on its
     window's extreme cannot submit -- ``docs/nt8-fidelity.md`` §M18."""
+
+    latch_bars: int = 0
+    """Bar closes after the squeeze ends, the release bar's included, at which the order rests
+    beyond the window frozen at the last squeezed bar. Off at ``0``, where it follows the window
+    while the squeeze holds -- ``docs/nt8-fidelity.md``, "The latched squeeze"."""
 
     phase_filter: int = timeofday.ALL_PHASES
     """Session phases an entry may be taken in -- see :attr:`DeadCatParams.phase_filter`."""
@@ -3882,6 +3888,10 @@ class SqueezeBreakoutParams:
 
         if self.entry_offset_ticks < 0:
             msg = f"entry_offset_ticks must be >= 0, got {self.entry_offset_ticks}"
+            raise ValueError(msg)
+
+        if self.latch_bars < 0:
+            msg = f"latch_bars must be >= 0, got {self.latch_bars}; 0 switches the latch off"
             raise ValueError(msg)
 
     def _validate_exit_scheme(self) -> None:

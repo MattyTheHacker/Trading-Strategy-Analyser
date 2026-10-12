@@ -16,11 +16,20 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nqbt import archetypes, compression, context, randomentry, sessions, sweep
+from nqbt import archetypes, compression, context, randomentry, sessions, sweep, timeofday
 from nqbt.compression import Compression, CompressionForm
 from nqbt.instruments import MNQ, NQ
 from nqbt.sim import openingrange
-from nqbt.sim.squeeze import NO_UPPER_CUT, entry_bound, run_squeeze, squeeze_levels, squeeze_signal
+from nqbt.sim.squeeze import (
+    NO_UPPER_CUT,
+    entry_bound,
+    latch_of,
+    run_squeeze,
+    scan_latches,
+    squeeze_levels,
+    squeeze_signal,
+    squeezed_bars,
+)
 from nqbt.sim.types import (
     ORB_STOP_ATR,
     ORB_STOP_FRACTION,
@@ -276,6 +285,197 @@ def test_the_filter_narrows_a_copy_of_the_squeeze_and_leaves_the_dataset_s_gate_
     assert squeezed.tolist() == [True, True, False]
 
 
+# -- the latched squeeze: when a latch opens and what ends it -------------------------
+
+
+def latches(
+    squeezed: Sequence[bool],
+    close: Sequence[float],
+    *,
+    latch_bars: int = 3,
+    direction: float = LONG,
+    force_flat: Sequence[bool] | None = None,
+    window_low: Sequence[float] | None = None,
+) -> tuple[list[bool], list[int]]:
+    """Scan stated bars for latches over a window of 98 to 105 unless told otherwise."""
+    n = len(squeezed)
+    submits, rows = scan_latches(
+        np.asarray(squeezed, dtype=np.bool_),
+        np.full(n, 105.0),
+        np.full(n, 98.0) if window_low is None else np.asarray(window_low, dtype=np.float64),
+        np.asarray(close, dtype=np.float64),
+        np.zeros(n, dtype=np.bool_) if force_flat is None else np.asarray(force_flat, dtype=np.bool_),
+        latch_bars,
+        direction,
+    )
+
+    return submits.tolist(), rows.tolist()
+
+
+def test_a_latch_opens_on_the_first_bar_the_squeeze_no_longer_holds_and_lasts_its_count() -> None:
+    submits, rows = latches([False, True, True, False, False, False, False], [100.0] * 7)
+
+    assert submits == [False, False, False, True, True, True, False], "never while squeezed"
+    assert rows == [0, 1, 2, 3, 3, 3, 6], "a latched bar reads its release's row"
+
+
+def test_the_squeeze_holding_again_ends_the_latch_and_its_next_release_opens_another() -> None:
+    submits, rows = latches([True, False, False, True, False, False, False], [100.0] * 7, latch_bars=5)
+
+    assert submits == [False, True, True, False, True, True, True]
+    assert rows == [0, 1, 1, 3, 4, 4, 4]
+
+
+def test_a_close_beyond_the_frozen_window_s_other_side_ends_the_latch() -> None:
+    """The window low falls to 90 after the release; the latch still reads the frozen 98."""
+    falling = [98.0, 98.0, 90.0, 90.0, 90.0]
+
+    submits, _ = latches(
+        [True, False, False, False, False], [100.0, 100.0, 95.0, 100.0, 100.0], window_low=falling
+    )
+    assert submits == [False, True, False, False, False]
+
+    submits, _ = latches(
+        [True, False, False, False, False], [100.0, 100.0, 98.0, 100.0, 100.0], window_low=falling
+    )
+    assert submits == [False, True, True, True, False], "a close on the low is not beyond it"
+
+
+def test_the_short_side_s_other_side_is_the_frozen_high() -> None:
+    squeezed = [True, False, False, False]
+
+    assert latches(squeezed, [100.0, 100.0, 105.5, 100.0], direction=SHORT)[0] == [False, True, False, False]
+    assert latches(squeezed, [100.0, 100.0, 105.0, 100.0], direction=SHORT)[0] == [False, True, True, True]
+    assert latches(squeezed, [100.0, 100.0, 97.5, 100.0], direction=SHORT)[0] == [False, True, True, True]
+
+
+def test_a_release_closing_beyond_the_other_side_opens_nothing() -> None:
+    assert latches([True, False, False, False], [100.0, 97.0, 100.0, 100.0])[0] == [False] * 4
+
+
+def test_the_force_flat_bar_ends_the_latch_and_the_next_session_opens_none() -> None:
+    submits, _ = latches(
+        [True, False, False, False, False],
+        [100.0] * 5,
+        latch_bars=4,
+        force_flat=[False, False, True, False, False],
+    )
+
+    assert submits == [False, True, False, False, False]
+
+
+def test_a_squeeze_held_through_the_session_close_releases_on_the_next_session_s_first_bar() -> None:
+    """The window reads back across the boundary, so the latch is frozen at the last session's close."""
+    submits, rows = latches(
+        [False, True, True, False, False],
+        [100.0] * 5,
+        force_flat=[False, False, True, False, False],
+    )
+
+    assert submits == [False, False, False, True, True]
+    assert rows == [0, 1, 2, 3, 3]
+
+
+# -- the latched squeeze, through the shared loop -------------------------------------
+
+LATCHED = replace(HAND_BUILT, latch_bars=3)
+"""The hand-built rule set with a three-close latch."""
+
+RELEASE = (103.0, 104.0, 102.0, 103.5)
+"""A bar ending the squeeze inside the window: its own window is 99 to 104, the frozen one 98 to 105."""
+
+
+def squeezed_on(
+    params: SqueezeBreakoutParams, rows: Sequence[Row], squeezed_at: Iterable[int]
+) -> context.Dataset:
+    """Build a dataset over hand-written rows whose squeeze holds on ``squeezed_at`` alone."""
+    frame = frame_of([*rows, PAD])
+    ranks = np.full(len(frame), 0.5)
+    ranks[list(squeezed_at)] = 0.0
+    data = dataset_for(params, frame)
+    data.compressions = compression.CompressionGrid(
+        keys=(params.squeeze_key,),
+        width=np.zeros((1, len(frame))),
+        rank=ranks[np.newaxis, :],
+    )
+
+    return data
+
+
+def test_the_latched_order_rests_beyond_the_window_frozen_at_the_last_squeezed_bar() -> None:
+    data = squeezed_on(LATCHED, [*QUIET, RELEASE, (104.0, 106.0, 103.5, 105.8)], squeezed_at=(2,))
+    trades = run_squeeze(data, LATCHED, MNQ)
+
+    assert data.window_high(WINDOW)[3] == 104.0, "the release bar's own window would rest lower"
+    assert len(trades) == 1
+    assert trades["entry_bar"].iloc[0] == 4
+    assert trades["entry_price"].iloc[0] == 105.0 + TICK
+    assert trades["initial_stop"].iloc[0] == 98.0 - 2 * TICK
+
+
+def test_the_latch_trades_a_re_break_and_never_the_bar_that_released_it() -> None:
+    """The unlatched rule trades the breaking bar; the latch can only rest once price is back inside."""
+    rows = [*QUIET, (103.0, 108.0, 102.0, 107.0), PAD, (104.0, 106.0, 104.0, 105.5)]
+
+    unlatched = run_squeeze(squeezed_on(HAND_BUILT, rows, squeezed_at=(2,)), HAND_BUILT, MNQ)
+    latched = run_squeeze(squeezed_on(LATCHED, rows, squeezed_at=(2,)), LATCHED, MNQ)
+
+    assert unlatched["entry_bar"].tolist() == [3]
+    assert latched["entry_bar"].tolist() == [5]
+    assert latched["entry_price"].iloc[0] == 105.0 + TICK
+
+
+def test_the_latch_rests_for_its_count_of_closes_and_no_longer() -> None:
+    rows = [*QUIET, RELEASE, (103.5, 104.5, 103.0, 104.0), PAD, (104.0, 106.0, 104.0, 105.5)]
+
+    three = run_squeeze(squeezed_on(LATCHED, rows, squeezed_at=(2,)), LATCHED, MNQ)
+    two_params = replace(LATCHED, latch_bars=2)
+    two = run_squeeze(squeezed_on(two_params, rows, squeezed_at=(2,)), two_params, MNQ)
+
+    assert three["entry_bar"].tolist() == [6], "submitted at the release and the two closes after"
+    assert len(two) == 0
+
+
+def test_a_fill_ends_the_latch_so_a_stopped_trade_is_not_taken_again() -> None:
+    """Bar 5 stops the trade out and closes under the trigger; bar 6 would refill an order never sent."""
+    params = replace(LATCHED, latch_bars=12, stop_mode=ORB_STOP_FRACTION, stop_range_fraction=0.1)
+    rows = [
+        *QUIET,
+        RELEASE,
+        (104.5, 106.0, 104.5, 105.8),
+        (105.5, 105.6, 103.5, 104.0),
+        (104.0, 106.0, 104.0, 105.5),
+    ]
+    data = squeezed_on(params, rows, squeezed_at=(2,))
+    trades = run_squeeze(data, params, MNQ)
+
+    assert squeeze_levels(data, params).session_id[3:7].tolist() == [3, 3, 3, 3]
+    assert trades["exit_reason"].tolist() == ["stop"]
+    assert trades["exit_bar"].iloc[0] == 5
+
+
+def test_the_short_side_latch_rests_a_tick_below_the_frozen_low() -> None:
+    params = replace(LATCHED, direction=SHORT)
+    rows = [*QUIET, (101.0, 102.0, 99.5, 100.0), (100.0, 100.5, 97.0, 97.5)]
+    trades = run_squeeze(squeezed_on(params, rows, squeezed_at=(2,)), params, MNQ)
+
+    assert len(trades) == 1
+    assert trades["entry_price"].iloc[0] == 98.0 - TICK, "the release bar's own window low is 99"
+    assert trades["initial_stop"].iloc[0] == 105.0 + 2 * TICK
+
+
+def test_the_latched_levels_freeze_only_each_release_s_own_row() -> None:
+    data = squeezed_on(LATCHED, [*QUIET, RELEASE, RELEASE, RELEASE], squeezed_at=(2,))
+    levels = squeeze_levels(data, LATCHED)
+    high = data.window_high(WINDOW)
+
+    assert levels.session_id.tolist() == [0, 1, 2, 3, 3, 3, 6]
+    assert levels.high[3] == high[2]
+    assert levels.low[3] == data.window_low(WINDOW)[2]
+    np.testing.assert_array_equal(np.delete(levels.high, 3), np.delete(high, 3))
+    assert levels.armed.tolist() == [False, False, True, True, True, True, True]
+
+
 # -- end to end over random-walk sessions ---------------------------------------------
 
 
@@ -352,6 +552,86 @@ def test_nothing_the_entry_reads_comes_from_a_bar_after_the_signal() -> None:
 
     for column in ("entry_bar", "entry_price", "initial_stop", "target_price", "risk_points"):
         assert again[column] == pytest.approx(first[column]), column
+
+
+WALKED_LATCHED = replace(WALKED, latch_bars=6)
+
+
+def test_every_latched_entry_follows_a_release_and_fills_beyond_its_frozen_window() -> None:
+    data = dataset_for(WALKED_LATCHED, session_bars())
+    trades = run_squeeze(data, WALKED_LATCHED, NQ)
+    assert len(trades), "the fixture produced no latched trades; the test proves nothing"
+
+    latch = latch_of(data, WALKED_LATCHED)
+    squeezed = squeezed_bars(data, WALKED_LATCHED)
+    signal_bars = trades.drop_duplicates("trade_id")["entry_bar"].to_numpy().astype(int) - 1
+    releases = latch.row_of_bar[signal_bars]
+    assert latch.submits[signal_bars].all()
+    assert squeezed[releases - 1].all()
+    assert not squeezed[signal_bars].any(), "a latched order is never submitted while squeezed"
+    assert len(set(releases)) == len(releases), "one trade per release"
+
+    frozen_high = data.window_high(WALKED_LATCHED.squeeze_period)[releases - 1]
+    entries = trades.drop_duplicates("trade_id")["entry_price"].to_numpy()
+    assert (entries >= frozen_high + WALKED_LATCHED.entry_offset_ticks * NQ.tick_size).all()
+
+
+def test_the_filters_narrow_a_copy_of_the_latch_and_leave_the_levels_every_release() -> None:
+    """The filters narrow the signal in place, and the levels find each release in the latch's own bars."""
+    overnight = timeofday.phases_mask([timeofday.SessionPhase.OVERNIGHT])
+    params = replace(WALKED_LATCHED, phase_filter=overnight)
+    data = dataset_for(params, session_bars())
+    latch = latch_of(data, params)
+    submits = latch.submits.copy()
+
+    signal = squeeze_signal(data, params, latch)
+    assert 0 < signal.sum() < submits.sum(), "the filter removed no latched bar; the test proves nothing"
+    np.testing.assert_array_equal(latch.submits, submits)
+    np.testing.assert_array_equal(squeeze_levels(data, params, latch).high, squeeze_levels(data, params).high)
+
+
+def test_the_output_bound_covers_every_latched_fill() -> None:
+    data = dataset_for(WALKED_LATCHED, session_bars())
+    signal = squeeze_signal(data, WALKED_LATCHED)
+    bound = entry_bound(data, squeeze_levels(data, WALKED_LATCHED), signal, WALKED_LATCHED.direction)
+
+    assert 0 < run_squeeze(data, WALKED_LATCHED, NQ)["trade_id"].nunique() <= bound
+
+
+def test_the_latch_on_a_prefix_is_the_prefix_of_the_latch() -> None:
+    bars = session_bars()
+    whole = squeeze_signal(dataset_for(WALKED_LATCHED, bars), WALKED_LATCHED)
+    cut = len(bars) * 2 // 3
+    prefix = squeeze_signal(dataset_for(WALKED_LATCHED, bars.iloc[:cut]), WALKED_LATCHED)
+
+    assert whole[:cut].sum() > 0, "the prefix holds no latch; the test proves nothing"
+    np.testing.assert_array_equal(prefix, whole[:cut])
+
+
+def test_nothing_the_latched_entry_reads_comes_from_a_bar_after_the_signal() -> None:
+    bars = session_bars()
+    first = run_squeeze(dataset_for(WALKED_LATCHED, bars), WALKED_LATCHED, NQ).iloc[0]
+
+    tampered = bars.copy()
+    after = int(first["entry_bar"]) + 1
+    for column in ("open", "high", "close"):
+        tampered.iloc[after:, list(tampered.columns).index(column)] += 50.0
+    tampered.iloc[after:, list(tampered.columns).index("low")] -= 50.0
+    again = run_squeeze(dataset_for(WALKED_LATCHED, tampered), WALKED_LATCHED, NQ).iloc[0]
+
+    for column in ("entry_bar", "entry_price", "initial_stop", "target_price", "risk_points"):
+        assert again[column] == pytest.approx(first[column]), column
+
+
+def test_the_injected_latch_reproduces_the_latched_run_and_the_null_draws_over_it() -> None:
+    data = dataset_for(WALKED_LATCHED, session_bars())
+
+    pd.testing.assert_frame_equal(
+        run_squeeze(data, WALKED_LATCHED, NQ),
+        run_squeeze(data, WALKED_LATCHED, NQ, signal=squeeze_signal(data, WALKED_LATCHED)),
+    )
+    null = randomentry.null_summaries(data, WALKED_LATCHED, instrument=NQ, iterations=6)
+    assert null["profit_factor"].nunique() > 1, "every draw agreed, so nothing was randomised"  # noqa: PD101 - a NaN draw is ignored, which an equality check would not do
 
 
 def test_a_grid_sweeps_end_to_end_through_the_registry() -> None:
@@ -449,6 +729,7 @@ def test_a_window_traded_both_ways_cannot_be_asked_for() -> None:
         ({"squeeze_below": 1.5}, ValueError, r"squeeze_below must lie in \(0, 1\]"),
         ({"min_squeeze_bars": 0}, ValueError, "min_squeeze_bars must be >= 1"),
         ({"entry_offset_ticks": -1}, ValueError, "entry_offset_ticks must be >= 0"),
+        ({"latch_bars": -1}, ValueError, "latch_bars must be >= 0"),
         ({"stop_mode": 9}, ValueError, "unknown stop_mode"),
         ({"target_mode": 9}, ValueError, "unknown target_mode"),
         ({"order_quantity": 1}, ValueError, "cannot fill 4 legs"),

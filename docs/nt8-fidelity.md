@@ -344,6 +344,44 @@ The three-argument overload, so each order lives for the next bar only (§ "Orde
 
 **No per-session cap and no break flag.** A break usually widens the window out of the squeeze, so the order stops being resubmitted without a counter. A resting order is tested for a fill on the force-flat bar and `BlockEntryAtSessionClose` guards a new one there, as for every archetype.
 
+### The latched squeeze
+
+**§M19.2's deferred form, written before the Python and with no NinjaScript behind it** (#439). `LatchBars` at `0` is off, and every rule above is then unchanged. The arms it runs in and what they are read for are [`m58-squeeze-latch-preregistration.md`](findings/m58-squeeze-latch-preregistration.md).
+
+**A latch opens on the release bar**, the first bar whose `squeezedBars >= MinSqueezeBars` no longer holds when it held on the bar before, and **the window is frozen at the bar before the release** — the last squeezed bar, so the level is the compressed range itself rather than a window the release has widened. **No order is submitted while the squeeze holds.**
+
+**The order is §M19.2's one-bar stop, resubmitted beyond the frozen window** at the release bar's close and at each close after it, `LatchBars` closes in all, the release bar's included. §M18's refusal applies unchanged, so where the release bar closed beyond the frozen extreme nothing is submitted until a close comes back inside it: **the latch trades a re-break, never the bar that broke.** The stop and the targets are §M19.2's, measured against the frozen window; the ATR stop reads the submitting bar's ATR.
+
+**Five things end a latch, each at a bar close and before that bar submits:** `LatchBars` closes having passed; the squeeze holding again; the session's last bar, the one the flatten lands on; a close strictly beyond the frozen window's other side — below its low for a long, above its high for a short, a close on it ending nothing; and a fill of the entry, so one release is traded at most once. A context filter gates the submission and not the latch, so a close it refuses still counts against `LatchBars`, as one in a position does. **A squeeze still holding on a session's last bar releases on the next session's first**, frozen at the last session's close, because the window itself reads back across the boundary and `wasSqueezed` is a field.
+
+```csharp
+// Calculate.OnBarClose; frozenHigh, frozenLow, latchLeft and wasSqueezed are fields.
+bool squeezed = squeezedBars >= MinSqueezeBars;
+if (squeezed)
+{
+    frozenHigh = MAX(High, Period)[0];
+    frozenLow  = MIN(Low, Period)[0];
+    latchLeft  = 0;
+}
+else if (wasSqueezed)
+    latchLeft = LatchBars;
+wasSqueezed = squeezed;
+
+if (latchLeft > 0 && (Bars.IsLastBarOfSession || Close[0] < frozenLow))
+    latchLeft = 0;
+
+if (latchLeft > 0)
+{
+    latchLeft--;
+    if (Position.MarketPosition == MarketPosition.Flat && FiltersPass())
+        EnterLongStopMarket(frozenHigh + EntryOffsetTicks * TickSize);
+}
+
+// OnExecutionUpdate, on the entry's fill: latchLeft = 0;
+```
+
+**In the simulation it is still OpeningRange's loop, now with one level row per latch.** `squeeze.scan_latches` gives every bar inside a latch the release bar's row, whose level is the frozen window, and every other bar its own row, so the random-entry arm's drawn bars keep a level to rest at: **outside a latch a drawn bar rests at its own rolling window**, as under §M19.2. The loop's per-session cap at 1 is the fill rule, because a latch's bars share one row and the loop counts entries per row. It counts a fill against the bar it fills on, which the latched signal never notices; a drawn bar can, in two ways: an order from a squeezed bar filling on a release bar ends that latch, and a drawn bar whose trade fills and exits on it does not resubmit at its close.
+
 ### M22 — the InsideBar rules
 
 `InsideBar.cs` exists, so unlike M18 every rule below is a reading of real C#, and every one has now been diffed against a Strategy Analyzer trade list — "Reconciliation result — InsideBar" below. It earned its place on what it reaches rather than on what it might make: three parts of the fill model no other archetype touches, and `bracket.py` inherits whatever is wrong in them. Two of the three rules the port had to infer turned out to be wrong, which is the argument for reconciling each archetype rather than trusting the shared engine because the first one passed.

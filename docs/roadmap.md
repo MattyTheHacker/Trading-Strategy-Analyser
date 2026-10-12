@@ -762,6 +762,10 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 **Pre-registered, not yet run: ElasticBand on the noise area in four arms — the paper's rule, decided on the half hour and trailed on the band's edge or the VWAP; the same decided on every bar; the same without the trail; and its fade — over one grid in all 23 strata at five bar sizes, read with §M37's paired bar over a family of 15 and the rule through gate 3 family-wise.** Pre-registered in [`docs/findings/m57-noise-area-preregistration.md`](findings/m57-noise-area-preregistration.md); the band and its rules are [`nt8-fidelity.md`](nt8-fidelity.md), "The noise area".
 
+### M58 — the latched squeeze ([#439])
+
+**Pre-registered, not yet run: SqueezeBreakout traded only once its squeeze ends, from the window frozen at the last squeezed bar, for 3, 6 or 12 bar closes beside the unlatched control, over §M19.3's grid in all 23 strata at 2, 5, 10 and 15 minutes, read with §M37's paired bar over a family of 12 and through gate 3 per arm.** Pre-registered in [`docs/findings/m58-squeeze-latch-preregistration.md`](findings/m58-squeeze-latch-preregistration.md); the rules and the NinjaScript a port would use are [`nt8-fidelity.md`](nt8-fidelity.md), "The latched squeeze".
+
 ### Do the shortlists travel? ([#330])
 
 **Most of what a shortlist loses is selection rather than instrument — the drop from selection window to own holdout is two to five times the further drop to a market never seen — and the two inside-bar archetypes travel with almost no additional cost, while nothing clears a profit factor of 1.1 anywhere.** Moved to [`docs/findings/cross-root-transfer.md`](findings/cross-root-transfer.md).

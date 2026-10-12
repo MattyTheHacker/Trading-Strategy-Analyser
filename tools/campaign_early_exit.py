@@ -5,6 +5,7 @@
         --stratum phase=MIDDAY --picks
     uv run tools/campaign_early_exit.py --strategy InsideBar --reproduce
     uv run tools/campaign_early_exit.py --set early-exit-2 --strategy InsideBar --picks
+    uv run tools/campaign_early_exit.py --set squeeze-latch --strategy SqueezeBreakout --reproduce
 
 ``tools/README.md`` § "campaign_early_exit.py".
 """
@@ -38,8 +39,12 @@ from tools.campaign_sweep import (
     EARLY_EXIT_MARKER,
     EARLY_EXIT_VARIANTS,
     ROOTS,
+    SQUEEZE_LATCH,
+    SQUEEZE_LATCH_MARKER,
+    SQUEEZE_LATCH_VARIANTS,
     db_path,
     early_exit_arms,
+    squeeze_latch_arms,
     tier2_arms,
     tier3_arms,
 )
@@ -65,8 +70,10 @@ ARM_SETS: dict[str, ArmSet] = {
     EARLY_EXIT: ArmSet(EARLY_EXIT, EARLY_EXIT_VARIANTS, early_exit_arms, EARLY_EXIT_MARKER),
     EARLY_EXIT_2: ArmSet(EARLY_EXIT_2, EARLY_EXIT_2_VARIANTS, tier2_arms, EARLY_EXIT_2_MARKER),
     EARLY_EXIT_3: ArmSet(EARLY_EXIT_3, EARLY_EXIT_3_VARIANTS, tier3_arms, EARLY_EXIT_3_MARKER),
+    SQUEEZE_LATCH: ArmSet(SQUEEZE_LATCH, SQUEEZE_LATCH_VARIANTS, squeeze_latch_arms, SQUEEZE_LATCH_MARKER),
 }
-"""§M48's arms, §M50's and §M52's, each read the same way against its own control."""
+"""§M48's arms, §M50's and §M52's, each read the same way against its own control, and §M58's latch,
+which is read the same way against the unlatched squeeze."""
 
 TIER_1 = ARM_SETS[EARLY_EXIT]
 """The set every read takes unless told otherwise, which is §M48's."""
@@ -77,7 +84,7 @@ ARM = "arm"
 ARM_MARKER = TIER_1.marker
 """What every ``--variants early-exit`` name carries between its base variant and its arm."""
 
-EXIT_FIELD_PREFIXES = ("early_exit_", "breakeven_", "age_stop_", "late_stop_")
+EXIT_FIELD_PREFIXES = ("early_exit_", "breakeven_", "age_stop_", "late_stop_", "latch_")
 """The parameter families an arm sets, which a stored twin need not carry and is never joined on."""
 
 CONTROL_ARM = "off"

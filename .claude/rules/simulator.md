@@ -183,6 +183,10 @@ below and is what you quote; this file is the index, not the record.
   inert under those. **Do not fork the loop for it, and do not read `session_id` as a session
   anywhere new** -- for this caller it is a bar. Its signal leaves the null over bars room to draw,
   and `entry_bound` sizes the output from bars that could fill. `docs/nt8-fidelity.md` §M19.2.
+  **Under `latch_bars` a latch's bars share its release bar's row instead**, which holds the window
+  frozen at the bar before, and the cap is 1, so a fill ends the latch; every other bar keeps its
+  own row. `entry_bound` reads levels through `session_id` for that reason.
+  `docs/nt8-fidelity.md`, "The latched squeeze".
 - **OpeningRange computes its whole bracket from the trigger, never from the fill**, because the
   trigger is the only price known when the order is submitted. A gapped fill is worse than
   planned and its R is measured against the plan — DeadCatBounce's rule, shared deliberately.

@@ -12,6 +12,7 @@ import argparse
 import logging
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pandas as pd
 
@@ -21,6 +22,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from nqbt import logsetup
 from tools.campaign_report import NET_TO_DRAWDOWN, load, parameter_columns, rank
 from tools.campaign_sweep import VARIANTS
+
+if TYPE_CHECKING:
+    from collections.abc import Collection
 
 logger = logging.getLogger(__name__)
 
@@ -38,13 +42,17 @@ DEFAULT_BY = "profit_factor"
 on this one; :data:`~tools.campaign_report.NET_TO_DRAWDOWN` is what §M27.3 ranks on instead."""
 
 
-def paired(name: str, variant: str | None = None) -> pd.DataFrame:
-    """Return one row per configuration that cleared the trade floor in **both** windows."""
+def paired(name: str, variant: str | Collection[str] | None = None) -> pd.DataFrame:
+    """Return one row per configuration that cleared the trade floor in **both** windows.
+
+    ``variant`` narrows it to one variant or to several, which then rank as one pool.
+    """
     selection: pd.DataFrame = load(name, ["selection"])
     holdout: pd.DataFrame = load(name, ["holdout"])
     if variant is not None:
-        selection = selection[selection["variant"] == variant]
-        holdout = holdout[holdout["variant"] == variant]
+        names: Collection[str] = [variant] if isinstance(variant, str) else variant
+        selection = selection[selection["variant"].isin(names)]
+        holdout = holdout[holdout["variant"].isin(names)]
 
     return pair_windows(name, selection, holdout)
 
@@ -84,7 +92,7 @@ def held_out(
     top: int = TOP,
     stratum: str | None = None,
     resolution: int | None = None,
-    variant: str | None = None,
+    variant: str | Collection[str] | None = None,
 ) -> pd.DataFrame:
     """Return the held-out rows of the configurations the selection window ranks highest.
 
@@ -101,7 +109,7 @@ def ranked_pairs(
     top: int | None = TOP,
     stratum: str | None = None,
     resolution: int | None = None,
-    variant: str | None = None,
+    variant: str | Collection[str] | None = None,
 ) -> pd.DataFrame:
     """Return the :func:`paired` rows the selection window ranks highest on ``by``, both halves kept.
 
@@ -202,7 +210,9 @@ def main(argv: list[str]) -> int:
     logsetup.configure(__name__)
     parser = argparse.ArgumentParser(description="Held-out test of a --split campaign.")
     parser.add_argument("--strategies", nargs="+", default=list(VARIANTS))
-    parser.add_argument("--variant", default=None, help="restrict to one variant of each grid")
+    parser.add_argument(
+        "--variant", nargs="+", default=None, help="restrict to these variants, ranked as one pool"
+    )
     parser.add_argument("--by", default=DEFAULT_BY, help="selection statistic the shortlist ranks on")
     args = parser.parse_args(argv[1:])
 

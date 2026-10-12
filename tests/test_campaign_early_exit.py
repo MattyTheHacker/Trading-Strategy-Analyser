@@ -39,7 +39,9 @@ from tools.campaign_sweep import (
     EARLY_EXIT,
     EARLY_EXIT_2,
     EARLY_EXIT_3,
+    SQUEEZE_LATCH,
     early_exit_arms,
+    squeeze_latch_arms,
     tier2_arms,
     tier3_arms,
 )
@@ -126,6 +128,18 @@ def test_the_tier_3_set_tags_by_its_own_marker_and_builds_its_own_arms() -> None
     assert all(tier3.marker in name for name in names)
     earlier = {*exit_variants("EmaCrossover"), *exit_variants("EmaCrossover", ARM_SETS[EARLY_EXIT_2])}
     assert not set(names) & earlier
+
+
+def test_the_latch_set_tags_by_its_own_marker_and_builds_its_own_arms() -> None:
+    latch = ARM_SETS[SQUEEZE_LATCH]
+    frame = pd.DataFrame({"variant": [f"stop=atr target=R{latch.marker}12"]})
+    tagged_frame = tagged(frame, latch.marker)
+    assert tagged_frame[BASE_VARIANT].iloc[0] == "stop=atr target=R"
+    assert tagged_frame[ARM].iloc[0] == "12"
+    names = exit_variants("SqueezeBreakout", latch)
+    assert len(names) == 4 * len(squeeze_latch_arms())
+    assert f"stop=atr target=R{latch.marker}{CONTROL_ARM}" in names
+    assert not set(names) & set(exit_variants("SqueezeBreakout"))
 
 
 def test_no_set_s_marker_splits_another_set_s_names() -> None:
@@ -309,7 +323,17 @@ def test_the_tier_2_control_reproduces_through_its_own_marker_without_joining_on
     assert found["rows_differing"] == 0
 
 
-@pytest.mark.parametrize("arm_set", [EARLY_EXIT_2, EARLY_EXIT_3])
+def test_the_latch_control_reproduces_without_joining_on_the_latch() -> None:
+    """A stored row swept before the latch existed reads null there, and one swept after reads 0."""
+    marker = ARM_SETS[SQUEEZE_LATCH].marker
+    control = rows("bracket", "", variant=f"bracket{marker}{CONTROL_ARM}", latch_bars=0)
+    stored = rows("bracket", "", latch_bars=[0.0, math.nan, 0.0, math.nan])
+    found = reproduction(pd.concat([control, stored], ignore_index=True), marker)
+    assert found["joined"] == 4
+    assert found["rows_differing"] == 0
+
+
+@pytest.mark.parametrize("arm_set", [EARLY_EXIT_2, EARLY_EXIT_3, SQUEEZE_LATCH])
 def test_a_stratum_with_no_control_row_is_refused_rather_than_read_as_reproducing(
     monkeypatch: pytest.MonkeyPatch,
     arm_set: str,
@@ -320,7 +344,7 @@ def test_a_stratum_with_no_control_row_is_refused_rather_than_read_as_reproducin
         reproduced("InsideBar", "unfiltered", ARM_SETS[arm_set])
 
 
-@pytest.mark.parametrize("arm_set", [EARLY_EXIT_2, EARLY_EXIT_3])
+@pytest.mark.parametrize("arm_set", [EARLY_EXIT_2, EARLY_EXIT_3, SQUEEZE_LATCH])
 def test_the_reproduction_reads_the_set_s_own_marker(monkeypatch: pytest.MonkeyPatch, arm_set: str) -> None:
     marker = ARM_SETS[arm_set].marker
     control = rows("bracket", "", variant=f"bracket{marker}{CONTROL_ARM}")
