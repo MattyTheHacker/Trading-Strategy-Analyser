@@ -584,6 +584,24 @@ def test_campaign_only_ranks_the_archetypes_own_campaign_variants(monkeypatch: p
     assert asked["variant"] == campaign_variant_names("EmaPullback")
 
 
+def test_several_named_variants_reach_the_shortlist_as_one_pool(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A latch arm spans four stored variants, and §M19.3 ranked its four as one pool."""
+    asked: dict[str, object] = {}
+
+    def record(*shortlist_args: object) -> pd.DataFrame:
+        asked["variant"] = shortlist_args[7]
+
+        return pd.DataFrame()
+
+    monkeypatch.setattr(campaign_null, "shortlist", record)
+    monkeypatch.setattr(campaign_null, "measure", lambda *_a, **_k: pd.DataFrame())
+    args = campaign_null.parse(
+        ["campaign_null.py", "--strategy", "SqueezeBreakout", "--variant", "a latch=3", "b latch=3"]
+    )
+    campaign_null.cell(args, archetypes.SQUEEZEBREAKOUT, "MNQ", None)
+    assert asked["variant"] == ["a latch=3", "b latch=3"]
+
+
 def test_campaign_only_and_a_named_variant_are_refused_together() -> None:
     with pytest.raises(SystemExit) as refused:
         campaign_null.main(

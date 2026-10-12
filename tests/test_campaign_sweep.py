@@ -193,6 +193,10 @@ from tools.campaign_sweep import (
     SPEC_SHARED,
     SPEC_STOPS,
     SPEC_VARIANTS,
+    SQUEEZE_LATCH,
+    SQUEEZE_LATCH_BARS,
+    SQUEEZE_LATCH_MARKER,
+    SQUEEZE_LATCH_VARIANTS,
     STALL_BARS,
     STRATUM_SETS,
     STRUCTURE_TRAIL_BARS,
@@ -2769,6 +2773,49 @@ def test_every_side_count_grid_can_be_built() -> None:
     """A grid sweeping an axis its arm leaves unread, or a count its gates cannot meet, is refused here."""
     for variant in side_count_variants():
         for _, grid in grids_for(variant, SIDE_COUNT):
+            assert len(grid) == variant.sized()
+
+
+# -- §M58's latched squeeze ----------------------------------------------------------------
+
+
+def latch_variants(root: str = "MNQ") -> list[Variant]:
+    """Return every §M58 arm over every stored SqueezeBreakout variant."""
+    return SQUEEZE_LATCH_VARIANTS["SqueezeBreakout"](root)
+
+
+def test_the_latch_run_states_its_strata_before_it_runs_and_they_are_every_dimension() -> None:
+    """§M19.3's own 23 strata, so the unlatched arm is the stored campaign under a new name."""
+    assert variants_for(SQUEEZE_LATCH) is SQUEEZE_LATCH_VARIANTS
+    assert [name for name, _ in strata(SQUEEZE_LATCH)] == [name for name, _ in strata(ALL_STRATA)]
+    assert len(list(strata(SQUEEZE_LATCH))) == 23
+
+
+def test_every_latch_arm_is_the_stored_squeeze_variant_with_only_the_latch_moved() -> None:
+    for root in COMMISSION:
+        arms = {variant.name: variant for variant in latch_variants(root)}
+        for stored in VARIANTS["SqueezeBreakout"](root):
+            for bars in (0, *SQUEEZE_LATCH_BARS):
+                arm = arms[f"{stored.name}{SQUEEZE_LATCH_MARKER}{bars or 'off'}"]
+                assert arm.axes == stored.axes
+                assert arm.base == replace(stored.base, latch_bars=bars)
+
+
+def test_no_latch_variant_can_collide_with_any_other_sets_squeeze_one() -> None:
+    stored = {
+        variant.name
+        for which in VARIANT_SETS - {SQUEEZE_LATCH, CONFLUENCE_SIZING}
+        if "SqueezeBreakout" in variants_for(which)
+        for variant in variants_for(which)["SqueezeBreakout"]("MNQ")
+    }
+    names = [variant.name for variant in latch_variants()]
+    assert len(set(names)) == len(VARIANTS["SqueezeBreakout"]("MNQ")) * (1 + len(SQUEEZE_LATCH_BARS))
+    assert not stored & set(names)
+
+
+def test_every_latch_grid_can_be_built() -> None:
+    for variant in latch_variants():
+        for _, grid in grids_for(variant, SQUEEZE_LATCH):
             assert len(grid) == variant.sized()
 
 

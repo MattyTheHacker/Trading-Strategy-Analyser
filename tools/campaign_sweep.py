@@ -199,6 +199,7 @@ EARLY_EXIT_2 = "early-exit-2"
 EARLY_EXIT_3 = "early-exit-3"
 SPEC = "spec"
 SIDE_COUNT = "side-count"
+SQUEEZE_LATCH = "squeeze-latch"
 SLOT = "slot"
 ALL_STRATA = "all"
 
@@ -496,6 +497,7 @@ STRATUM_SETS: dict[str, tuple[str, ...]] = {
     EARLY_EXIT_3: (UNFILTERED,),
     SPEC: (UNFILTERED,),
     SIDE_COUNT: (UNFILTERED,),
+    SQUEEZE_LATCH: EVERY_DIMENSION,
     ALL_STRATA: EVERY_DIMENSION,
 }
 """Named combinations of those groups, so a later pass can append the dimensions an earlier one
@@ -2825,6 +2827,24 @@ SIDE_COUNT_VARIANTS: VariantBuilders = {"EmaCrossover": side_count_variants}
 """The §M55 run: EmaCrossover's confluence count over the phase and the three side-relative filters.
 Every name carries a ``gates=`` token no stored EmaCrossover row has."""
 
+SQUEEZE_LATCH_MARKER = " latch="
+"""What every ``--variants squeeze-latch`` name carries between its base variant and its arm."""
+
+SQUEEZE_LATCH_BARS = (3, 6, 12)
+"""The latch's lengths in bar closes -- ``docs/findings/m58-squeeze-latch-preregistration.md``."""
+
+
+def squeeze_latch_arms() -> dict[str, dict[str, AxisValue | bool]]:
+    """Return every latch arm by name, each the fields it sets and ``off`` setting none."""
+    return {"off": {}, **{str(bars): {"latch_bars": bars} for bars in SQUEEZE_LATCH_BARS}}
+
+
+SQUEEZE_LATCH_VARIANTS: VariantBuilders = {
+    "SqueezeBreakout": _exited(squeeze_variants, squeeze_latch_arms, SQUEEZE_LATCH_MARKER),
+}
+"""The §M58 run: §M19.3's grid unlatched and once per latch length, in one pass. Every name carries
+a ``latch=`` token no stored SqueezeBreakout row has."""
+
 CAMPAIGN = "campaign"
 
 VARIANT_SETS = {
@@ -2857,6 +2877,7 @@ VARIANT_SETS = {
     ORB_REJECTION,
     SPEC,
     SIDE_COUNT,
+    SQUEEZE_LATCH,
 }
 """Which grid ``--variants`` selects. Rows carry the variant's own name, so a narrow re-sweep
 lands in the same database as the campaign it follows and is still separable from it -- pass
@@ -2894,6 +2915,7 @@ def variants_for(which: str) -> VariantBuilders:
         ORB_REJECTION: ORB_REJECTION_VARIANTS,
         SPEC: SPEC_VARIANTS,
         SIDE_COUNT: SIDE_COUNT_VARIANTS,
+        SQUEEZE_LATCH: SQUEEZE_LATCH_VARIANTS,
     }
 
     return sets.get(which, VARIANTS)

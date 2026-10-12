@@ -536,6 +536,51 @@ def test_each_confinement_narrows_the_pair_before_it_is_ranked(monkeypatch: pyte
     assert len(held_out("OpeningRange", "MNQ")) == 8, "unconfined, the pair holds both"
 
 
+def test_several_variants_rank_as_one_pool_and_one_name_keeps_its_own(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A latch arm spans four stored variants, and §M19.3 ranked its four as one pool."""
+    names = ["stop=atr latch=3", "stop=opposite latch=3", "stop=opposite latch=off"]
+    selection = pd.concat(
+        [
+            windowed("selection", [pf] * 4, variant=name)
+            for pf, name in zip([1.0, 2.0, 9.0], names, strict=True)
+        ],
+        ignore_index=True,
+    )
+    holdout = pd.concat(
+        [
+            windowed("holdout", [pf] * 4, variant=name)
+            for pf, name in zip([1.1, 2.2, 9.9], names, strict=True)
+        ],
+        ignore_index=True,
+    )
+    both_windows(monkeypatch, selection, holdout)
+
+    pooled = held_out("SqueezeBreakout", "MNQ", top=8, variant=names[:2])
+    assert set(pooled["variant"]) == set(names[:2])
+    assert list(pooled["profit_factor"]) == [2.2] * 4 + [1.1] * 4, (
+        "ranked across both on the selection window"
+    )
+    assert set(held_out("SqueezeBreakout", "MNQ", top=8, variant=names[0])["variant"]) == {names[0]}
+
+
+def test_the_holdout_command_line_hands_every_named_variant_to_the_pair(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    asked: dict[str, object] = {}
+
+    def record(_name: str, variant: object = None) -> pd.DataFrame:
+        asked["variant"] = variant
+
+        return pd.DataFrame()
+
+    monkeypatch.setattr(campaign_holdout, "paired", record)
+    argv = ["campaign_holdout.py", "--strategies", "SqueezeBreakout", "--variant", "a latch=3", "b latch=3"]
+    assert campaign_holdout.main(argv) == 0
+    assert asked["variant"] == ["a latch=3", "b latch=3"]
+
+
 def test_a_ranking_with_no_top_keeps_every_pair_in_selection_order_and_both_halves(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

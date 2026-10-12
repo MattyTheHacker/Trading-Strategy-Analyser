@@ -51,7 +51,7 @@ The squeeze is directionless, and the classic entry rests both stops with the fi
 
 §M19's cost argument against the TTM form is gone, because Keltner is pinned ([#22]). The reason not to build it now is §M19.1's: **the TTM test is a raw threshold** — a band width at a fixed ratio to a channel width — and a raw cut admits a different share of bars at every resolution, which is the failure §M27.5 and §M27.8 recorded. A trailing rank is within five points of its nominal share in every cell §M19.1 measured.
 
-**A latched squeeze — trade only once it releases, from a range frozen at release — is deferred.** It needs a latch and a cancel rule, and the release bar is usually the breaking bar, which the unlatched rule already trades.
+**A latched squeeze — trade only once it releases, from a range frozen at release — is deferred.** It needs a latch and a cancel rule, and the release bar is usually the breaking bar, which the unlatched rule already trades. [§M58](m58-squeeze-latch-preregistration.md) has since built it as a mode, frozen at the last squeezed bar, and pre-registered its campaign; the rules are [`nt8-fidelity.md`](../nt8-fidelity.md), "The latched squeeze".
 
 ## How it runs: OpeningRange's loop, one level row per bar
 

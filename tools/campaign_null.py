@@ -553,7 +553,9 @@ def parse(argv: list[str]) -> argparse.Namespace:
         help="restrict the ranking to one stratum; several run as one stated family",
     )
     parser.add_argument("--resolution", type=int, default=None, help="restrict it to one bar size")
-    parser.add_argument("--variant", default=None, help="restrict it to one variant of the grid")
+    parser.add_argument(
+        "--variant", nargs="+", default=None, help="restrict it to these variants, ranked as one pool"
+    )
     parser.add_argument(
         "--campaign-only",
         action="store_true",

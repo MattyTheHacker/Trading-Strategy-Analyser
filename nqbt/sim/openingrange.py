@@ -51,7 +51,8 @@ class RangeSeries(NamedTuple):
 
     :attr:`armed` is per bar and :attr:`high`, :attr:`low` are per **session**, read through
     :attr:`session_id`. :mod:`nqbt.sim.squeeze` hands the loop one row per **bar** instead, with
-    the per-session cap and break flag switched off.
+    the per-session cap and break flag switched off, or under its latch one row per latch with
+    the cap at one.
     """
 
     armed: BoolArray
