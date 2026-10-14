@@ -213,7 +213,7 @@ def measure_row(  # type: ignore[explicit-any]  # duckdb's dtypes
         "label": label,
         "sweep_id": int(row["sweep_id"]),
         "combo_id": int(row["combo_id"]),
-        # Carried so a stored table cannot mix the two arms silently: they ask different
+        # Carried so a stored table cannot mix the arms silently: they ask different
         # questions -- ``docs/roadmap.md`` §M28.2.
         "draw": draw,
         "root": root,
@@ -418,7 +418,7 @@ def family_wise(table: pd.DataFrame) -> pd.DataFrame:
 
 
 def refuse_a_mixed_family(measured: pd.DataFrame) -> None:
-    """Refuse a family that repeats a test, mixes test windows, or holds draws that do not line up."""
+    """Refuse a family that repeats a test, mixes windows or nulls, or holds draws that do not line up."""
     duplicated: pd.DataFrame = measured[measured.duplicated(TEST_KEYS, keep=False)]
     if not duplicated.empty:
         msg: str = (
@@ -432,6 +432,12 @@ def refuse_a_mixed_family(measured: pd.DataFrame) -> None:
         if len(windows) > 1:
             msg = f"the rows were {what} {windows}, which are different questions and not one family"
             raise RuntimeError(msg)
+
+    nulls_per_archetype = measured.groupby("strategy")["draw"].nunique()
+    mixed: list[str] = sorted(str(name) for name in nulls_per_archetype.index[nulls_per_archetype > 1])
+    if mixed:
+        msg = f"{mixed} were measured under more than one null, which are different questions"
+        raise RuntimeError(msg)
 
     draw_counts: set[int] = {len(draws) for draws in measured[DRAWS_COLUMN]}
     if len(draw_counts) > 1:
@@ -568,7 +574,7 @@ def parse(argv: list[str]) -> argparse.Namespace:
         "--draw",
         choices=list(randomentry.DRAWS),
         default=randomentry.OVER_BARS,
-        help="what the null randomises; levels is for a trigger that is a level",
+        help="what the null randomises; levels and kinds are for a trigger that is a level",
     )
     parser.add_argument("--out", type=Path, default=None, help="save the measured table, draws included")
     parser.add_argument(

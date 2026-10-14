@@ -139,7 +139,7 @@ max-args = 10
 # Tests that call a private helper directly, because that helper's own behaviour is the claim under test.
 "tests/test_cli.py" = ["SLF001"]  # Each subcommand's handler is called with a parsed namespace, without going through argparse.
 "tests/test_confluence_sizing.py" = ["SLF001"]  # The sizing rule `departs_from_port` holds is the rule under test.
-"tests/test_openingrange_sim.py" = ["SLF001"]  # The window close is the reference for the drawn ranges, and the range-key refusal is the behaviour under test.
+"tests/test_openingrange_sim.py" = ["SLF001"]  # The window close is the reference for the drawn ranges, a hand-set range grid is what a draw is placed on, and the range-key and draw refusals are the behaviour under test.
 "tests/test_randomentry.py" = ["SLF001"]  # Placing an observation among its draws is arithmetic tested on its own.
 "tests/test_restamp_tier2.py" = ["SLF001"]  # The reason a row leaves its port is the path under test.
 "tests/test_splice.py" = ["SLF001"]  # The roll-order refusal is the behaviour under test.

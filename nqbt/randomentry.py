@@ -41,12 +41,15 @@ relocate at least as many bars as it places -- :meth:`SessionMinutePool.draw_fre
 
 OVER_BARS = "bars"
 OVER_LEVELS = "levels"
-DRAWS = (OVER_BARS, OVER_LEVELS)
+OVER_KINDS = "kinds"
+DRAWS = (OVER_BARS, OVER_LEVELS, OVER_KINDS)
 """What a null realisation randomises, holding everything else fixed.
 
 ``bars`` moves which day each entry signal lands on and is the default. ``levels`` moves which
 session's range shape is traded, for an archetype whose trigger is a level --
-``docs/roadmap.md`` §M28.1 and §M28.2.
+``docs/roadmap.md`` §M28.1 and §M28.2. ``kinds`` keeps each session's own range width and moves
+where it sits around the price, so the levels are no longer where the market turned --
+``docs/findings/m60-level-kind-null-preregistration.md`` § "The draw".
 """
 
 ROBUST_SPREAD_SCALE = 1.4826
@@ -55,7 +58,9 @@ ROBUST_SPREAD_SCALE = 1.4826
 
 MIN_DONOR_SESSIONS = 20
 """Sessions with a range the level draw needs before it is a control at all: at most one session
-in twenty keeps the level it actually traded -- ``docs/roadmap.md`` §M28.2.
+in twenty keeps the level it actually traded -- ``docs/roadmap.md`` §M28.2. The kind draw holds
+the same share, over how often a placement lands on the range's own --
+``docs/findings/m60-level-kind-null-preregistration.md`` § "The draw".
 """
 
 WORSE = "worse than random"
@@ -260,6 +265,16 @@ def _window_close(
     return reference
 
 
+def _window_closes(data: Dataset, key: sessionrange.RangeKey) -> FloatArray:
+    """Return each session's price at the close of ``key``'s window, ``nan`` where none closed."""
+    return _window_close(
+        data.close,
+        data.range_armed(key),
+        data.range_session_id(),
+        data.range_high(key).size,
+    )
+
+
 def matched_random_ranges(
     data: Dataset,
     key: sessionrange.RangeKey,
@@ -271,11 +286,9 @@ def matched_random_ranges(
     fixed, so only the level moves. Every range travels as two offsets from the price its window
     closed at, never as a pair of prices -- ``docs/roadmap.md`` §M28.2.
     """
-    armed: BoolArray = data.range_armed(key)
-    session_id: IndexArray = data.range_session_id()
     high: FloatArray = data.range_high(key)
     low: FloatArray = data.range_low(key)
-    reference: FloatArray = _window_close(data.close, armed, session_id, high.size)
+    reference: FloatArray = _window_closes(data, key)
 
     donors: OffsetArray = np.flatnonzero(np.isfinite(high) & np.isfinite(reference))
     if donors.size < MIN_DONOR_SESSIONS:
@@ -292,13 +305,85 @@ def matched_random_ranges(
     null_high[donors] = reference[donors] + (high[drawn] - reference[drawn])
     null_low[donors] = reference[donors] + (low[drawn] - reference[drawn])
 
+    return _ranges_at(data, key, null_high, null_low)
+
+
+def matched_random_placements(
+    data: Dataset,
+    key: sessionrange.RangeKey,
+    rng: np.random.Generator,
+    tick_size: float,
+) -> sessionrange.SessionRangeGrid:
+    """Return ``key``'s ranges, each moved to a random place around the price its window closed at.
+
+    The null over the level's kind: every session keeps its own width in whole ticks, its armed
+    flags and its price, and its low is drawn a whole number of ticks below that price, uniformly
+    from none to the width -- ``docs/findings/m60-level-kind-null-preregistration.md`` § "The draw".
+    """
+    if not np.isfinite(tick_size) or tick_size <= 0:
+        msg: str = f"tick_size must be a positive number, got {tick_size}"
+        raise RandomEntryError(msg)
+
+    high: FloatArray = data.range_high(key)
+    low: FloatArray = data.range_low(key)
+    reference: FloatArray = _window_closes(data, key)
+
+    placed: OffsetArray = np.flatnonzero(np.isfinite(high) & np.isfinite(low) & np.isfinite(reference))
+    if placed.size == 0:
+        msg = f"no session carries a {key} range, so there is no width to place"
+        raise RandomEntryError(msg)
+
+    width_ticks: IntArray = np.rint((high[placed] - low[placed]) / tick_size).astype(np.int64)
+    returned: float = float(np.mean(1.0 / (width_ticks + 1)))
+    if returned > 1.0 / MIN_DONOR_SESSIONS:
+        msg = (
+            f"the {key} ranges are narrow enough that a session gets its own levels back "
+            f"{returned:.1%} of the time, against the one in {MIN_DONOR_SESSIONS} this allows; "
+            "the draw would be too close to the identity to be a control"
+        )
+        raise RandomEntryError(msg)
+
+    below_ticks: IntArray = rng.integers(0, width_ticks, endpoint=True)
+    null_low: FloatArray = np.full(low.size, np.nan, dtype=np.float64)
+    null_high: FloatArray = np.full(high.size, np.nan, dtype=np.float64)
+    null_low[placed] = reference[placed] - below_ticks * tick_size
+    null_high[placed] = reference[placed] + (width_ticks - below_ticks) * tick_size
+
+    return _ranges_at(data, key, null_high, null_low)
+
+
+def _ranges_at(
+    data: Dataset,
+    key: sessionrange.RangeKey,
+    high: FloatArray,
+    low: FloatArray,
+) -> sessionrange.SessionRangeGrid:
+    """Return ``key``'s sessions and armed flags with ``high`` and ``low`` as its levels."""
     return sessionrange.SessionRangeGrid(
         keys=(key,),
-        session_id=session_id,
-        armed=armed[np.newaxis, :],
-        high=null_high[np.newaxis, :],
-        low=null_low[np.newaxis, :],
+        session_id=data.range_session_id(),
+        armed=data.range_armed(key)[np.newaxis, :],
+        high=high[np.newaxis, :],
+        low=low[np.newaxis, :],
     )
+
+
+def _drawn_ranges(
+    data: Dataset,
+    key: sessionrange.RangeKey,
+    draw: str,
+    rng: np.random.Generator,
+    tick_size: float,
+) -> sessionrange.SessionRangeGrid:
+    """Return the ranges one level draw trades in place of ``key``'s own."""
+    if draw == OVER_LEVELS:
+        return matched_random_ranges(data, key, rng)
+
+    if draw == OVER_KINDS:
+        return matched_random_placements(data, key, rng, tick_size)
+
+    msg: str = f"{draw!r} does not redraw the levels; use {OVER_LEVELS!r} or {OVER_KINDS!r}"
+    raise RandomEntryError(msg)
 
 
 def _range_key_for(
@@ -338,10 +423,11 @@ def _null_summary(
     seed: int,
     pool: SessionMinutePool,
     range_key: sessionrange.RangeKey | None,
+    draw: str,
 ) -> dict[str, float]:
     """Run one null realisation: draw a matched arm, simulate it, summarise it.
 
-    ``range_key`` picks which arm. Over levels the signal is left alone and the dataset's
+    ``draw`` picks which arm. Over levels or kinds the signal is left alone and the dataset's
     ranges are redrawn; over bars the ranges are left alone and the signal is redrawn.
 
     Module level and seeded per draw so the parallel path returns the serial path's values in
@@ -349,7 +435,10 @@ def _null_summary(
     """
     rng: np.random.Generator = np.random.default_rng(seed)
     if range_key is not None:
-        over_levels: Dataset = replace(data, session_ranges=matched_random_ranges(data, range_key, rng))
+        over_levels: Dataset = replace(
+            data,
+            session_ranges=_drawn_ranges(data, range_key, draw, rng, instrument.tick_size),
+        )
 
         return stats.summarise_legs(
             archetype.legs(over_levels, params, instrument),
@@ -392,12 +481,13 @@ def null_summaries(
     rows: list[dict[str, float]]
     if effective_n_jobs(n_jobs) == 1:
         rows = [
-            _null_summary(data, params, archetype, instrument, signal, int(s), pool, range_key) for s in seeds
+            _null_summary(data, params, archetype, instrument, signal, int(s), pool, range_key, draw)
+            for s in seeds
         ]
     else:
         lean: Dataset = data.slim()
         rows = Parallel(n_jobs=n_jobs)(
-            delayed(_null_summary)(lean, params, archetype, instrument, signal, int(s), pool, range_key)
+            delayed(_null_summary)(lean, params, archetype, instrument, signal, int(s), pool, range_key, draw)
             for s in seeds
         )
 

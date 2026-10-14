@@ -1040,13 +1040,189 @@ def test_the_level_draw_produces_a_null_where_the_bar_draw_could_not() -> None:
     assert null["profit_factor"].nunique() > 1, "every draw agreed, so nothing was randomised"  # noqa: PD101 - a NaN draw is ignored, which an equality check would not do
 
 
-def test_a_level_draw_is_refused_for_an_archetype_with_no_range() -> None:
+# -- the null over the level's kind ---------------------------------------------
+
+
+STRETCH = 4.0
+"""How far :func:`kinds_dataset` stretches the fixture's prices, so a range spans tens of ticks as NQ's do."""
+
+
+def kinds_dataset(*, on_ticks: bool = True) -> tuple[OpeningRangeParams, context.Dataset]:
+    """Build :func:`levels_dataset`'s window stretched, and on NQ's tick grid as a real series is."""
+    params = OpeningRangeParams(bars_required_to_trade=0)
+    bars = cash_bars(30)
+    prices = ["open", "high", "low", "close"]
+    bars[prices] *= STRETCH
+    if on_ticks:
+        bars[prices] = np.round(bars[prices] / NQ.tick_size) * NQ.tick_size
+
+    return params, dataset_for(params, bars)
+
+
+def placements(
+    data: context.Dataset,
+    key: sessionrange.RangeKey,
+    seed: int = 0,
+) -> sessionrange.SessionRangeGrid:
+    """Draw the kind null once, on NQ's tick."""
+    return randomentry.matched_random_placements(data, key, np.random.default_rng(seed), NQ.tick_size)
+
+
+def with_ranges(
+    data: context.Dataset,
+    key: sessionrange.RangeKey,
+    high: FloatArray,
+    low: FloatArray,
+) -> context.Dataset:
+    """Return ``data`` trading ``high`` and ``low`` as ``key``'s levels."""
+    return replace(data, session_ranges=randomentry._ranges_at(data, key, high, low))
+
+
+def test_the_kind_null_keeps_each_session_s_own_width_and_moves_its_levels() -> None:
+    """What makes it matched: the same bars arm, against a bracket of that session's own width."""
+    params, data = kinds_dataset()
+    key = params.range_key
+    drawn = placements(data, key)
+
+    assert np.array_equal(drawn.armed_for(key), data.range_armed(key))
+    assert np.array_equal(drawn.session_id, data.range_session_id())
+    np.testing.assert_allclose(
+        drawn.high_for(key) - drawn.low_for(key),
+        data.range_high(key) - data.range_low(key),
+    )
+    assert not np.allclose(drawn.high_for(key), data.range_high(key), equal_nan=True)
+
+
+@pytest.mark.parametrize("on_ticks", [True, False])
+def test_the_kind_null_always_holds_the_price_its_window_closed_at(*, on_ticks: bool) -> None:
+    """A real range always holds that price, so a bracket that did not would be a different trade.
+
+    Off the tick grid too, where a width rounded up to whole ticks could otherwise carry the
+    bracket past the price.
+    """
+    params, data = kinds_dataset(on_ticks=on_ticks)
+    key = params.range_key
+    reference = randomentry._window_closes(data, key)
+
+    for seed in range(20):
+        drawn = placements(data, key, seed)
+        live = np.isfinite(drawn.low_for(key))
+        assert live.any(), "no session was placed; the test proves nothing"
+        assert (drawn.low_for(key)[live] <= reference[live]).all()
+        assert (drawn.high_for(key)[live] >= reference[live]).all()
+
+
+def test_the_kind_null_places_both_levels_on_the_tick_grid() -> None:
+    """An order can only rest at a price the market quotes."""
+    params, data = kinds_dataset()
+    key = params.range_key
+    drawn = placements(data, key)
+
+    for level in (drawn.low_for(key), drawn.high_for(key)):
+        ticks = level[np.isfinite(level)] / NQ.tick_size
+        np.testing.assert_allclose(ticks, np.round(ticks))
+
+
+def test_the_kind_null_reaches_every_placement_from_none_to_the_whole_width() -> None:
+    """The price may sit on either edge of the bracket, as it can on either edge of a real range."""
+    params, data = kinds_dataset()
+    key = params.range_key
+    reference = randomentry._window_closes(data, key)
+    half_width = 10 * NQ.tick_size
+    twenty_ticks_wide = with_ranges(data, key, reference + half_width, reference - half_width)
+
+    live = np.isfinite(reference)
+    below: set[float] = set()
+    for seed in range(20):
+        drawn = placements(twenty_ticks_wide, key, seed)
+        below |= set(np.round((reference - drawn.low_for(key))[live] / NQ.tick_size).tolist())
+
+    assert below == set(map(float, range(21)))
+
+
+def test_the_kind_null_is_refused_where_the_ranges_are_too_narrow_to_move() -> None:
+    """A two-tick range has three places to go, so a session would keep its own one time in three."""
+    params, data = kinds_dataset()
+    key = params.range_key
+    reference = randomentry._window_closes(data, key)
+    two_ticks_wide = with_ranges(data, key, reference + NQ.tick_size, reference - NQ.tick_size)
+
+    with pytest.raises(randomentry.RandomEntryError, match="narrow enough"):
+        placements(two_ticks_wide, key)
+
+
+def test_the_kind_null_is_refused_when_no_session_carries_a_range() -> None:
+    params, data = kinds_dataset()
+    key = params.range_key
+    nothing = np.full(data.range_high(key).size, np.nan)
+
+    with pytest.raises(randomentry.RandomEntryError, match="no width to place"):
+        placements(with_ranges(data, key, nothing, nothing), key)
+
+
+@pytest.mark.parametrize("tick_size", [0.0, -NQ.tick_size, float("nan")])
+def test_a_tick_size_that_is_not_a_positive_number_is_refused(tick_size: float) -> None:
+    params, data = kinds_dataset()
+
+    with pytest.raises(randomentry.RandomEntryError, match="tick_size must be a positive number"):
+        randomentry.matched_random_placements(data, params.range_key, np.random.default_rng(0), tick_size)
+
+
+def test_the_draw_over_bars_redraws_no_levels() -> None:
+    """Falling through to one of the level draws would be a null filed under the wrong name."""
+    params, data = kinds_dataset()
+
+    with pytest.raises(randomentry.RandomEntryError, match="does not redraw the levels"):
+        randomentry._drawn_ranges(
+            data,
+            params.range_key,
+            randomentry.OVER_BARS,
+            np.random.default_rng(0),
+            NQ.tick_size,
+        )
+
+
+def test_the_kind_draw_produces_its_own_null_beside_the_level_draw() -> None:
+    """The same seeds under the two draws ask different questions, so they must not return one null."""
+    params, data = kinds_dataset()
+
+    kinds = randomentry.null_summaries(data, params, instrument=NQ, iterations=8, draw=randomentry.OVER_KINDS)
+    levels = randomentry.null_summaries(
+        data, params, instrument=NQ, iterations=8, draw=randomentry.OVER_LEVELS
+    )
+
+    assert len(kinds) == 8
+    assert kinds["profit_factor"].nunique() > 1, "every draw agreed, so nothing was randomised"  # noqa: PD101 - a NaN draw is ignored, which an equality check would not do
+    assert not kinds.equals(levels)
+
+
+def test_parallel_kind_draws_match_serial_exactly() -> None:
+    """The tick size crosses the process boundary with the instrument, and nothing else may change."""
+    params, data = kinds_dataset()
+
+    serial = randomentry.null_summaries(
+        data, params, instrument=NQ, iterations=4, draw=randomentry.OVER_KINDS
+    )
+    parallel = randomentry.null_summaries(
+        data,
+        params,
+        instrument=NQ,
+        iterations=4,
+        n_jobs=2,
+        draw=randomentry.OVER_KINDS,
+    )
+
+    pd.testing.assert_frame_equal(serial, parallel)
+
+
+@pytest.mark.parametrize("draw", [randomentry.OVER_LEVELS, randomentry.OVER_KINDS])
+def test_a_level_draw_is_refused_for_an_archetype_with_no_range(draw: str) -> None:
     """Falling back to the draw over bars would be a null silently taken over the wrong thing."""
     with pytest.raises(randomentry.RandomEntryError, match="no session range"):
         randomentry._range_key_for(
             DeadCatParams(),
             archetypes.DEADCATBOUNCE,
-            randomentry.OVER_LEVELS,
+            draw,
         )
 
 
