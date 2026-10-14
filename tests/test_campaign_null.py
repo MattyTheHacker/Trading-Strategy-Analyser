@@ -65,6 +65,30 @@ def measured(**columns: object) -> pd.DataFrame:
 # -- which null a row was produced under -----------------------------------------------------
 
 
+def stored_row() -> pd.Series:  # type: ignore[explicit-any]  # duckdb's dtypes
+    """Return one stored row carrying only what ``measure_row`` reads once ``rebuild`` is stubbed."""
+    return pd.Series(
+        {
+            "stratum": "unfiltered",
+            "resolution": 10,
+            NET_TO_DRAWDOWN: 1.0,
+            "trades": 5,
+            "sweep_id": 1,
+            "combo_id": 0,
+        }
+    )
+
+
+def name_the_draw(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub ``compare`` to raise with the draw it was asked for, and ``rebuild`` to skip the archetype."""
+    monkeypatch.setattr(campaign_null, "rebuild", lambda *_: object())
+    monkeypatch.setattr(
+        randomentry,
+        "compare",
+        lambda *_a, **kwargs: (_ for _ in ()).throw(AssertionError(kwargs["draw"])),
+    )
+
+
 def refused_row(monkeypatch: pytest.MonkeyPatch, draw: str) -> dict[str, object]:
     """Return one ``measure_row`` result, with the simulation and the null both stubbed out.
 
@@ -78,54 +102,41 @@ def refused_row(monkeypatch: pytest.MonkeyPatch, draw: str) -> dict[str, object]
 
     monkeypatch.setattr(campaign_null, "rebuild", lambda *_: object())
     monkeypatch.setattr(randomentry, "compare", refuse)
-    row = pd.Series(
-        {
-            "stratum": "unfiltered",
-            "resolution": 10,
-            NET_TO_DRAWDOWN: 1.0,
-            "trades": 5,
-            "sweep_id": 1,
-            "combo_id": 0,
-        }
-    )
 
-    return measure_row(row, object(), object(), "MNQ", "a", 2, 1, draw)  # type: ignore[arg-type]  # rebuild and compare are stubbed
+    return measure_row(stored_row(), object(), object(), "MNQ", "a", 2, 1, draw)  # type: ignore[arg-type]  # rebuild and compare are stubbed
 
 
-def test_a_measured_row_says_which_null_produced_it(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The two arms ask different questions.
+@pytest.mark.parametrize("draw", randomentry.DRAWS)
+def test_a_measured_row_says_which_null_produced_it(monkeypatch: pytest.MonkeyPatch, draw: str) -> None:
+    """The arms ask different questions.
 
-    A table mixing them would be two nulls wearing one set of names -- ``docs/roadmap.md``
+    A table mixing them would be several nulls wearing one set of names -- ``docs/roadmap.md``
     §M28.2.
     """
-    over_bars = refused_row(monkeypatch, randomentry.OVER_BARS)
-    over_levels = refused_row(monkeypatch, randomentry.OVER_LEVELS)
+    assert refused_row(monkeypatch, draw)["draw"] == draw
 
-    assert over_bars["draw"] == randomentry.OVER_BARS
-    assert over_levels["draw"] == randomentry.OVER_LEVELS
+
+def test_the_kind_draw_can_be_asked_for_by_name() -> None:
+    args = campaign_null.parse(["campaign_null.py", "--strategy", "OpeningRange", "--draw", "kinds"])
+
+    assert args.draw == randomentry.OVER_KINDS
 
 
 def test_the_draw_defaults_to_the_one_every_archetype_has(monkeypatch: pytest.MonkeyPatch) -> None:
     """Adding the second arm must not change what an unflagged run measures."""
-    monkeypatch.setattr(campaign_null, "rebuild", lambda *_: object())
-    monkeypatch.setattr(
-        randomentry,
-        "compare",
-        lambda *_a, **kwargs: (_ for _ in ()).throw(AssertionError(kwargs["draw"])),
-    )
-    row = pd.Series(
-        {
-            "stratum": "unfiltered",
-            "resolution": 10,
-            NET_TO_DRAWDOWN: 1.0,
-            "trades": 5,
-            "sweep_id": 1,
-            "combo_id": 0,
-        }
-    )
+    name_the_draw(monkeypatch)
 
     with pytest.raises(AssertionError, match=randomentry.OVER_BARS):
-        measure_row(row, object(), object(), "MNQ", "a", 2, 1)  # type: ignore[arg-type]  # rebuild and compare are stubbed
+        measure_row(stored_row(), object(), object(), "MNQ", "a", 2, 1)  # type: ignore[arg-type]  # rebuild and compare are stubbed
+
+
+@pytest.mark.parametrize("draw", randomentry.DRAWS)
+def test_the_draw_asked_for_is_the_one_measured(monkeypatch: pytest.MonkeyPatch, draw: str) -> None:
+    """A row filed under one null and measured under another is the mix its ``draw`` column exists to stop."""
+    name_the_draw(monkeypatch)
+
+    with pytest.raises(AssertionError, match=f"^{draw}$"):
+        measure_row(stored_row(), object(), object(), "MNQ", "a", 2, 1, draw)  # type: ignore[arg-type]  # rebuild and compare are stubbed
 
 
 # -- naming a configuration ------------------------------------------------------------------
@@ -253,6 +264,7 @@ def family_rows(**columns: object) -> pd.DataFrame:
     """Build a table shaped like :func:`~tools.campaign_null.measure`'s output over two cells."""
     base = {
         "strategy": "OpeningRange",
+        "draw": randomentry.OVER_LEVELS,
         "test_window": "holdout",
         "ranked_on": "selection",
         "root": ["MNQ", "MNQ", "NQ", "NQ"],
@@ -434,6 +446,22 @@ def test_a_test_read_twice_is_refused_rather_than_counted_twice() -> None:
     rows = drawn_rows()
     with pytest.raises(RuntimeError, match="repeat a test"):
         family_wise(pd.concat([rows, rows.iloc[[0]]], ignore_index=True))
+
+
+def test_one_archetype_measured_under_two_nulls_is_refused_as_one_family() -> None:
+    """The kind and level draws of one shortlist are two families, and a stray table would merge them."""
+    rows = drawn_rows(draw=[randomentry.OVER_LEVELS] * 2 + [randomentry.OVER_KINDS] * 2)
+    with pytest.raises(RuntimeError, match="more than one null"):
+        family_wise(rows)
+
+
+def test_archetypes_measured_under_different_nulls_may_share_a_family() -> None:
+    """§M54's family B reads OpeningRange's level draw beside the others' draw over bars."""
+    rows = drawn_rows(
+        strategy=["OpeningRange", "OpeningRange", "InsideBar", "InsideBar"],
+        draw=[randomentry.OVER_LEVELS] * 2 + [randomentry.OVER_BARS] * 2,
+    )
+    assert family_wise(rows)[campaign_null.FAMILY_P].notna().all()
 
 
 def test_rows_drawn_a_different_number_of_times_are_refused() -> None:

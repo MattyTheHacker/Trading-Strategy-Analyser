@@ -46,6 +46,13 @@ def test_choice_without_replacement_is_unchanged() -> None:
     assert rng.choice(np.arange(20), size=6, replace=False).tolist() == [4, 10, 8, 5, 0, 12]
 
 
+def test_bounded_integers_with_a_bound_per_draw_are_unchanged() -> None:
+    """``randomentry.matched_random_placements``, which places each session up to its own width."""
+    rng = np.random.default_rng(0)
+    widths = np.array([0, 1, 4, 40, 400], dtype=np.int64)
+    assert rng.integers(0, widths, endpoint=True).tolist() == [0, 1, 3, 20, 108]
+
+
 def test_the_per_draw_seeds_are_unchanged() -> None:
     """``randomentry.null_summaries`` seeds every iteration from one ``SeedSequence``."""
     seeds = np.random.SeedSequence(0).generate_state(6)
