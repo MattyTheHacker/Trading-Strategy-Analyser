@@ -18,6 +18,7 @@ import math
 import sys
 import time
 from dataclasses import dataclass, field, replace
+from itertools import product
 from typing import TYPE_CHECKING, NamedTuple, Protocol, TypedDict
 
 import pandas as pd
@@ -3221,6 +3222,66 @@ def check_confluence_request(argv: argparse.Namespace) -> None:
         raise SystemExit(msg)
 
 
+def fields_set(variant: Variant) -> dict[str, Sequence[object]]:
+    """Return each field ``variant`` sets, by an axis or off its default, at the values it runs."""
+    base: dict[str, object] = variant.base.as_dict()
+    defaults: dict[str, object] = variant.archetype.params_cls().as_dict()
+    moved: dict[str, Sequence[object]] = {
+        name: [value] for name, value in base.items() if value != defaults[name]
+    }
+
+    return {**moved, **variant.axes}
+
+
+def cuts_before_the_run(argv: argparse.Namespace, name: str, root: str) -> dict[int, Cuts]:
+    """Return each requested resolution's cut as far as it is known before any bars load.
+
+    A sizing run's is its fit, read from the file; any other fitted threshold is a placeholder that
+    matches nothing.
+    """
+    if argv.variants != CONFLUENCE_SIZING:
+        return dict.fromkeys(argv.resolutions, cell_shape(argv))
+
+    return {
+        minutes: cuts for minutes, cuts in confluence_cuts(name, root).items() if minutes in argv.resolutions
+    }
+
+
+def refuse_collisions(which: str, variant: Variant, cuts: Cuts) -> None:
+    """Refuse the first filtered cell of ``which`` that would run ``variant`` as something else."""
+    chosen: dict[str, Sequence[object]] = fields_set(variant)
+    counting: bool = any(count != REQUIRE_ALL for count in chosen.get("confluence_required", ()))
+    for stratum, cell in strata(which, cuts):
+        replaced: str = ", ".join(
+            name for name, values in cell.items() if name in chosen and chosen[name] != values
+        )
+        if replaced:
+            msg: str = (
+                f"--strata {which}: {stratum} would overwrite {replaced}, which {variant.name!r} sets "
+                f"itself; run it unfiltered or under strata that leave {replaced} alone"
+            )
+            raise SystemExit(msg)
+
+        if cell and counting:
+            msg = (
+                f"--strata {which}: {stratum} would be one vote among the gates {variant.name!r} counts "
+                "rather than a filter; run it unfiltered"
+            )
+            raise SystemExit(msg)
+
+
+def check_stratum_request(argv: argparse.Namespace) -> None:
+    """Refuse a filtered stratum that would change a field its variant sets, or join gates the variant counts.
+
+    ``tools/README.md`` § "Strata".
+    """
+    for name, root in product(argv.strategies, argv.roots):
+        known: dict[int, Cuts] = cuts_before_the_run(argv, name, root)
+        for variant in variants_for(argv.variants)[name](root):
+            for cuts in dict.fromkeys(known[minutes] for minutes in filter(variant.runs_at, known)):
+                refuse_collisions(argv.strata, variant, cuts)
+
+
 def quantile_pair(given: list[float] | None) -> tuple[float, float] | None:
     """Return the pair to fit at: ``None`` for the raw thresholds, and bare for :data:`REGIME_QUANTILES`."""
     if given is None:
@@ -3450,6 +3511,7 @@ def main(argv: list[str]) -> int:
     args.strata = args.strata or (UNFILTERED if args.split else CORE)
     check_confluence_request(args)
     check_slot_request(args)
+    check_stratum_request(args)
 
     logger.info("planned combinations: %s", f"{planned_combinations(args):,}")
     started: float = time.perf_counter()

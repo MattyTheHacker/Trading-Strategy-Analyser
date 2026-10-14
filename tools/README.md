@@ -85,6 +85,8 @@ uv run tools/campaign_sweep.py --strata volume-forms --split --volume-quantiles 
 uv run tools/campaign_sweep.py --strategies OpeningRange --strata directional --split --regime-quantiles 0.10 0.90 --n-jobs 8
 ```
 
+**A stratum that would change what an arm is gets refused before anything runs.** A cell's fields are laid over the variant's, so where an arm sets a field the cell also sets, the cell overwrites it: `side-count`'s phase gate, `spec`'s confluence filters, a sizing arm's fitted thresholds under `--regime-quantiles`. Under an arm that counts its gates (`confluence_required` of 1 or more), the cell's filter would be one vote among them rather than a filter. Either way the rows would be stored under the stratum's name. A cell holding the value the arm already runs at is allowed, which is how `confluence-sizing` runs its regime and volume cells at its own fit; under an arm that counts its gates, any filtered cell is refused.
+
 #### Variant sets
 
 `--variants` picks the grid. `campaign` (the default) is what §M27 measured, per archetype, and **a re-sweep that changes an axis gets its own variant set** rather than an edit to that grid, where it would leave the stored rows and the code that produced them disagreeing. Most sets come with a `--strata` group of the same name holding the cells stated for them in advance. A variant the resolution cannot express is skipped rather than raising; only a session-anchored range does this, because its anchor and window must both be whole numbers of bars (a 5-minute range does not exist on 10-minute bars) -- `docs/roadmap.md` §M28.

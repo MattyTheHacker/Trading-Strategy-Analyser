@@ -190,6 +190,7 @@ from tools.campaign_sweep import (
     SIZING_QUANTITIES,
     SIZING_SYMMETRIC,
     SLIPPAGE_TICKS,
+    SPEC,
     SPEC_SHARED,
     SPEC_STOPS,
     SPEC_VARIANTS,
@@ -219,6 +220,7 @@ from tools.campaign_sweep import (
     calibrate_volume,
     campaign_variant_names,
     check_confluence_request,
+    check_stratum_request,
     check_volume_request,
     confluence_arms,
     confluence_cuts,
@@ -240,6 +242,7 @@ from tools.campaign_sweep import (
     planned_combinations,
     quantile_pair,
     raw_volume_cuts,
+    refuse_collisions,
     run_point,
     sizing_arms,
     sizing_cuts,
@@ -3428,6 +3431,107 @@ def test_the_planned_count_has_one_regime_and_one_volume_cut_per_dimension(
     (campaign,) = VARIANTS["DeadCatBounce"]("MNQ")
     cells = 1 + 3 + len(timeofday.SessionPhase) + 3 + 3 + 3 + len(higher_timeframe.Side)
     assert planned_combinations(args) == campaign.sized() * cells * 4 * 2
+
+
+# -- a stratum on an arm that sets or counts its own gates ----------------------------------
+
+
+def stratum_request(variants: str, strata: str, **given: object) -> argparse.Namespace:
+    """Return what ``check_stratum_request`` reads: EmaCrossover on MNQ at 5 minutes unless ``given`` says."""
+    return argparse.Namespace(
+        **{
+            "variants": variants,
+            "strata": strata,
+            "strategies": ["EmaCrossover"],
+            "roots": ["MNQ"],
+            "resolutions": [5],
+            "regime_quantiles": None,
+            "regime_lookbacks": list(REGIME_LOOKBACKS),
+            "volume_quantiles": (),
+        }
+        | given,
+    )
+
+
+@pytest.mark.parametrize(
+    ("variants", "strata", "arm", "gate"),
+    [(SIDE_COUNT, "phase", "gates=phase", "phase_filter"), (SPEC, REGIME, "confluence", "regime_filter")],
+)
+def test_a_stratum_overwriting_a_gate_its_arm_sets_is_refused(
+    variants: str, strata: str, arm: str, gate: str
+) -> None:
+    with pytest.raises(SystemExit, match=f"would overwrite {gate}, which '[^']*{arm}' sets itself"):
+        check_stratum_request(stratum_request(variants, strata))
+
+
+@pytest.mark.parametrize(
+    ("variants", "strata", "arm"),
+    [(SIDE_COUNT, REGIME, "gates=1of4"), (SPEC, "phase", "confluence")],
+)
+def test_a_stratum_under_an_arm_counting_its_gates_is_refused(variants: str, strata: str, arm: str) -> None:
+    with pytest.raises(SystemExit, match=f"one vote among the gates '[^']*{arm}' counts"):
+        check_stratum_request(stratum_request(variants, strata))
+
+
+@pytest.mark.parametrize("variants", [SIDE_COUNT, SPEC])
+def test_a_set_that_sets_or_counts_gates_runs_under_its_own_strata(variants: str) -> None:
+    check_stratum_request(stratum_request(variants, variants))
+
+
+def test_a_stratum_setting_a_field_to_the_value_its_variant_runs_at_is_allowed() -> None:
+    """Only a change is refused: a cell holding the variant's own value runs the same variant."""
+    midday: int = timeofday.SessionPhase.MIDDAY.bit
+    in_the_base = Variant(
+        name="base", archetype=archetypes.EMACROSSOVER, base=EmaCrossoverParams(phase_filter=midday)
+    )
+    on_an_axis = Variant(
+        name="axis",
+        archetype=archetypes.EMACROSSOVER,
+        base=EmaCrossoverParams(),
+        axes={"phase_filter": [midday]},
+    )
+    for variant in (in_the_base, on_an_axis):
+        refuse_collisions(MIDDAY, variant, NO_CUTS)
+        with pytest.raises(SystemExit, match="would overwrite phase_filter"):
+            refuse_collisions("phase", variant, NO_CUTS)
+
+
+def test_a_sizing_run_under_strata_cut_at_its_own_fit_is_allowed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Its arms and its regime and volume cells hold the same fitted thresholds, so none is overwritten."""
+    monkeypatch.setattr(campaign_sweep, "CAMPAIGN_DIR", tmp_path)
+    write_cuts(sizing_cuts_path("DeadCatBounce"), [m47_cut()])
+    check_stratum_request(stratum_request(CONFLUENCE_SIZING, CONFLUENCE_SIZING, strategies=["DeadCatBounce"]))
+
+
+def test_a_fitted_stratum_overwriting_a_sizing_arms_cut_is_refused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    path = tmp_path / "cuts.json"
+    write_cuts(path, [a_cut()])
+    monkeypatch.setattr(campaign_sweep, "SIZING_CUTS", path)
+    fitted = stratum_request(
+        IBT_SIZING, REGIME, strategies=["InsideBarTrailing"], regime_quantiles=REGIME_QUANTILES
+    )
+    with pytest.raises(
+        SystemExit, match="would overwrite regime_consolidating_below, regime_directional_above"
+    ):
+        check_stratum_request(fitted)
+
+
+def test_the_sweep_refuses_a_stratum_on_a_gated_arm_before_it_plans_anything(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def planned(_: argparse.Namespace) -> int:
+        msg = "the sweep got past its checks"
+        raise AssertionError(msg)
+
+    monkeypatch.setattr(campaign_sweep, "planned_combinations", planned)
+    with pytest.raises(SystemExit, match="would overwrite phase_filter"):
+        campaign_sweep.main(
+            ["campaign_sweep.py", "--variants", SIDE_COUNT, "--strata", "phase", "--resolutions", "5"]
+        )
 
 
 # -- the stored-cell guard -------------------------------------------------------------------
