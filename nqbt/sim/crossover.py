@@ -164,7 +164,7 @@ def simulate_crossover(  # noqa: C901, PLR0912, PLR0915 - one branch per rule, i
             # bar, and is flattened at its close".
             d = pending_direction
             fill = bars.open_[i] + d * slippage
-            candidate_stop = _protective_stop(bars, series, pending_bar, fill, d, rules, costs)
+            candidate_stop = _protective_stop(bars, series, pending_bar, fill, d, rules, costs, fills)
             candidate_risk = d * (fill - candidate_stop)
             # A stop at or through the price it protects is not a stop order --
             # ``docs/nt8-fidelity.md`` §M18.
@@ -271,6 +271,7 @@ def _protective_stop(
     direction: float,
     rules: CrossoverRules,
     costs: bracket.Costs,
+    fills: bracket.FillRules,
 ) -> float:
     """Return where the protective stop goes, in whichever of the three modes is selected.
 
@@ -279,7 +280,7 @@ def _protective_stop(
     precedence over the other two; the ATR mode hangs the stop off the fill, so planned risk is
     the ATR multiple or the dollar floor, whichever is wider; the swing mode uses the adverse
     extreme of the last ``swing_lookback`` completed bars plus the same offset. Only the ATR
-    mode is floored.
+    mode is floored, and only the ATR mode is snapped to the tick grid under ``round_targets``.
     """
     if rules.use_level_stop:
         stop = series.stop_level[signal_bar] - direction * rules.stop_offset_ticks * costs.tick_size
@@ -290,6 +291,10 @@ def _protective_stop(
             rules.min_bracket_points,
         )
         stop = fill - direction * distance
+        if fills.round_targets:
+            # Snapped before the risk is measured -- ``docs/nt8-fidelity.md``, "Targets snap to
+            # the tick grid".
+            stop = bracket.round_to_tick(stop, costs.tick_size)
     else:
         stop = bracket.swing_stop(
             bars,
