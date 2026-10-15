@@ -787,6 +787,17 @@ def test_a_rejected_stop_is_told_from_one_left_unfilled(tmp_path: Path) -> None:
     assert stops["gapped"]["trials"]["not_filled"] == 1
 
 
+def test_a_trial_of_four_legs_is_read_on_the_first_legs_stop(tmp_path: Path) -> None:
+    """Scenario 9's other legs fill stops of their own, and the first in the log is not the first leg's."""
+    events = stop_events()
+    other_leg = {**events[4], "from_entry_signal": f"{LONG}2", "execution_price": 98.0}
+    run = read_run(write_run(tmp_path, [*events[:4], other_leg, *events[4:]], STOP_BARS))
+    frame = rpt.stop_trials(run)
+    assert frame.loc[1, "stop_fill"] == STOP_READINGS["rule"][0]
+    assert rpt.misattributed_stops(run, frame) == 0
+    assert rpt.report(run) is True
+
+
 def test_a_stop_naming_another_entry_is_caught_and_fails_the_report(tmp_path: Path) -> None:
     events = stop_events()
     events[4]["from_entry_signal"] = SHORT

@@ -372,7 +372,8 @@ def stop_trials(run: Run, lag: int = 1) -> pd.DataFrame:
 
     Bars are the bars the fills happened on, the reported bar plus ``lag``. ``entry_level`` is a
     stop entry's trigger or a limit entry's price, and ``stop`` the stop order's own price where it
-    filled, otherwise the one the probe set. Only a run that set a stop has the ``stop_price``
+    filled, otherwise the one the probe set. A trial of several legs is read on its first, whose
+    entry carries the name the others extend. Only a run that set a stop has the ``stop_price``
     column this reads -- see :func:`set_stops`.
     """
     events = run.events
@@ -382,7 +383,12 @@ def stop_trials(run: Run, lag: int = 1) -> pd.DataFrame:
     named = events["signal_name"].isin(ENTRY_SIDES)
     sent = events[(events["kind"] == SUBMIT) & named].drop_duplicates("trial").set_index("trial")
     sent = sent.reindex(entries.index)
-    stops = executions(run, [STOP_LOSS]).reindex(entries.index)
+    own_stops = events[
+        (events["kind"] == EXECUTION)
+        & (events["signal_name"] == STOP_LOSS)
+        & events["from_entry_signal"].isin(ENTRY_SIDES)
+    ]
+    stops = own_stops.drop_duplicates("trial").set_index("trial").reindex(entries.index)
     rejections = events[
         (events["kind"] == ORDER_UPDATE)
         & (events["signal_name"] == STOP_LOSS)
