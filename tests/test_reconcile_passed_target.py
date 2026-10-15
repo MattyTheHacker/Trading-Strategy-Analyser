@@ -720,7 +720,7 @@ def stop_events(reading: str = "rule", *, lag: int = 1) -> list[dict[str, object
 
 
 @pytest.mark.parametrize(
-    ("reading", "key"), [("rule", "at_open"), ("stop", "at_stop_past_open"), ("entry", "other")]
+    ("reading", "key"), [("rule", "at_open"), ("stop", "against_path"), ("entry", "against_path")]
 )
 def test_a_stop_its_entry_bar_opened_past_is_read_at_the_price_it_filled_at(
     tmp_path: Path, reading: str, key: str
@@ -729,18 +729,19 @@ def test_a_stop_its_entry_bar_opened_past_is_read_at_the_price_it_filled_at(
     stops = rpt.stops_after_entry(rpt.stop_trials(run), run.bars)
     for group in ("beyond", "gapped"):  # each holds one long only if the entry's fill is read
         assert stops[group]["trials"]["entries"] == 1
-        assert stops[group]["on_entry_bar"][key] == 1
-        assert sum(stops[group]["on_entry_bar"].values()) == 1
-    assert stops["control"]["on_entry_bar"] == {
+        assert stops[group]["entry_bar"][key] == 1
+        assert sum(stops[group]["entry_bar"].values()) == 1
+    assert stops["control"]["entry_bar"] == {
         "at_open": 0,
         "at_stop": 1,
-        "at_stop_past_open": 0,
-        "other": 0,
+        "not_reached": 0,
+        "tie": 0,
+        "against_path": 0,
     }
 
 
 @pytest.mark.parametrize(("reading", "follows"), [("rule", True), ("stop", False), ("entry", False)])
-def test_report_holds_stops_to_the_gapped_stop_rule_on_the_entry_bar(
+def test_report_holds_stops_to_the_bars_path_on_the_entry_bar(
     tmp_path: Path, reading: str, *, follows: bool
 ) -> None:
     run = read_run(write_run(tmp_path, stop_events(reading), STOP_BARS))
@@ -754,17 +755,18 @@ def test_a_control_stop_filled_where_its_bar_never_traded_breaks_the_rule(tmp_pa
     bars = [*STOP_BARS[:2], bar(2, 99.0, 99.5, high=99.5, low=98.75), *STOP_BARS[3:]]
     run = read_run(write_run(tmp_path, events, bars))
     control = rpt.stops_after_entry(rpt.stop_trials(run), run.bars)["control"]
-    assert control["on_entry_bar"]["other"] == 1
+    assert control["entry_bar"]["against_path"] == 1
     assert rpt.report(run) is False
 
 
-def test_a_stop_filling_a_bar_later_is_told_from_one_filling_on_the_entry_bar(tmp_path: Path) -> None:
+def test_a_stop_the_path_reaches_but_filling_a_bar_later_breaks_the_rule(tmp_path: Path) -> None:
     events = stop_events()
     events[9]["bar"] = 2  # the short's stop, reported a bar after its entry
     run = read_run(write_run(tmp_path, events, STOP_BARS))
     control = rpt.stops_after_entry(rpt.stop_trials(run), run.bars)["control"]
-    assert sum(control["on_entry_bar"].values()) == 0
+    assert control["entry_bar"]["against_path"] == 1
     assert sum(control["on_a_later_bar"].values()) == 1
+    assert rpt.report(run) is False
 
 
 def test_a_stop_filled_before_its_entry_is_counted_and_fails_the_report(tmp_path: Path) -> None:
@@ -813,17 +815,12 @@ def test_a_run_written_before_the_stop_price_column_still_reports(tmp_path: Path
 
 
 # Scenario 6, a stop entry with its stop a tick beyond the close. A buy stop two ticks over bar
-# 0's close, its stop one tick over, meets bar 1 opening at that close -- past the stop -- and
-# trading up through the entry, so the entry fills at its trigger with the stop already behind
-# the bar's open.
-STOP_ENTRY_BARS = [bar(0, 100.0, 100.0), bar(1, 100.0, 100.0, high=100.75, low=99.75), bar(2, 100.0, 100.0)]
-
-
-@pytest.mark.parametrize(("price", "key"), [(100.0, "at_open"), (100.25, "at_stop_past_open")])
-def test_a_stop_behind_a_stop_entry_is_read_like_one_behind_a_limit_entry(
-    tmp_path: Path, price: float, key: str
-) -> None:
-    events = [
+# 0's close, its stop one tick over, meets bar 1 opening at that close -- past the stop. The low
+# is nearer the open, so the path runs down first, up through the entry, and back down to a
+# close that only reaches the stop if it is at or under it.
+def stop_entry_events(stop_fill_price: float, stop_reported_bar: int = 0) -> list[dict[str, object]]:
+    """Build one scenario-6 long: a buy stop at 100.5 with its stop at 100.25, both filling as given."""
+    return [
         stop_set(1, 0, LONG, 100.25),
         event(SUBMIT, 1, 0, signal_name=LONG, order_type="StopMarket", stop_price=100.5),
         event(
@@ -835,37 +832,142 @@ def test_a_stop_behind_a_stop_entry_is_read_like_one_behind_a_limit_entry(
             order_state="Filled",
             execution_price=100.5,
         ),
-        stop_fill(1, 0, LONG, 100.25, price),
+        stop_fill(1, stop_reported_bar, LONG, 100.25, stop_fill_price),
     ]
-    run = read_run(write_run(tmp_path, events, STOP_ENTRY_BARS))
+
+
+@pytest.mark.parametrize(("price", "key"), [(100.25, "at_stop"), (100.0, "against_path")])
+def test_a_stop_behind_a_stop_entry_fills_at_its_price_where_the_path_comes_back_to_it(
+    tmp_path: Path, price: float, key: str
+) -> None:
+    bars = [bar(0, 100.0, 100.0), bar(1, 100.0, 100.0, high=100.75, low=99.75), bar(2, 100.0, 100.0)]
+    run = read_run(write_run(tmp_path, stop_entry_events(price), bars))
     stops = rpt.stops_after_entry(rpt.stop_trials(run), run.bars)
-    assert stops["gapped"]["on_entry_bar"][key] == 1
+    assert stops["gapped"]["entry_bar"][key] == 1
     assert rpt.limit_entry_fills(rpt.limit_entries(run), run.bars)["resting"]["sent"] == 0
-    assert rpt.report(run) is (key == "at_open")
+    assert rpt.report(run) is (key == "at_stop")
 
 
-def test_the_lag_falls_back_to_the_one_bar_entries_where_nothing_filled_at_market(tmp_path: Path) -> None:
+def test_a_stop_behind_a_stop_entry_the_path_never_comes_back_to_is_left_for_a_later_bar(
+    tmp_path: Path,
+) -> None:
+    """The bar's low is before the entry on its path, so a stop the bar's range reaches is not reached."""
+    bars = [bar(0, 100.0, 100.0), bar(1, 100.0, 100.5, high=100.75, low=99.75), bar(2, 100.0, 100.0)]
+    run = read_run(write_run(tmp_path, stop_entry_events(100.0, stop_reported_bar=1), bars))
+    stops = rpt.stops_after_entry(rpt.stop_trials(run), run.bars)
+    assert stops["gapped"]["entry_bar"]["not_reached"] == 1
+    assert stops["gapped"]["on_a_later_bar"]["at_open"] == 1
+    assert rpt.report(run) is True
+
+
+def test_a_stop_two_equally_near_extremes_disagree_on_is_counted_apart(tmp_path: Path) -> None:
+    """Walked high first, the path comes back down through the stop; walked low first, it does not."""
+    bars = [bar(0, 100.0, 100.0), bar(1, 100.0, 100.5, high=100.75, low=99.25), bar(2, 100.0, 100.0)]
+    run = read_run(write_run(tmp_path, stop_entry_events(100.25), bars))
+    stops = rpt.stops_after_entry(rpt.stop_trials(run), run.bars)
+    assert stops["gapped"]["entry_bar"]["tie"] == 1
+    assert rpt.report(run) is True
+
+
+@pytest.mark.parametrize(
+    ("ohlc", "expected"),
+    [
+        ((100.0, 100.25, 99.0, 99.5), [(100.0, 100.25, 99.0, 99.5)]),
+        ((100.0, 101.0, 99.75, 100.5), [(100.0, 99.75, 101.0, 100.5)]),
+        ((100.0, 100.5, 99.5, 100.0), [(100.0, 100.5, 99.5, 100.0), (100.0, 99.5, 100.5, 100.0)]),
+    ],
+)
+def test_a_bar_is_walked_to_the_extreme_nearer_its_open_first(
+    ohlc: tuple[float, float, float, float], expected: list[tuple[float, ...]]
+) -> None:
+    assert rpt.bar_paths(*ohlc) == expected
+
+
+@pytest.mark.parametrize(
+    ("entry_type", "side", "level", "expected"),
+    [
+        ("Market", 1.0, float("nan"), (100.0, 99.0, 101.0, 100.5)),
+        ("StopMarket", 1.0, 100.5, (100.5, 101.0, 100.5)),
+        ("StopMarket", 1.0, 99.75, (100.0, 99.0, 101.0, 100.5)),
+        ("StopMarket", -1.0, 99.5, (99.5, 99.0, 101.0, 100.5)),
+        ("Limit", 1.0, 99.5, (99.5, 99.0, 101.0, 100.5)),
+        ("Limit", 1.0, 100.25, (100.0, 99.0, 101.0, 100.5)),
+        ("Limit", -1.0, 100.75, (100.75, 101.0, 100.5)),
+        ("StopMarket", 1.0, 101.25, None),
+        ("Limit", 1.0, 99.0, None),
+    ],
+)
+def test_an_entry_fills_where_the_path_first_trades_its_level(
+    entry_type: str, side: float, level: float, expected: tuple[float, ...] | None
+) -> None:
+    """A limit has to trade through its level and a stop only reach it; either fills at an open past it."""
+    assert rpt.path_after_entry(entry_type, side, level, (100.0, 99.0, 101.0, 100.5)) == expected
+
+
+@pytest.mark.parametrize(
+    ("side", "stop", "expected"),
+    [
+        (1.0, 100.75, 100.5),
+        (1.0, 100.25, 100.25),
+        (1.0, 99.75, None),
+        (-1.0, 101.0, 101.0),
+        (-1.0, 101.25, None),
+    ],
+)
+def test_a_stop_fills_at_the_paths_first_price_past_it_or_at_its_own(
+    side: float, stop: float, expected: float | None
+) -> None:
+    assert rpt.stop_on_path((100.5, 101.0, 100.0), side, stop) == expected
+
+
+def test_the_lag_falls_back_to_the_entries_prices_where_nothing_filled_at_market(tmp_path: Path) -> None:
     run = read_run(write_run(tmp_path, stop_events(), STOP_BARS))
     assert rpt.measure_lag(run)["fills"] == 0
-    counts = rpt.measure_entry_lag(run)
-    assert counts == {"fills": 3, "reported": 0, "reported_plus_one": 3, "neither": 0}
+    counts = rpt.measure_lag_on_entries(run)
+    assert counts == {"fills": 3, "reported": 0, "reported_plus_one": 1, "both": 2, "neither": 0}
     assert rpt.lag_is_clean(counts)
 
 
 def test_an_entry_reported_on_the_bar_it_filled_on_is_not_read_as_lagging(tmp_path: Path) -> None:
-    run = read_run(write_run(tmp_path, stop_events(lag=0), STOP_BARS))
-    counts = rpt.measure_entry_lag(run)
-    assert counts["reported"] == 3
+    """Bar 2 never trades at 99.25, so only bar 1 holds the fill, and it is the bar reported."""
+    events = stopped_limit_trial(1, 0, LONG, (99.5, 99.75, 99.25, 99.0), lag=0)
+    bars = [bar(0, 100.0, 100.0), bar(1, 99.0, 99.0, high=99.25, low=98.75), bar(2, 100.0, 100.0)]
+    run = read_run(write_run(tmp_path, events, bars))
+    counts = rpt.measure_lag_on_entries(run)
+    assert counts["reported"] == 1
     assert not rpt.lag_is_clean(counts)
     assert rpt.report(run) is False
 
 
-def test_an_entry_reported_nowhere_near_the_bar_it_was_sent_on_fails_the_lag(tmp_path: Path) -> None:
+def test_an_entry_fill_no_bar_traded_at_fails_the_lag(tmp_path: Path) -> None:
     events = stop_events()
-    events[3]["bar"] = 3
-    counts = rpt.measure_entry_lag(read_run(write_run(tmp_path, events, STOP_BARS)))
+    events[3]["execution_price"] = 101.0
+    counts = rpt.measure_lag_on_entries(read_run(write_run(tmp_path, events, STOP_BARS)))
     assert counts["neither"] == 1
     assert not rpt.lag_is_clean(counts)
+
+
+@pytest.mark.parametrize(
+    ("counts", "expected"),
+    [
+        (
+            {"at_open": 0, "at_stop": 0, "not_reached": 0, "tie": 0, "against_path": 0},
+            "no instances in this run",
+        ),
+        (
+            {"at_open": 1, "at_stop": 2, "not_reached": 1, "tie": 1, "against_path": 0},
+            "all 4 as the bar's path says, 1 more on a tie",
+        ),
+        (
+            {"at_open": 0, "at_stop": 2, "not_reached": 0, "tie": 0, "against_path": 1},
+            "1 of 3 break the rule, 0 more on a tie",
+        ),
+    ],
+)
+def test_the_path_verdict_passes_a_set_only_when_every_stop_did_what_its_path_says(
+    counts: dict[str, int], expected: str
+) -> None:
+    assert rpt.path_verdict(counts) == expected
 
 
 def test_a_trial_reaching_past_the_last_recorded_bar_is_left_out(tmp_path: Path) -> None:
@@ -874,6 +976,19 @@ def test_a_trial_reaching_past_the_last_recorded_bar_is_left_out(tmp_path: Path)
     run = read_run(write_run(tmp_path, events, STOP_BARS))
     assert rpt.unrecorded_trials(run) == {4}
     assert rpt.report(run) is True
+
+
+def test_an_entry_left_working_past_its_bar_is_counted_without_failing_the_report(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    stuck = event(rpt.STUCK, 4, 5, signal_name=SHORT, order_type="StopMarket", order_state="Working")
+    events = [*stop_events(), event(SUBMIT, 4, 3, signal_name=SHORT, order_type="StopMarket"), stuck]
+    bars = [*STOP_BARS, bar(5, 99.0, 99.0)]
+    run = read_run(write_run(tmp_path, events, bars))
+    assert rpt.stuck_entries(run) == 1
+    with caplog.at_level(logging.INFO):
+        assert rpt.report(run) is True
+    assert "entries left working past their bar: 1" in caplog.text
 
 
 def test_every_trial_inside_the_recorded_bars_is_kept(tmp_path: Path) -> None:
