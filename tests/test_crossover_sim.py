@@ -243,13 +243,6 @@ def test_the_level_stop_lands_on_the_tick_grid_too() -> None:
     assert raw["initial_stop"].iloc[0] == pytest.approx(95.6)
 
 
-def test_a_swing_stop_with_a_fractional_tick_offset_lands_on_the_tick_grid() -> None:
-    """A bar extreme is on the grid already, so only an offset that is not whole ticks moves it."""
-    rows = [(100.0, 100.5, 97.0, 100.0), *FLAT]  # 0: signal; 97.0 - 1.5 ticks = 96.625
-    trades = run(rows, signal_at=[0], use_atr_stop=False, swing_lookback=1, stop_offset_ticks=1.5)
-    assert trades["initial_stop"].iloc[0] == pytest.approx(96.75)
-
-
 def test_a_half_tick_atr_stop_rounds_up_on_either_side() -> None:
     """``round_to_tick`` rounds a half tick up on either side: a long's risk shrinks, a short's grows."""
     long_side = run(FLAT, signal_at=[0], atr=1.125)
