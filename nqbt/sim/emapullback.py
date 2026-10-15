@@ -176,18 +176,22 @@ def confirmation_bracket(
     signal_bar: int,
     series: ConfirmationSeries,
     rules: ConfirmationRules,
-    tick_size: float,
+    costs: bracket.Costs,
+    fills: bracket.FillRules,
 ) -> tuple[float, float, float, float]:
     """Compute one signal bar's order arithmetic: side, trigger, initial stop, planned risk.
 
     The trigger sits ``entry_offset_ticks`` beyond the signal bar's favourable extreme and the
-    stop ``stop_offset_ticks`` beyond the slow average at that bar, so the whole bracket is known
-    when the order is submitted and risk is measured from the trigger rather than the fill.
+    stop ``stop_offset_ticks`` beyond the slow average at that bar, snapped to the tick grid
+    wherever targets are, so the whole bracket is known when the order is submitted and risk is
+    measured from the trigger rather than the fill.
     """
     direction = series.direction_at[signal_bar]
     _, favourable = bracket.sided(bars.low[signal_bar], bars.high[signal_bar], direction)
-    trigger = favourable + direction * rules.entry_offset_ticks * tick_size
-    stop = series.stop_level[signal_bar] - direction * rules.stop_offset_ticks * tick_size
+    trigger = favourable + direction * rules.entry_offset_ticks * costs.tick_size
+    stop = series.stop_level[signal_bar] - direction * rules.stop_offset_ticks * costs.tick_size
+    if fills.round_targets:
+        stop = bracket.round_to_tick(stop, costs.tick_size)
 
     return direction, trigger, stop, direction * (trigger - stop)
 
@@ -333,7 +337,11 @@ def simulate_confirmation(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
 
         # ---- close of bar i: trail the stop, then decide the next bar's orders --------
         if in_position and rules.trail_ma_stop:
-            stop = bracket.tightened_stop(stop, series.trail_ma[i] - d * trail_offset, d)
+            trailed = series.trail_ma[i] - d * trail_offset
+            if fills.round_targets:
+                trailed = bracket.round_to_tick(trailed, costs.tick_size)
+
+            stop = bracket.tightened_stop(stop, trailed, d)
 
         if in_position:
             breakeven = bracket.breakeven_level(rules.breakeven, trade, bars, i, costs, fills)
@@ -367,7 +375,8 @@ def simulate_confirmation(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
             i,
             series,
             rules,
-            costs.tick_size,
+            costs,
+            fills,
         )
         # NT8 ignores an entry on the other side of an order still working on this bar.
         if i <= pending_until and direction != pending_direction:

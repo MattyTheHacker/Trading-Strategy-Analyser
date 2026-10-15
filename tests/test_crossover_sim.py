@@ -235,6 +235,21 @@ def test_the_atr_stop_stays_off_the_grid_when_rounding_is_switched_off() -> None
     assert trades["risk_points"].iloc[0] == pytest.approx(1.1)
 
 
+def test_the_level_stop_lands_on_the_tick_grid_too() -> None:
+    level = np.full(len(FLAT), 96.1)
+    snapped = run(FLAT, signal_at=[0], stop_level=level)
+    raw = run(FLAT, signal_at=[0], stop_level=level, round_targets=False)
+    assert snapped["initial_stop"].iloc[0] == pytest.approx(95.5), "96.1 - 2 ticks = 95.6, off the grid"
+    assert raw["initial_stop"].iloc[0] == pytest.approx(95.6)
+
+
+def test_a_swing_stop_with_a_fractional_tick_offset_lands_on_the_tick_grid() -> None:
+    """A bar extreme is on the grid already, so only an offset that is not whole ticks moves it."""
+    rows = [(100.0, 100.5, 97.0, 100.0), *FLAT]  # 0: signal; 97.0 - 1.5 ticks = 96.625
+    trades = run(rows, signal_at=[0], use_atr_stop=False, swing_lookback=1, stop_offset_ticks=1.5)
+    assert trades["initial_stop"].iloc[0] == pytest.approx(96.75)
+
+
 def test_a_half_tick_atr_stop_rounds_up_on_either_side() -> None:
     """``round_to_tick`` rounds a half tick up on either side: a long's risk shrinks, a short's grows."""
     long_side = run(FLAT, signal_at=[0], atr=1.125)
@@ -761,6 +776,21 @@ def test_the_trail_tightens_the_stop_and_that_is_what_exits_the_trade() -> None:
     assert set(without["exit_reason"]) == {"end_of_data"}
     assert set(with_trail["exit_reason"]) == {"stop"}
     assert with_trail["exit_price"].unique() == pytest.approx([98.5])
+
+
+def test_the_trailed_stop_lands_on_the_tick_grid() -> None:
+    rows = [
+        (100.0, 100.5, 99.5, 100.0),  # 0: signal
+        (100.0, 100.5, 99.5, 100.0),  # 1: fill at 100, stop 60 from the ATR
+        (100.0, 100.5, 99.5, 100.0),  # 2: average 99.1 - 2 ticks = 98.6, snapped to 98.5
+        (100.0, 100.5, 98.0, 99.0),  # 3: trades through it
+        *FLAT,
+    ]
+    ma = np.full(len(rows), 99.1)
+    snapped = run(rows, signal_at=[0], atr=40.0, trail_ma=ma)
+    raw = run(rows, signal_at=[0], atr=40.0, trail_ma=ma, round_targets=False)
+    assert snapped["exit_price"].unique() == pytest.approx([98.5])
+    assert raw["exit_price"].unique() == pytest.approx([98.6])
 
 
 def test_the_cushion_is_what_separates_the_stop_from_the_average() -> None:

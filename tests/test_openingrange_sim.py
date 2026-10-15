@@ -361,6 +361,28 @@ def test_the_fraction_stop_measures_from_the_broken_extreme_on_the_short_side_to
     assert trades["initial_stop"].iloc[0] == RANGE_LOW + 0.25 * (RANGE_HIGH - RANGE_LOW)
 
 
+def test_the_atr_stop_lands_on_the_tick_grid_before_the_risk_is_taken() -> None:
+    """``docs/nt8-fidelity.md``, "Targets snap to the tick grid"."""
+    kwargs = {"signal_at": (0,), "stop_mode": ORB_STOP_ATR, "atr": 4.1}
+    snapped = run([BELOW, BREAKS], round_targets=True, **kwargs)  # type: ignore[arg-type]  # the keywords are run's own
+    raw = run([BELOW, BREAKS], round_targets=False, **kwargs)  # type: ignore[arg-type]  # the keywords are run's own
+
+    assert snapped["initial_stop"].iloc[0] == pytest.approx(106.0), "110 - 4.1 = 105.9, which is off the grid"
+    assert snapped["risk_points"].iloc[0] == pytest.approx(4.0)
+    assert raw["initial_stop"].iloc[0] == pytest.approx(105.9)
+
+
+def test_the_fraction_stop_lands_on_the_tick_grid_on_both_sides() -> None:
+    kwargs = {"signal_at": (0,), "stop_mode": ORB_STOP_FRACTION, "stop_range_fraction": 0.33}
+    long_side = run([BELOW, BREAKS], round_targets=True, **kwargs)  # type: ignore[arg-type]  # the keywords are run's own
+    short_side = run([BELOW, BREAKS_BELOW], direction=SHORT, round_targets=True, **kwargs)  # type: ignore[arg-type]  # the keywords are run's own
+    raw = run([BELOW, BREAKS], round_targets=False, **kwargs)  # type: ignore[arg-type]  # the keywords are run's own
+
+    assert long_side["initial_stop"].iloc[0] == pytest.approx(103.5), "110 - 6.6 = 103.4"
+    assert short_side["initial_stop"].iloc[0] == pytest.approx(96.5), "90 + 6.6 = 96.6"
+    assert raw["initial_stop"].iloc[0] == pytest.approx(103.4)
+
+
 # -- the fade and the retest, which wait for a break rather than for a level -----
 
 BREAKS_BELOW = (100.0, 105.0, 85.0, 88.0)

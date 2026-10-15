@@ -84,6 +84,11 @@ def flat(value: float, n: int) -> FloatArray:
     return np.full(n, value, dtype=np.float64)
 
 
+def on_the_grid(prices: FloatArray) -> FloatArray:
+    """Return ``prices`` snapped to MNQ's tick grid, as every stop is placed."""
+    return np.array([bracket.round_to_tick(float(price), MNQ.tick_size) for price in prices])
+
+
 def signal_for(
     rows: Sequence[Row],
     combination: EmaPullbackParams,
@@ -275,7 +280,7 @@ def test_the_archetype_trades_both_sides() -> None:
 
 
 def test_every_stop_sits_on_the_slow_average_at_the_signal_bar_plus_the_offset() -> None:
-    """The rule this archetype exists for, asserted on every trade rather than on one."""
+    """The rule this archetype exists for, asserted on every trade rather than on one, snapped to the tick."""
     combination = EmaPullbackParams(bars_required_to_trade=50, stop_offset_ticks=2)
     data = walk_dataset(combination)
     log = run_emapullback(data, combination, MNQ)
@@ -283,13 +288,24 @@ def test_every_stop_sits_on_the_slow_average_at_the_signal_bar_plus_the_offset()
     first = log.groupby("trade_id").first()
     signal_bar = first["entry_bar"].to_numpy(dtype=np.int64) - 1
     direction = first["direction"].to_numpy(dtype=np.float64)
-    expected = slow[signal_bar] - direction * 2 * MNQ.tick_size
+    expected = on_the_grid(slow[signal_bar] - direction * 2 * MNQ.tick_size)
     assert len(first)
     assert first["initial_stop"].to_numpy() == pytest.approx(expected)
 
 
-def test_a_zero_offset_puts_the_stop_on_the_average_itself() -> None:
+def test_a_zero_offset_puts_the_stop_on_the_tick_nearest_the_average() -> None:
     combination = EmaPullbackParams(bars_required_to_trade=50, stop_offset_ticks=0)
+    data = walk_dataset(combination)
+    log = run_emapullback(data, combination, MNQ)
+    _, slow = pullback_averages(data, combination)
+    first = log.groupby("trade_id").first()
+    signal_bar = first["entry_bar"].to_numpy(dtype=np.int64) - 1
+    assert len(first)
+    assert first["initial_stop"].to_numpy() == pytest.approx(on_the_grid(slow[signal_bar]))
+
+
+def test_the_stop_on_the_average_stays_off_the_grid_when_rounding_is_switched_off() -> None:
+    combination = EmaPullbackParams(bars_required_to_trade=50, stop_offset_ticks=0, round_targets=False)
     data = walk_dataset(combination)
     log = run_emapullback(data, combination, MNQ)
     _, slow = pullback_averages(data, combination)
@@ -576,6 +592,7 @@ def confirm(  # noqa: PLR0913 - one keyword per rule a test states, as the cross
     exit_on_trend_flip: bool = False,
     block_entry_at_close: bool = True,
     max_hold_bars: int = 0,
+    round_targets: bool = True,
 ) -> pd.DataFrame:
     """Run the confirmation loop over hand-written rows, one leg per target and every level stated.
 
@@ -606,7 +623,7 @@ def confirm(  # noqa: PLR0913 - one keyword per rule a test states, as the cross
         sizing,
         np.asarray(targets, dtype=np.float64),
         bracket.Costs(TICK, MNQ.point_value, 0.0, slippage),
-        bracket.FillRules(fill_limit_on_touch=True, ambiguity_policy=1, round_targets=True),
+        bracket.FillRules(fill_limit_on_touch=True, ambiguity_policy=1, round_targets=round_targets),
         emapullback.ConfirmationRules(
             entry_offset_ticks=entry_offset_ticks,
             stop_offset_ticks=2.0,
@@ -769,6 +786,23 @@ def test_the_trail_ratchets_the_stop_from_the_entry_bars_close() -> None:
     assert "stop" not in set(confirm(rows)["exit_reason"])
 
 
+def test_the_confirmation_stop_lands_on_the_tick_grid() -> None:
+    """The slow average at 95.1 less 2 ticks is 94.6, off the grid."""
+    rows = [SIGNAL_BAR, THROUGH, QUIET]
+    assert confirm(rows, stop_level=95.1)["initial_stop"].iloc[0] == pytest.approx(94.5)
+    assert confirm(rows, stop_level=95.1, round_targets=False)["initial_stop"].iloc[0] == pytest.approx(94.6)
+
+
+def test_the_confirmation_trail_lands_on_the_tick_grid() -> None:
+    """The average at 98.1 less 2 ticks is 97.6, so bar 2 trading to 97.4 leaves at 97.5 once snapped."""
+    rows = [SIGNAL_BAR, THROUGH, (101.0, 101.5, 97.4, 98.0), QUIET]
+    trail = [95.0, 98.1, 98.1, 98.1]
+    snapped = confirm(rows, trail_ma=trail)
+    raw = confirm(rows, trail_ma=trail, round_targets=False)
+    assert snapped[["exit_bar", "exit_reason", "exit_price"]].to_numpy().tolist() == [[2, "stop", 97.5]]
+    assert raw["exit_price"].to_numpy() == pytest.approx([97.6])
+
+
 def test_every_confirmed_entry_is_at_or_beyond_its_signal_bars_extreme_with_the_plan_from_the_trigger() -> (
     None
 ):
@@ -781,7 +815,7 @@ def test_every_confirmed_entry_is_at_or_beyond_its_signal_bars_extreme_with_the_
     direction = first["direction"].to_numpy(dtype=np.float64)
     extreme = np.where(direction > 0, data.high[signal_bar], data.low[signal_bar])
     trigger = extreme + direction * 2 * MNQ.tick_size
-    stop = slow[signal_bar] - direction * combination.stop_offset_ticks * MNQ.tick_size
+    stop = on_the_grid(slow[signal_bar] - direction * combination.stop_offset_ticks * MNQ.tick_size)
 
     assert len(first)
     assert set(direction) == {LONG, SHORT}

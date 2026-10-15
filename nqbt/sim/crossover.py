@@ -211,7 +211,7 @@ def simulate_crossover(  # noqa: C901, PLR0912, PLR0915 - one branch per rule, i
 
         # ---- close of bar i: trail the stop, then schedule the next bar's orders ------
         if in_position and rules.trail_ma_stop:
-            stop = _trailed_stop(stop, series.trail_ma[i], d, rules, costs)
+            stop = _trailed_stop(stop, series.trail_ma[i], d, rules, costs, fills)
 
         if in_position:
             breakeven = bracket.breakeven_level(rules.breakeven, trade, bars, i, costs, fills)
@@ -280,7 +280,7 @@ def _protective_stop(
     precedence over the other two; the ATR mode hangs the stop off the fill, so planned risk is
     the ATR multiple or the dollar floor, whichever is wider; the swing mode uses the adverse
     extreme of the last ``swing_lookback`` completed bars plus the same offset. Only the ATR
-    mode is floored, and only the ATR mode is snapped to the tick grid under ``round_targets``.
+    mode is floored.
     """
     if rules.use_level_stop:
         stop = series.stop_level[signal_bar] - direction * rules.stop_offset_ticks * costs.tick_size
@@ -291,10 +291,6 @@ def _protective_stop(
             rules.min_bracket_points,
         )
         stop = fill - direction * distance
-        if fills.round_targets:
-            # Snapped before the risk is measured -- ``docs/nt8-fidelity.md``, "Targets snap to
-            # the tick grid".
-            stop = bracket.round_to_tick(stop, costs.tick_size)
     else:
         stop = bracket.swing_stop(
             bars,
@@ -304,7 +300,7 @@ def _protective_stop(
             direction,
         )
 
-    return _off_the_round_number(stop, direction, rules, costs)
+    return _as_submitted(stop, direction, rules, costs, fills)
 
 
 @njit(cache=True)
@@ -314,6 +310,7 @@ def _trailed_stop(
     direction: float,
     rules: CrossoverRules,
     costs: bracket.Costs,
+    fills: bracket.FillRules,
 ) -> float:
     """Return the stop after one completed bar of the moving-average trail.
 
@@ -321,9 +318,28 @@ def _trailed_stop(
     number can only widen the candidate and never loosen the stop already in place.
     """
     candidate = ma_value - direction * rules.trail_offset_ticks * costs.tick_size
-    candidate = _off_the_round_number(candidate, direction, rules, costs)
+    candidate = _as_submitted(candidate, direction, rules, costs, fills)
 
     return bracket.tightened_stop(stop, candidate, direction)
+
+
+@njit(cache=True)
+def _as_submitted(
+    stop: float,
+    direction: float,
+    rules: CrossoverRules,
+    costs: bracket.Costs,
+    fills: bracket.FillRules,
+) -> float:
+    """Return a stop level as it is submitted: snapped to the tick grid, then moved off a round number.
+
+    Snapped wherever targets are, and before round-number avoidance, which only moves a level on
+    the grid -- ``docs/nt8-fidelity.md``, "Targets snap to the tick grid".
+    """
+    if fills.round_targets:
+        stop = bracket.round_to_tick(stop, costs.tick_size)
+
+    return _off_the_round_number(stop, direction, rules, costs)
 
 
 @njit(cache=True)

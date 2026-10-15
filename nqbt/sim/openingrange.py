@@ -184,6 +184,8 @@ def range_bracket(
     atr: FloatArray,
     signal_bar: int,
     rules: OpeningRangeRules,
+    costs: bracket.Costs,
+    fills: bracket.FillRules,
 ) -> tuple[float, float, float]:
     """Compute one session range's order arithmetic: trigger, initial stop, planned risk.
 
@@ -191,8 +193,8 @@ def range_bracket(
     range for a breakout, inside it for a fade or a rejection, whose level is the opposite
     extreme -- or ``retest_offset`` back inside the level a retest waits at; the stop goes at
     the range's other extreme, a fraction of the range width back from the level, or an ATR
-    multiple back from the trigger. Everything is measured from the trigger rather than the
-    fill -- ``docs/nt8-fidelity.md`` §M28.
+    multiple back from the trigger, snapped to the tick grid wherever targets are. Everything is
+    measured from the trigger rather than the fill -- ``docs/nt8-fidelity.md`` §M28.
 
     ``stop_scale`` is what the fraction stop's range width is multiplied by -- one under every
     mode but the one that denominates it in trailing follow-through.
@@ -217,6 +219,9 @@ def range_bracket(
         stop = level - direction * (rules.stop_range_fraction * width + rules.stop_offset)
     else:
         stop = opposite - direction * rules.stop_offset
+
+    if fills.round_targets:
+        stop = bracket.round_to_tick(stop, costs.tick_size)
 
     return trigger, stop, direction * (trigger - stop)
 
@@ -438,6 +443,8 @@ def simulate_openingrange(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
             ranges.atr,
             i,
             rules,
+            costs,
+            fills,
         )
         if candidate_risk < min_risk or not submittable(trigger, bars.close[i], rules):
             continue
