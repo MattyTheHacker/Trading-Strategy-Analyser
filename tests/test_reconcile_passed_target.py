@@ -4,12 +4,16 @@ Each price check runs against three readings -- the measured rule, the target's 
 open -- and each trial set holds a long and a short.
 """
 
+import itertools
 import logging
 from typing import TYPE_CHECKING
 
+import numpy as np
 import pandas as pd
 import pytest
 
+from nqbt.sim import bracket
+from nqbt.trades import EXIT_STOP
 from tools import reconcile_passed_target as rpt
 from tools.reconcile_order_lifetime import EXECUTION, ORDER_UPDATE, SUBMIT, read_run
 
@@ -1128,3 +1132,58 @@ def test_the_stop_verdict_passes_a_set_only_when_every_fill_follows_the_rule(
     counts: dict[str, int], expected: str
 ) -> None:
     assert rpt.stop_verdict(counts) == expected
+
+
+BAR_PRICES = np.arange(99.0, 101.75, 0.25)
+"""The prices every bar shape below is built from."""
+
+
+@pytest.mark.parametrize(("side", "level", "stop"), [(1.0, 100.5, 100.25), (-1.0, 99.5, 99.75)])
+@pytest.mark.parametrize("last_leg", [True, False])
+def test_the_tool_reads_a_stop_entrys_bar_as_the_simulation_resolves_it(
+    side: float, level: float, stop: float, *, last_leg: bool
+) -> None:
+    """Two copies of one rule, kept apart so each checks the other, agree on every bar filling the entry.
+
+    ``docs/nt8-fidelity.md``, "A stop on its entry bar is read along the bar's path".
+    """
+    fills = bracket.FillRules(
+        fill_limit_on_touch=False, ambiguity_policy=bracket.AMBIGUITY_NEAREST_TO_OPEN, round_targets=True
+    )
+    compared = 0
+    for open_, high, low, close in itertools.product(BAR_PRICES, repeat=4):
+        reached = high if side > 0 else low
+        if high < max(open_, close) or low > min(open_, close) or side * (reached - level) < 0:
+            continue  # not a bar, or one that never reaches the trigger
+
+        trade = rpt.StoppedEntry("StopMarket", side, level, stop, last_leg, None)
+        path = rpt.bar_path(open_, high, low, close)
+        point = rpt.entry_point(trade.entry_type, side, level, path)
+        assert point is not None
+        expected = rpt.stop_on_entry_bar(trade, path, point)
+
+        bars = bracket.Bars(
+            open_=np.array([open_]),
+            high=np.array([high]),
+            low=np.array([low]),
+            close=np.array([close]),
+            force_flat=np.zeros(1, dtype=np.bool_),
+        )
+        entry = open_ if side * (open_ - level) >= 0 else level
+        opened = bracket.OpenTrade(
+            trade_id=1,
+            entry_bar=0,
+            entry_price=entry,
+            initial_stop=stop,
+            risk=side * (level - stop),
+            direction=side,
+            stop_entry=True,
+        )
+        sim_path = bracket.bar_path(bars, 0)
+        sim_point = bracket.stop_entry_point(sim_path, opened, 0.0)
+        start = sim_point if last_leg else max(sim_point - 1, 0)
+        reason, price, _ = bracket.leg_exit_on_stop_entry_bar(sim_path, start, stop, np.nan, side, fills)
+        assert (price if reason == EXIT_STOP else None) == expected, (open_, high, low, close)
+        compared += 1
+
+    assert compared > 1000

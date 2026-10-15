@@ -307,20 +307,129 @@ def test_a_long_gapping_through_its_stop_fills_at_the_open_too() -> None:
     assert trades["exit_price"].unique() == pytest.approx([98.0])  # not 99.5
 
 
-def test_the_entry_bar_never_uses_the_gap_rule() -> None:
-    # The position did not exist at this bar's open, so an open beyond the initial stop
-    # says nothing: price still had to travel down to the trigger to open the short at
-    # all, and only then back up to the stop -- which it reaches at the stop's own price.
+def test_a_stop_entrys_last_leg_sees_only_the_path_after_its_entry() -> None:
+    # The bar runs up to its high first and then down through the trigger. Legs 1 to 3 see the
+    # whole of that run down, which starts above the stop, so they stop at the stop's own price
+    # and not the 105 open; leg 4 sees only the path after its entry, which never comes back --
+    # ``docs/nt8-fidelity.md``, "A stop on its entry bar is read along the bar's path".
     trades = run(
         [
             (102, 104, 100, 101),  # 0: signal, trigger 100, stop 104.5
-            (105, 106, 99, 100),  # 1: opens above the stop, dips to fill, then runs
+            (105, 106, 99, 100),  # 1: opens above the stop, runs up, then down to fill
+            (101, 105, 100, 104),  # 2: back up through the stop
         ],
         signal_at=[0],
     )
     assert trades["entry_price"].unique() == pytest.approx([100.0])
     assert set(trades["exit_reason"]) == {"stop"}
-    assert trades["exit_price"].unique() == pytest.approx([104.5])  # not the 105 open
+    assert trades["exit_price"].unique() == pytest.approx([104.5])
+    assert list(trades.set_index("leg")["exit_bar"]) == [1, 1, 1, 2]
+
+
+def test_a_long_stop_entrys_last_leg_sees_only_the_path_after_its_entry_too() -> None:
+    trades = run(
+        [
+            (101, 104, 100, 103),  # 0: signal, trigger 104, stop 99.5
+            (99, 105, 98, 104),  # 1: opens below the stop, runs down, then up to fill
+            (103, 104, 99, 100),  # 2: back down through the stop
+        ],
+        signal_at=[0],
+        direction=LONG,
+    )
+    assert set(trades["exit_reason"]) == {"stop"}
+    assert trades["exit_price"].unique() == pytest.approx([99.5])
+    assert list(trades.set_index("leg")["exit_bar"]) == [1, 1, 1, 2]
+
+
+def test_a_single_leg_is_its_own_last_and_sees_only_the_path_after_its_entry() -> None:
+    trades = run(
+        [
+            (102, 104, 100, 101),  # 0: signal, trigger 100, stop 104.5
+            (105, 106, 99, 100),  # 1: opens above the stop, runs up, then down to fill
+            (101, 105, 100, 104),  # 2: back up through the stop
+        ],
+        signal_at=[0],
+        quantities=(1,),
+        targets=(np.nan,),
+    )
+    assert list(trades["exit_bar"]) == [2]
+    assert list(trades["exit_reason"]) == ["stop"]
+
+
+def test_a_stop_entrys_bar_whose_extremes_are_equally_near_its_open_is_walked_high_first() -> None:
+    # High first, the short fills on the way down after the high, which only the earlier legs
+    # see; low first, the path would run back up through the stop after the entry.
+    trades = run(
+        [
+            (102, 104, 100, 101),  # 0: signal, trigger 100, stop 104.5
+            (102, 105, 99, 100),  # 1: the high and the low three points either side of the open
+            (101, 105, 100, 104),  # 2: back up through the stop
+        ],
+        signal_at=[0],
+    )
+    assert list(trades.set_index("leg")["exit_bar"]) == [1, 1, 1, 2]
+
+
+def test_an_earlier_leg_stops_at_the_open_where_its_entrys_run_starts_there_past_the_stop() -> None:
+    # The bar opens above the stop and runs down through the trigger first, so legs 1 to 3 see
+    # that open, which a stop takes as it gaps; leg 4 is reached on the way back up, at its price.
+    trades = run(
+        [
+            (102, 104, 100, 101),  # 0: signal, trigger 100, stop 104.5
+            (105, 112, 99, 100),  # 1: opens above the stop, the low nearer the open
+        ],
+        signal_at=[0],
+    )
+    by_leg = trades.set_index("leg")
+    assert set(trades["exit_reason"]) == {"stop"}
+    assert list(by_leg["exit_bar"]) == [1, 1, 1, 1]
+    assert list(by_leg["exit_price"]) == pytest.approx([105.0, 105.0, 105.0, 104.5])
+
+
+@pytest.mark.parametrize(
+    ("policy", "first_leg"),
+    [
+        (bracket.AMBIGUITY_NEAREST_TO_OPEN, ("target", 95.5)),
+        (bracket.AMBIGUITY_WORST_CASE, ("stop", 104.5)),
+        (bracket.AMBIGUITY_BEST_CASE, ("target", 95.5)),
+    ],
+)
+def test_a_stop_entrys_bar_takes_whichever_of_a_legs_stop_and_target_its_path_reaches_first(
+    policy: int, first_leg: tuple[str, float]
+) -> None:
+    # Down to the low through the trigger and the first target, then up through the stop. The
+    # stop is nearer the open, so the rule for a bar held from its open would stop leg 1 too.
+    trades = run(
+        [
+            (102, 104, 100, 101),  # 0: signal, trigger 100, stop 104.5, first target 95.5
+            (101, 108, 95, 105),  # 1: the low nearer the open
+        ],
+        signal_at=[0],
+        ambiguity_policy=policy,
+    )
+    by_leg = trades.set_index("leg")
+    assert (by_leg.loc[1, "exit_reason"], by_leg.loc[1, "exit_price"]) == first_leg
+    assert list(by_leg.loc[[2, 3, 4], "exit_reason"]) == ["stop", "stop", "stop"]
+    assert (by_leg["exit_bar"] == 1).all()
+    # Only leg 1's part of the path reaches both levels, so only leg 1 is the policy's to choose.
+    assert list(by_leg["ambiguous_bar"]) == [True, False, False, False]
+
+
+def test_a_stop_entry_the_bar_opened_past_is_read_from_the_open_despite_slippage() -> None:
+    # The short gaps through its trigger at the 99 open and fills a tick worse. Every leg then
+    # sees the whole path, up through the stop before down through the first target; read from
+    # the low instead, the last leg would never meet the stop.
+    trades = run(
+        [
+            (102, 104, 100, 101),  # 0: signal, trigger 100, stop 104.5, first target 95.5
+            (99, 104.75, 93, 94),  # 1: opens under the trigger, the high nearer the open
+        ],
+        signal_at=[0],
+        slippage=1.0,
+    )
+    assert trades["entry_price"].unique() == pytest.approx([98.75])
+    assert set(trades["exit_reason"]) == {"stop"}
+    assert (trades["exit_bar"] == 1).all()
 
 
 def test_a_target_a_bar_gaps_past_fills_at_the_nearest_price_the_bar_traded() -> None:

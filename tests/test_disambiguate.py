@@ -41,7 +41,7 @@ from nqbt.disambiguate import (
 )
 from nqbt.instruments import get_instrument
 from nqbt.sim.bracket import AMBIGUITY_BEST_CASE, AMBIGUITY_NEAREST_TO_OPEN, AMBIGUITY_WORST_CASE
-from nqbt.sim.types import InsideBarParams
+from nqbt.sim.types import DeadCatParams, InsideBarParams
 from tests.rows import number
 
 LONG = 1.0
@@ -412,7 +412,7 @@ def test_the_three_arms_are_the_same_trades_leg_for_leg() -> None:
 
     It is a property of ``resolve_brackets`` rather than of this module: the whole position
     closes on an ambiguous bar under either policy, so the next bar starts flat in every arm and
-    nothing downstream can diverge.
+    nothing downstream can diverge. A stop entry's own bar is the one exception, tested below.
     """
     logs, _, _ = three_arms()
     assert aligned(
@@ -420,6 +420,43 @@ def test_the_three_arms_are_the_same_trades_leg_for_leg() -> None:
         logs[AMBIGUITY_WORST_CASE],
         logs[AMBIGUITY_BEST_CASE],
     )
+
+
+def test_a_stop_entrys_three_arms_are_the_same_trades_even_where_its_legs_part() -> None:
+    """A stop entry's own bar can stop the earlier legs and close the last one at its target.
+
+    Which legs leave does not depend on the policy, and each leg is written in leg order, so
+    the arms still line up -- ``docs/nt8-fidelity.md``, "A stop on its entry bar is read along
+    the bar's path". The last leg is given a target of its own so that the case occurs.
+    """
+    base = DeadCatParams(
+        use_ema=False,
+        use_fast_sma=False,
+        require_previous_green=False,
+        require_new_high=False,
+        bars_required_to_trade=0,
+        target_r_multiples=(0.5, 1.0, 1.5, 2.0),
+    )
+    spec = sweep.Grid(base=base, archetype=archetypes.DEADCATBOUNCE).required_context()
+    data = context.prepare(synthetic_bars(), spec)
+    logs: dict[int, pd.DataFrame] = {}
+    for policy in (AMBIGUITY_NEAREST_TO_OPEN, AMBIGUITY_WORST_CASE, AMBIGUITY_BEST_CASE):
+        _, log = sweep.run_combination(
+            data,
+            replace(base, ambiguity_policy=policy),
+            get_instrument("MNQ"),
+            archetypes.DEADCATBOUNCE,
+            keep_trades=True,
+        )
+        assert log is not None
+        logs[policy] = log
+
+    ranked = logs[AMBIGUITY_NEAREST_TO_OPEN]
+    on_entry_bar = ranked[ranked["exit_bar"] == ranked["entry_bar"]]
+    last_at_target = on_entry_bar[(on_entry_bar["leg"] == 4) & (on_entry_bar["exit_reason"] == "target")]
+    earlier_stopped = on_entry_bar[(on_entry_bar["leg"] < 4) & (on_entry_bar["exit_reason"] == "stop")]
+    assert last_at_target["trade_id"].isin(earlier_stopped["trade_id"]).any()
+    assert aligned(ranked, logs[AMBIGUITY_WORST_CASE], logs[AMBIGUITY_BEST_CASE])
 
 
 def test_the_arms_bracket_the_ranked_result_rather_than_straddling_it() -> None:

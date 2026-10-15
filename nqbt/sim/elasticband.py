@@ -279,7 +279,7 @@ def simulate_elasticband(  # noqa: C901, PLR0912, PLR0915 - one branch per rule,
     pending_direction = 0.0
 
     d = 0.0
-    trade = bracket.OpenTrade(0, 0, 0.0, 0.0, 0.0, d, True)
+    trade = bracket.OpenTrade(0, 0, 0.0, 0.0, 0.0, d, False)
     stop = 0.0
     entry_extreme = 0.0
     excursion = bracket.Excursion(0.0, 0.0, 0, 0)
@@ -351,7 +351,7 @@ def simulate_elasticband(  # noqa: C901, PLR0912, PLR0915 - one branch per rule,
                     initial_stop=candidate_stop,
                     risk=candidate_risk,
                     direction=d,
-                    stop_gaps_on_entry_bar=True,
+                    stop_entry=False,
                 )
                 stop = candidate_stop
                 entry_extreme = band.excursion_extreme[pending_bar]

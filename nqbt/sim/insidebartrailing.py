@@ -186,7 +186,7 @@ def lot_trade(trade: bracket.OpenTrade, lots: Lots, lot: int) -> bracket.OpenTra
         initial_stop=lots.initial_stop[lot],
         risk=lots.risk[lot],
         direction=trade.direction,
-        stop_gaps_on_entry_bar=trade.stop_gaps_on_entry_bar,
+        stop_entry=trade.stop_entry,
     )
 
 
@@ -296,7 +296,7 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
     pending_direction = 0.0
 
     d = 0.0
-    trade = bracket.OpenTrade(0, 0, 0.0, 0.0, 0.0, d, True)
+    trade = bracket.OpenTrade(0, 0, 0.0, 0.0, 0.0, d, False)
     trail_distance = 0.0
     structure_cushion = 0.0
     trigger_fill = np.nan
@@ -404,7 +404,7 @@ def simulate_insidebar_trailing(  # noqa: C901, PLR0912, PLR0915 - one branch pe
                     initial_stop=fixed_stop,
                     risk=fixed_risk,
                     direction=d,
-                    stop_gaps_on_entry_bar=True,
+                    stop_entry=False,
                 )
                 excursion = bracket.start_excursion(bars.high[i], bars.low[i], i)
                 raw_target = fill + d * bar_atr * rules.tp_multiplier

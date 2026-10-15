@@ -717,6 +717,7 @@ def report_stops(run: Run) -> int:
             logger.info("  on the entry bar, the earlier legs: %s -- %s", earlier, path_verdict(earlier))
         else:
             logger.info("  on the entry bar: %s -- %s", entry_bar, path_verdict(entry_bar))
+
         logger.info("  filled on a later bar: %s -- %s", later, stop_verdict(later))
         broken += (
             stops[group]["trials"]["filled_before_entry"]

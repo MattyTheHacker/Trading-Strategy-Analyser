@@ -92,7 +92,7 @@ def simulate_deadcat(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rule,
     pending_trigger = 0.0
     pending_stop = 0.0
 
-    trade = bracket.OpenTrade(0, 0, 0.0, 0.0, 0.0, direction, False)
+    trade = bracket.OpenTrade(0, 0, 0.0, 0.0, 0.0, direction, True)
     stop = 0.0
     excursion = bracket.Excursion(0.0, 0.0, 0, 0)
     legs = bracket.Legs(
@@ -164,8 +164,7 @@ def simulate_deadcat(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rule,
                     initial_stop=pending_stop,
                     risk=risk,
                     direction=direction,
-                    # A stop entry fills after its bar opens, so that open says nothing about the stop.
-                    stop_gaps_on_entry_bar=False,
+                    stop_entry=True,
                 )
                 stop = pending_stop
                 excursion = bracket.start_excursion(bars.high[i], bars.low[i], i)

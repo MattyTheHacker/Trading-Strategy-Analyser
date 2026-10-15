@@ -87,7 +87,7 @@ def open_trade(
         initial_stop=entry_price - direction * risk,
         risk=risk,
         direction=direction,
-        stop_gaps_on_entry_bar=True,
+        stop_entry=False,
     )
 
 
