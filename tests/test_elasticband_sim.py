@@ -239,6 +239,16 @@ def test_the_atr_stop_hangs_off_the_fill_and_takes_the_dollar_floor() -> None:
     assert floored["initial_stop"].iloc[0] == pytest.approx(100.0 - 50.0)
 
 
+def test_the_atr_stop_lands_on_the_tick_grid_before_the_risk_is_taken() -> None:
+    """``docs/nt8-fidelity.md``, "Targets snap to the tick grid"."""
+    kwargs = {"signal_at": [0], "stop_mode": STOP_ATR, "atr": 1.1, "atr_stop_multiple": 1.0}
+    snapped = run(FLAT, **kwargs)  # type: ignore[arg-type]  # the keywords are run's own
+    raw = run(FLAT, round_targets=False, **kwargs)  # type: ignore[arg-type]  # the keywords are run's own
+    assert snapped["initial_stop"].iloc[0] == pytest.approx(99.0), "100 - 1.1 = 98.9, off the grid"
+    assert snapped["risk_points"].iloc[0] == pytest.approx(1.0)
+    assert raw["initial_stop"].iloc[0] == pytest.approx(98.9)
+
+
 def test_the_excursion_stop_sits_beyond_the_run_extreme_by_the_offset() -> None:
     trades = run(
         FLAT,
@@ -900,6 +910,11 @@ def walk(seed: int, periods: int = 800, step: float = 2.0) -> FloatArray:
     return 18000.0 + np.cumsum(rng.normal(0.0, step, periods))
 
 
+def on_the_grid(prices: FloatArray) -> FloatArray:
+    """Return ``prices`` snapped to MNQ's tick grid, as every stop is placed, ``nan`` left as it is."""
+    return np.array([bracket.round_to_tick(float(price), MNQ.tick_size) for price in prices])
+
+
 def test_the_defaults_ask_nothing_at_all_of_the_signal_bar() -> None:
     """The off value has to leave the signal exactly as it was, or every stored row moves."""
     close = walk(31)
@@ -1357,7 +1372,7 @@ def test_the_band_stop_reads_the_same_band_under_both_triggers() -> None:
     assert np.isfinite(log["initial_stop"]).all()
     basis, stddev, _ = elasticband.band_series(data, params)
     signal_bars = log["entry_bar"].to_numpy(dtype=int) - 1
-    expected = basis[signal_bars] - log["direction"].to_numpy() * 3.0 * stddev[signal_bars]
+    expected = on_the_grid(basis[signal_bars] - log["direction"].to_numpy() * 3.0 * stddev[signal_bars])
     assert log["initial_stop"].to_numpy() == pytest.approx(expected)
 
 
@@ -1610,7 +1625,8 @@ def test_every_inverted_entry_whose_fill_clears_the_base_of_its_run_is_taken_wit
     _, _, stretch = elasticband.band_series(data, params)
     direction = trade_direction(stretch, params)
     offset = params.stop_offset_ticks * MNQ.tick_size
-    stop = run_extreme(data.low, data.high, beyond_band(stretch, params), direction) - direction * offset
+    base = run_extreme(data.low, data.high, beyond_band(stretch, params), direction)
+    stop = on_the_grid(base - direction * offset)
     signal_bars = np.flatnonzero(signal)
     fills = data.open[signal_bars + 1]
     clears = direction[signal_bars] * (fills - stop[signal_bars]) >= MNQ.tick_size
@@ -1653,7 +1669,7 @@ def test_the_inverted_excursion_stop_reads_the_run_that_ended_under_the_recovery
     base = lagged(run_extreme(data.low, data.high, beyond_band(stretch, params), direction), 1)
     offset = params.stop_offset_ticks * MNQ.tick_size
     signal_bars = log["entry_bar"].to_numpy(dtype=int) - 1
-    expected = base[signal_bars] - log["direction"].to_numpy() * offset
+    expected = on_the_grid(base[signal_bars] - log["direction"].to_numpy() * offset)
     assert log["initial_stop"].to_numpy() == pytest.approx(expected)
 
 

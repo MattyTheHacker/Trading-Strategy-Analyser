@@ -32,6 +32,12 @@ below and is what you quote; this file is the index, not the record.
   what it can and stops the remainder on the same bar. So the arms are the same trades leg for
   leg, which is what lets a diagnostic select rows between them rather than recompute a price.
   **Do not "optimise" the targets-first branch into leaving legs open.**
+- **Every stop level is snapped to the tick grid wherever targets are, trails included.** An
+  exchange takes a stop at a half tick no more than a limit, so an initial stop is snapped before
+  the risk is taken and a trail candidate before the ratchet compares it, by `bracket.round_to_tick`
+  under `fills.round_targets`. A new stop computed from a distance, an average or a band has to do
+  the same. `docs/nt8-fidelity.md`, "Targets snap to the tick grid — even when the C# does not ask
+  for it".
 - **A stop that gaps fills at the open, not at the stop price** — a stop is a market order once
   triggered. This holds for **exits as well as entries**; the exit path missed it until M15.5.
   It does *not* apply on the entry bar: the position did not exist at that bar's open, so price

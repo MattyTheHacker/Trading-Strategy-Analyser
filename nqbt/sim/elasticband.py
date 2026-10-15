@@ -334,6 +334,11 @@ def simulate_elasticband(  # noqa: C901, PLR0912, PLR0915 - one branch per rule,
             d = pending_direction
             fill = bars.open_[i] + d * slippage
             candidate_stop = _protective_stop(bars, band, pending_bar, fill, d, rules)
+            if fills.round_targets:
+                # Snapped before the risk is measured -- ``docs/nt8-fidelity.md``, "Targets snap
+                # to the tick grid".
+                candidate_stop = bracket.round_to_tick(candidate_stop, costs.tick_size)
+
             candidate_risk = d * (fill - candidate_stop)
             # A stop at or through the price it protects is not a stop order --
             # ``docs/nt8-fidelity.md`` §M18.

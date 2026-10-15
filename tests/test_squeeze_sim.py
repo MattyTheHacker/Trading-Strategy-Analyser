@@ -177,7 +177,8 @@ def test_the_atr_stop_reads_the_signal_bar_s_atr() -> None:
 
     trades = run_squeeze(data, params, MNQ, signal=signal)
     trigger = 105.0 + TICK
-    assert trades["initial_stop"].iloc[0] == pytest.approx(trigger - 1.5 * data.atr_values(2)[2])
+    stop = MNQ.round_to_tick(trigger - 1.5 * data.atr_values(2)[2])
+    assert trades["initial_stop"].iloc[0] == pytest.approx(stop)
 
 
 def test_a_width_target_is_a_multiple_of_the_window() -> None:

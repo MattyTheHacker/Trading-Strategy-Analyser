@@ -214,6 +214,43 @@ def test_the_atr_stop_reads_the_signal_bar_not_the_fill_bar() -> None:
     assert trades["initial_stop"].iloc[0] == pytest.approx(96.0)
 
 
+def test_the_atr_stop_lands_on_the_tick_grid_before_the_risk_is_taken() -> None:
+    """``docs/nt8-fidelity.md``, "Targets snap to the tick grid"."""
+    trades = run(FLAT, signal_at=[0], atr=1.1, targets=(1.5, np.nan, np.nan, np.nan))
+    leg = trades.sort_values("leg").iloc[0]
+    assert leg["initial_stop"] == pytest.approx(99.0), "100 - 1.1 = 98.9, which is off the grid"
+    assert leg["risk_points"] == pytest.approx(1.0)
+    assert leg["target_price"] == pytest.approx(101.5), "1.5R must scale off the snapped risk of 1.0"
+
+
+def test_the_atr_stop_lands_on_the_tick_grid_on_the_short_side_too() -> None:
+    trades = run(FLAT, signal_at=[0], direction=SHORT, atr=1.1)
+    assert trades["initial_stop"].iloc[0] == pytest.approx(101.0)
+    assert trades["risk_points"].iloc[0] == pytest.approx(1.0)
+
+
+def test_the_atr_stop_stays_off_the_grid_when_rounding_is_switched_off() -> None:
+    trades = run(FLAT, signal_at=[0], atr=1.1, round_targets=False)
+    assert trades["initial_stop"].iloc[0] == pytest.approx(98.9)
+    assert trades["risk_points"].iloc[0] == pytest.approx(1.1)
+
+
+def test_the_level_stop_lands_on_the_tick_grid_too() -> None:
+    level = np.full(len(FLAT), 96.1)
+    snapped = run(FLAT, signal_at=[0], stop_level=level)
+    raw = run(FLAT, signal_at=[0], stop_level=level, round_targets=False)
+    assert snapped["initial_stop"].iloc[0] == pytest.approx(95.5), "96.1 - 2 ticks = 95.6, off the grid"
+    assert raw["initial_stop"].iloc[0] == pytest.approx(95.6)
+
+
+def test_a_half_tick_atr_stop_rounds_up_on_either_side() -> None:
+    """``round_to_tick`` rounds a half tick up on either side: a long's risk shrinks, a short's grows."""
+    long_side = run(FLAT, signal_at=[0], atr=1.125)
+    short_side = run(FLAT, signal_at=[0], direction=SHORT, atr=1.125)
+    assert long_side["initial_stop"].iloc[0] == pytest.approx(99.0)
+    assert short_side["initial_stop"].iloc[0] == pytest.approx(101.25)
+
+
 def test_the_swing_stop_takes_the_adverse_extreme_of_the_lookback() -> None:
     # Lows 99.5 / 97.0 / 98.0 over bars 0-2, so a long signalling at bar 2 stops at
     # 97.0 - 2 ticks. The offset is applied to the swing mode only.
@@ -734,6 +771,21 @@ def test_the_trail_tightens_the_stop_and_that_is_what_exits_the_trade() -> None:
     assert with_trail["exit_price"].unique() == pytest.approx([98.5])
 
 
+def test_the_trailed_stop_lands_on_the_tick_grid() -> None:
+    rows = [
+        (100.0, 100.5, 99.5, 100.0),  # 0: signal
+        (100.0, 100.5, 99.5, 100.0),  # 1: fill at 100, stop 60 from the ATR
+        (100.0, 100.5, 99.5, 100.0),  # 2: average 99.1 - 2 ticks = 98.6, snapped to 98.5
+        (100.0, 100.5, 98.0, 99.0),  # 3: trades through it
+        *FLAT,
+    ]
+    ma = np.full(len(rows), 99.1)
+    snapped = run(rows, signal_at=[0], atr=40.0, trail_ma=ma)
+    raw = run(rows, signal_at=[0], atr=40.0, trail_ma=ma, round_targets=False)
+    assert snapped["exit_price"].unique() == pytest.approx([98.5])
+    assert raw["exit_price"].unique() == pytest.approx([98.6])
+
+
 def test_the_cushion_is_what_separates_the_stop_from_the_average() -> None:
     rows = [
         (100.0, 100.5, 99.5, 100.0),
@@ -833,6 +885,12 @@ def test_a_stop_landing_on_a_round_number_is_pushed_away_from_the_entry() -> Non
     trades = run(FLAT, signal_at=[0], atr=5.0, round_number_points=5.0)
     assert trades["initial_stop"].iloc[0] == pytest.approx(95.0 - 0.5)
     assert trades["risk_points"].iloc[0] == pytest.approx(5.5)
+
+
+def test_the_rule_reads_the_atr_stop_after_it_is_snapped() -> None:
+    # An ATR of 5.1 puts the raw stop at 94.9, which the snap moves onto 95, a multiple of 5.
+    trades = run(FLAT, signal_at=[0], atr=5.1, round_number_points=5.0)
+    assert trades["initial_stop"].iloc[0] == pytest.approx(95.0 - 0.5)
 
 
 def test_a_stop_between_two_round_numbers_is_left_alone() -> None:
