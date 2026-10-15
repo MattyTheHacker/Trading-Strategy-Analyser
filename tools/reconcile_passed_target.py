@@ -1,4 +1,4 @@
-"""Read a ``NqbtPassedTargetProbe`` run and check where each passed limit order filled.
+"""Read a ``NqbtPassedTargetProbe`` run and check where each passed limit order and stop filled.
 
     uv run tools/reconcile_passed_target.py <..._events.csv>
 
@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import sys
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -37,10 +38,14 @@ ENTRY_SIDES = {"probeLong": 1.0, "probeShort": -1.0}
 PROFIT_TARGET = "Profit target"
 """The name NinjaTrader gives every order ``SetProfitTarget`` places."""
 
+STOP_LOSS = "Stop loss"
+"""The name NinjaTrader gives every order ``SetStopLoss`` places."""
+
 PROBE_EXIT = "probeExit"
 """The probe's own market exit."""
 
 TARGET_SET = "TARGET_SET"
+STOP_SET = "STOP_SET"
 REJECTED = "Rejected"
 MARKET = "Market"
 LIMIT = "Limit"
@@ -52,6 +57,13 @@ ENTRY_GROUPS = {
 }
 """How :func:`limit_entry_fills` splits the limit entries, and what the report calls each."""
 
+STOP_GROUPS = {
+    "beyond": "stop the entry filled beyond, on a bar opening past it (#455)",
+    "gapped": "stop the entry bar opened past, the entry filling short of it (#455)",
+    "control": "stop the entry bar opened at or short of (#455)",
+}
+"""How :func:`stops_after_entry` splits the stops, and what the report calls each."""
+
 
 def executions(run: Run, names: Collection[str]) -> pd.DataFrame:
     """Return each trial's first execution of an order named in ``names``, indexed by trial."""
@@ -59,6 +71,19 @@ def executions(run: Run, names: Collection[str]) -> pd.DataFrame:
     rows = events[(events["kind"] == EXECUTION) & events["signal_name"].isin(names)]
 
     return rows.drop_duplicates("trial").set_index("trial")
+
+
+def unrecorded_trials(run: Run, lag: int = 1) -> set[int]:
+    """Return the trials with an order live on, or filled on, a bar after the last one the probe recorded.
+
+    ``lag`` is read as :func:`trials` reads it -- ``tools/README.md`` § "reconcile_passed_target.py".
+    """
+    events = run.events
+    live = events.loc[events["kind"] == SUBMIT, ["trial", "bar"]].assign(bar=events["bar"] + 1)
+    filled = events.loc[events["kind"] == EXECUTION, ["trial", "bar"]].assign(bar=events["bar"] + lag)
+    reached = pd.concat([live, filled])
+
+    return {int(trial) for trial in reached.loc[~reached["bar"].isin(run.bars.index), "trial"]}
 
 
 def market_fills(run: Run) -> pd.DataFrame:
@@ -89,6 +114,26 @@ def measure_lag(run: Run) -> dict[str, int]:
         "reported_plus_one": int((at_next & ~at_reported).sum()),
         "both": int((at_reported & at_next).sum()),
         "neither": int((~at_reported & ~at_next).sum()),
+    }
+
+
+def measure_entry_lag(run: Run) -> dict[str, int]:
+    """Count the entry fills reported on the bar the entry was sent on, against the bar after.
+
+    An entry lives for the bar after it is sent and fills there or not at all, so a callback
+    reported on the sending bar lags one -- ``docs/nt8-fidelity.md``, "Entry orders are not GTC".
+    """
+    events = run.events
+    named = events["signal_name"].isin(ENTRY_SIDES)
+    sent = events[(events["kind"] == SUBMIT) & named].drop_duplicates("trial").set_index("trial")
+    fills = executions(run, ENTRY_SIDES)
+    reported_after_sending = fills["bar"] - sent["bar"].reindex(fills.index)
+
+    return {
+        "fills": len(fills),
+        "reported": int((reported_after_sending == 1).sum()),
+        "reported_plus_one": int((reported_after_sending == 0).sum()),
+        "neither": int((~reported_after_sending.isin([0, 1])).sum()),
     }
 
 
@@ -292,6 +337,133 @@ def limit_entry_fills(frame: pd.DataFrame, bars: pd.DataFrame) -> dict[str, dict
     }
 
 
+def set_stops(run: Run) -> bool:
+    """Return whether the run set a stop before any of its entries."""
+    return bool((run.events["kind"] == STOP_SET).any())
+
+
+def stop_trials(run: Run, lag: int = 1) -> pd.DataFrame:
+    """Return one row per filled entry that had a stop set: its side, its fill, its stop and that stop's fill.
+
+    Bars are the bars the fills happened on, the reported bar plus ``lag``. Only a run that set a
+    stop has the ``stop_price`` column this reads -- see :func:`set_stops`.
+    """
+    events = run.events
+    stop_sets = events[events["kind"] == STOP_SET]
+    entries = executions(run, ENTRY_SIDES)
+    entries = entries[entries.index.isin(stop_sets["trial"])]
+    stops = executions(run, [STOP_LOSS]).reindex(entries.index)
+    rejections = events[
+        (events["kind"] == ORDER_UPDATE)
+        & (events["signal_name"] == STOP_LOSS)
+        & (events["order_state"] == REJECTED)
+    ]
+
+    frame = pd.DataFrame(index=entries.index)
+    frame["entry_signal"] = entries["signal_name"]
+    frame["side"] = entries["signal_name"].map(ENTRY_SIDES)
+    frame["entry_bar"] = entries["bar"] + lag
+    frame["entry_price"] = entries["execution_price"]
+    frame["stop"] = stop_sets.groupby("trial")["stop_price"].last().reindex(entries.index)
+    frame["stop_rejected"] = frame.index.isin(rejections["trial"])
+    frame["stop_entry_signal"] = stops["from_entry_signal"]
+    frame["stop_bar"] = stops["bar"] + lag
+    frame["stop_fill"] = stops["execution_price"]
+
+    return frame
+
+
+def misattributed_stops(run: Run, frame: pd.DataFrame) -> int:
+    """Count the stop fills that cannot be tied to the entry their trial number names."""
+    orphaned = int((~executions(run, [STOP_LOSS]).index.isin(frame.index)).sum())
+    filled = frame.dropna(subset=["stop_fill"])
+
+    return orphaned + int((filled["stop_entry_signal"] != filled["entry_signal"]).sum())
+
+
+def stop_fill_prices(
+    side: FloatArray, fill: FloatArray, stop: FloatArray, bar: dict[str, FloatArray]
+) -> dict[str, int]:
+    """Count stop fills at the open of a bar that opened past the stop, at the stop's own price, or elsewhere.
+
+    ``bar`` holds the fill bar's ``open``, ``low`` and ``high``. The first two are the gapped-stop
+    rule -- ``docs/nt8-fidelity.md``, "A stop fills at the open when the bar gaps through it".
+    A fill at the stop's price on a bar that opened past it is the entry-bar exception, counted
+    apart because it breaks the rule.
+    """
+    open_ = bar["open"]
+    adverse: FloatArray = np.where(side > 0, bar["low"], bar["high"])
+    opened_past: BoolArray = side * (open_ - stop) < 0
+    reached: BoolArray = side * (adverse - stop) <= 0
+    at_open: BoolArray = opened_past & (fill == open_)
+    at_stop: BoolArray = reached & (fill == stop)
+
+    return {
+        "at_open": int(at_open.sum()),
+        "at_stop": int((at_stop & ~opened_past).sum()),
+        "at_stop_past_open": int((at_stop & opened_past).sum()),
+        "other": int((~at_open & ~at_stop).sum()),
+    }
+
+
+def stops_after_entry(frame: pd.DataFrame, bars: pd.DataFrame) -> dict[str, dict[str, dict[str, int]]]:
+    """Count the stops by how their entry bar opened against them, and where each filled.
+
+    ``beyond`` and ``gapped`` met an entry bar opening past the stop, the first with the entry
+    filling beyond the stop as well, and ``control`` an entry bar opening at or short of it. The
+    prices are split by whether the stop filled on the entry bar or a later one.
+    """
+    side: FloatArray = frame["side"].to_numpy(dtype=np.float64)
+    stop: FloatArray = frame["stop"].to_numpy(dtype=np.float64)
+    entry_open: FloatArray = bars["open"].reindex(frame["entry_bar"]).to_numpy(dtype=np.float64)
+    opened_past: BoolArray = side * (entry_open - stop) < 0
+    beyond: BoolArray = opened_past & (side * (frame["entry_price"].to_numpy(dtype=np.float64) - stop) < 0)
+    groups = {"beyond": beyond, "gapped": opened_past & ~beyond, "control": ~opened_past}
+    filled: BoolArray = frame["stop_fill"].notna().to_numpy()
+    rejected: BoolArray = frame["stop_rejected"].to_numpy(dtype=bool)
+    bars_after_entry = (frame["stop_bar"] - frame["entry_bar"]).to_numpy(dtype=np.float64)
+    fill_bar = {
+        column: bars[column].reindex(frame["stop_bar"]).to_numpy(dtype=np.float64)
+        for column in ("open", "low", "high")
+    }
+    fill: FloatArray = frame["stop_fill"].to_numpy(dtype=np.float64)
+
+    def prices(read: BoolArray) -> dict[str, int]:
+        return stop_fill_prices(side[read], fill[read], stop[read], {k: v[read] for k, v in fill_bar.items()})
+
+    def counted(group: BoolArray) -> dict[str, dict[str, int]]:
+        return {
+            "trials": {
+                "entries": int(group.sum()),
+                "rejected": int((group & rejected).sum()),
+                "not_filled": int((group & ~rejected & ~filled).sum()),
+                "filled_before_entry": int((group & filled & (bars_after_entry < 0)).sum()),
+            },
+            "on_entry_bar": prices(group & filled & (bars_after_entry == 0)),
+            "on_a_later_bar": prices(group & filled & (bars_after_entry > 0)),
+        }
+
+    return {name: counted(group) for name, group in groups.items()}
+
+
+def stop_breaks(counts: dict[str, int]) -> int:
+    """Return how many of a set's stop fills break the gapped-stop rule."""
+    return counts["at_stop_past_open"] + counts["other"]
+
+
+def stop_verdict(counts: dict[str, int]) -> str:
+    """Return whether every stop fill follows the gapped-stop rule, in a few words."""
+    broken = stop_breaks(counts)
+    total = sum(counts.values())
+    if total == 0:
+        return "no instances in this run"
+
+    if broken == 0:
+        return f"all {total} at the open where the bar opened past the stop, otherwise at the stop"
+
+    return f"{broken} of {total} break the rule"
+
+
 def breaks(counts: dict[str, int]) -> int:
     """Return how many of a set's fills break the rule."""
     return counts["at_open"] + counts["other"]
@@ -310,6 +482,29 @@ def verdict(counts: dict[str, int]) -> str:
     return f"{broken} of {total} break the rule"
 
 
+def report_stops(run: Run) -> int:
+    """Print where each stop filled, and return how many stop fills break the rule or cannot be read."""
+    frame = stop_trials(run)
+    misattributed = misattributed_stops(run, frame)
+    if misattributed:
+        logger.warning(
+            "  %d stop fills do not belong to their trial's entry; no stop below can be read", misattributed
+        )
+        return misattributed
+
+    stops = stops_after_entry(frame, run.bars)
+    broken = 0
+    for group, label in STOP_GROUPS.items():
+        logger.info("%s: %s", label, stops[group]["trials"])
+        broken += stops[group]["trials"]["filled_before_entry"]
+        for when in ("on_entry_bar", "on_a_later_bar"):
+            counts = stops[group][when]
+            logger.info("  filled %s: %s -- %s", when.replace("_", " "), counts, stop_verdict(counts))
+            broken += stop_breaks(counts)
+
+    return broken
+
+
 def report(run: Run) -> bool:
     """Print every measurement the run supports. False if any check the readings rest on fails."""
     logger.info("run: %s", run.stem)
@@ -323,6 +518,11 @@ def report(run: Run) -> bool:
             effective["stop_target_handling"],
         )
 
+    unrecorded = unrecorded_trials(run)
+    if len(unrecorded):
+        logger.info("  %d trials reach a bar after the last one recorded and are left out", len(unrecorded))
+        run = replace(run, events=run.events[~run.events["trial"].isin(unrecorded)])
+
     # Whether NinjaTrader took each entry needs no fill bar, so it is reported before the lag check.
     entries = limit_entry_fills(limit_entries(run), run.bars)
     taken = {
@@ -333,8 +533,12 @@ def report(run: Run) -> bool:
 
     lag = measure_lag(run)
     logger.info("callback lag on market fills: %s", lag)
+    if lag["fills"] == 0:
+        lag = measure_entry_lag(run)
+        logger.info("  no market fill to measure it on, so on the one-bar entries: %s", lag)
+
     if not lag_is_clean(lag):
-        logger.warning("  market-fill lag is NOT a clean +1 in this run; no fill bar below can be trusted")
+        logger.warning("  callback lag is NOT a clean +1 in this run; no fill bar below can be trusted")
         return False
 
     frame = trials(run)
@@ -372,6 +576,9 @@ def report(run: Run) -> bool:
         + sum(breaks(entries[group]) + entries[group]["through_unfilled"] for group in ENTRY_GROUPS)
         + entries["checks"]["filled_off_the_live_bar"]
     )
+    if set_stops(run):
+        broken += report_stops(run)
+
     if broken:
         logger.warning("  %d fills break the rule, name the wrong bar, or are missing", broken)
         return False
