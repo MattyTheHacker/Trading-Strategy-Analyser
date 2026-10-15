@@ -778,24 +778,15 @@ def test_a_stop_filled_before_its_entry_is_counted_and_fails_the_report(tmp_path
 
 
 def test_a_rejected_stop_is_told_from_one_left_unfilled(tmp_path: Path) -> None:
-    rejection = event(ORDER_UPDATE, 1, 0, signal_name=rpt.STOP_LOSS, order_state=rpt.REJECTED)
+    rejection = event(
+        ORDER_UPDATE, 1, 0, signal_name=rpt.STOP_LOSS, from_entry_signal=LONG, order_state=rpt.REJECTED
+    )
     events = [e for e in stop_events() if not (e["kind"] == EXECUTION and e["signal_name"] == rpt.STOP_LOSS)]
     run = read_run(write_run(tmp_path, [*events, rejection], STOP_BARS))
     stops = rpt.stops_after_entry(rpt.stop_trials(run), run.bars)
     assert stops["beyond"]["trials"]["rejected"] == 1
     assert stops["beyond"]["trials"]["not_filled"] == 0
     assert stops["gapped"]["trials"]["not_filled"] == 1
-
-
-def test_a_trial_of_four_legs_is_read_on_the_first_legs_stop(tmp_path: Path) -> None:
-    """Scenario 9's other legs fill stops of their own, and the first in the log is not the first leg's."""
-    events = stop_events()
-    other_leg = {**events[4], "from_entry_signal": f"{LONG}2", "execution_price": 98.0}
-    run = read_run(write_run(tmp_path, [*events[:4], other_leg, *events[4:]], STOP_BARS))
-    frame = rpt.stop_trials(run)
-    assert frame.loc[1, "stop_fill"] == STOP_READINGS["rule"][0]
-    assert rpt.misattributed_stops(run, frame) == 0
-    assert rpt.report(run) is True
 
 
 def test_a_stop_naming_another_entry_is_caught_and_fails_the_report(tmp_path: Path) -> None:
@@ -868,6 +859,125 @@ def test_a_stop_behind_a_stop_entry_the_path_never_comes_back_to_is_left_for_a_l
     assert stops["gapped"]["entry_bar"]["not_reached"] == 1
     assert stops["gapped"]["on_a_later_bar"]["at_open"] == 1
     assert rpt.report(run) is True
+
+
+FOUR_LEG_BARS = [bar(0, 100.0, 100.0), bar(1, 100.0, 100.5, high=100.75, low=99.75), bar(2, 100.0, 100.0)]
+"""Bar 1 runs down first, up through the buy stop at 100.5, and closes short of its stop at 100.25."""
+
+
+def four_leg_events(stop_fills: dict[int, tuple[int, float]]) -> list[dict[str, object]]:
+    """Build one scenario-9 long of four legs on :data:`FOUR_LEG_BARS`, each stop as ``stop_fills`` says.
+
+    ``stop_fills`` maps a leg to the bar its stop is reported on and the price it filled at.
+    """
+    names = [LONG, *(f"{LONG}{leg}" for leg in range(2, 5))]
+    sent = [
+        event(SUBMIT, 1, 0, signal_name=name, order_type="StopMarket", stop_price=100.5) for name in names
+    ]
+    filled = [
+        event(
+            EXECUTION,
+            1,
+            0,
+            signal_name=name,
+            order_type="StopMarket",
+            order_state="Filled",
+            execution_price=100.5,
+        )
+        for name in names
+    ]
+    stopped = [
+        stop_fill(1, reported_bar, names[leg - 1], 100.25, price)
+        for leg, (reported_bar, price) in stop_fills.items()
+    ]
+
+    return [stop_set(1, 0, LONG, 100.25), *sent, *filled, *stopped]
+
+
+EARLIER_LEGS_ON_THE_ENTRY_BAR = dict.fromkeys((1, 2, 3), (0, 100.25))
+"""Legs 1 to 3 stopped at their own price on the entry bar, as the stretch their entry filled in says."""
+
+
+def test_each_leg_of_a_trial_is_read_on_its_own_stop(tmp_path: Path) -> None:
+    run = read_run(
+        write_run(tmp_path, four_leg_events({**EARLIER_LEGS_ON_THE_ENTRY_BAR, 4: (1, 100.0)}), FOUR_LEG_BARS)
+    )
+    frame = rpt.stop_trials(run)
+    assert frame["leg"].tolist() == [1, 2, 3, 4]
+    assert frame["last_leg"].tolist() == [False, False, False, True]
+    assert frame["stop_fill"].tolist() == [100.25, 100.25, 100.25, 100.0]
+    assert rpt.misattributed_stops(run, frame) == 0
+
+
+@pytest.mark.parametrize(
+    ("last_leg", "follows"),
+    [((1, 100.0), True), ((0, 100.25), False)],
+)
+def test_the_last_leg_sees_only_the_path_after_its_entry_and_the_earlier_legs_the_whole_stretch(
+    tmp_path: Path, last_leg: tuple[int, float], *, follows: bool
+) -> None:
+    """Every leg filled at 100.5 on the way up from the low; only the earlier legs see that low."""
+    run = read_run(
+        write_run(tmp_path, four_leg_events({**EARLIER_LEGS_ON_THE_ENTRY_BAR, 4: last_leg}), FOUR_LEG_BARS)
+    )
+    gapped = rpt.stops_after_entry(rpt.stop_trials(run), run.bars)["gapped"]
+    assert gapped["entry_bar_earlier_legs"] == {
+        "at_open": 0,
+        "at_stop": 3,
+        "not_reached": 0,
+        "against_path": 0,
+    }
+    assert gapped["entry_bar"]["not_reached" if follows else "against_path"] == 1
+    assert rpt.report(run) is follows
+
+
+def test_an_earlier_leg_left_for_a_later_bar_breaks_the_rule(tmp_path: Path) -> None:
+    run = read_run(
+        write_run(
+            tmp_path,
+            four_leg_events({1: (1, 100.0), 2: (0, 100.25), 3: (0, 100.25), 4: (1, 100.0)}),
+            FOUR_LEG_BARS,
+        )
+    )
+    gapped = rpt.stops_after_entry(rpt.stop_trials(run), run.bars)["gapped"]
+    assert gapped["entry_bar_earlier_legs"]["against_path"] == 1
+    assert rpt.report(run) is False
+
+
+def test_a_stop_naming_a_leg_its_trial_never_filled_is_caught(tmp_path: Path) -> None:
+    events = [*four_leg_events(EARLIER_LEGS_ON_THE_ENTRY_BAR), stop_fill(1, 1, f"{LONG}5", 100.25, 100.0)]
+    run = read_run(write_run(tmp_path, events, FOUR_LEG_BARS))
+    assert rpt.misattributed_stops(run, rpt.stop_trials(run)) == 1
+
+
+@pytest.mark.parametrize(
+    ("side", "level", "stop", "ohlc", "last_leg", "expected"),
+    [
+        (1.0, 100.5, 100.25, (100.0, 100.75, 99.75, 100.5), True, None),
+        (1.0, 100.5, 100.25, (100.0, 100.75, 99.75, 100.5), False, 100.25),
+        (1.0, 100.5, 100.25, (100.0, 100.75, 99.0, 100.5), True, 100.25),
+        (1.0, 100.5, 100.25, (100.0, 100.75, 99.0, 100.5), False, 100.0),
+        (1.0, 100.5, 100.25, (100.75, 101.0, 100.0, 100.5), True, 100.25),
+        (1.0, 100.5, 100.25, (100.75, 101.0, 100.0, 100.5), False, 100.25),
+        (-1.0, 99.5, 99.75, (100.0, 100.25, 99.25, 99.5), True, None),
+        (-1.0, 99.5, 99.75, (100.0, 100.25, 99.25, 99.5), False, 99.75),
+    ],
+)
+def test_a_stop_on_its_entry_bar_sees_the_part_of_the_path_its_leg_does(
+    side: float,
+    level: float,
+    stop: float,
+    ohlc: tuple[float, float, float, float],
+    *,
+    last_leg: bool,
+    expected: float | None,
+) -> None:
+    """An earlier leg fills at the open only where its entry's stretch starts there, past its stop."""
+    trade = rpt.StoppedEntry("StopMarket", side, level, stop, last_leg, None)
+    path = rpt.bar_path(*ohlc)
+    point = rpt.entry_point(trade.entry_type, side, level, path)
+    assert point is not None
+    assert rpt.stop_on_entry_bar(trade, path, point) == expected
 
 
 @pytest.mark.parametrize(
