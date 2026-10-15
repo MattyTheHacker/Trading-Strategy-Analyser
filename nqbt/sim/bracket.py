@@ -87,9 +87,9 @@ class FillRules(NamedTuple):
 class OpenTrade(NamedTuple):
     """The position as it opened -- fixed for its whole life, whatever the stop does after.
 
-    ``filled_at_open`` is false for an entry that filled intrabar, which keeps the gapped-stop
-    rule off its entry bar -- ``docs/nt8-fidelity.md``, "A stop fills at the open when the bar
-    gaps through it".
+    ``stop_gaps_on_entry_bar`` is false for a stop entry, which keeps the gapped-stop rule off its
+    entry bar, and true for a market or limit entry -- ``docs/nt8-fidelity.md``, "A stop fills at
+    the open when the bar gaps through it".
     """
 
     trade_id: int
@@ -98,7 +98,7 @@ class OpenTrade(NamedTuple):
     initial_stop: float
     risk: float
     direction: float
-    filled_at_open: bool
+    stop_gaps_on_entry_bar: bool
 
 
 class Legs(NamedTuple):
@@ -407,12 +407,11 @@ def resolve_brackets(  # noqa: C901, PLR0912 - one branch per NT8 exit rule, in 
     open_px = bars.open_[i]
     adverse_px, favourable_px = sided(bars.low[i], bars.high[i], direction)
     slippage = slippage_points(costs)
-    # The position was held from this bar's open unless it filled intrabar on this very bar.
-    held_from_bar_open = i > trade.entry_bar or trade.filled_at_open
+    gapped_stop_applies = i > trade.entry_bar or trade.stop_gaps_on_entry_bar
 
     # The stop fills at the open when the bar gapped through it, otherwise at its own price.
     stop_fill = stop
-    if held_from_bar_open and direction * open_px < direction * stop:
+    if gapped_stop_applies and direction * open_px < direction * stop:
         stop_fill = open_px
 
     stop_hit = direction * adverse_px <= direction * stop

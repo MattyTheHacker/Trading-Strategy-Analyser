@@ -177,7 +177,7 @@ def simulate_crossover(  # noqa: C901, PLR0912, PLR0915 - one branch per rule, i
                     initial_stop=candidate_stop,
                     risk=candidate_risk,
                     direction=d,
-                    filled_at_open=True,
+                    stop_gaps_on_entry_bar=True,
                 )
                 stop = candidate_stop
                 excursion = bracket.start_excursion(bars.high[i], bars.low[i], i)

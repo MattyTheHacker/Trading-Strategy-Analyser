@@ -164,8 +164,8 @@ def simulate_deadcat(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rule,
                     initial_stop=pending_stop,
                     risk=risk,
                     direction=direction,
-                    # Entered intrabar: the position did not exist at this bar's open.
-                    filled_at_open=False,
+                    # A stop entry fills after its bar opens, so that open says nothing about the stop.
+                    stop_gaps_on_entry_bar=False,
                 )
                 stop = pending_stop
                 excursion = bracket.start_excursion(bars.high[i], bars.low[i], i)

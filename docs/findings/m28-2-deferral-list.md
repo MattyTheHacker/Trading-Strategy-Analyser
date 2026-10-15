@@ -146,7 +146,7 @@ The draw over **bars** refused on both roots with the message §M28.1 wrote, and
 
 - **Breakout** — reproduces §M28.1 and adds the gradient beneath it. It is still the only OpeningRange entry with a defensible result, and the level null now gives its unfiltered form a control it did not have.
 - **Fade** — fails gate 1 on both roots at every stop fraction. **Parked, with a reason**: § "Parked is not abandoned". What would justify a re-run is a different bracket, not a different seed — its stop is the axis that never suited it, since the range extreme it enters at is the one thing it cannot stop behind.
-- **Retest** — **no verdict, and that is the finding.** Its gate-2 pass is a measurement of `ambiguity_policy`, not of a strategy. It cannot be read at all until its shortlist is constrained to configurations whose brackets do not both sit inside one bar, which is a change to how the campaign selects rather than to the archetype.
+- **Retest** — **no verdict, and that is the finding.** Its gate-2 pass is a measurement of `ambiguity_policy`, not of a strategy. It cannot be read at all until its shortlist is constrained to configurations whose brackets do not both sit inside one bar, which is a change to how the campaign selects rather than to the archetype. Its numbers also predate [#455], which stops an entry whose bar opened past its stop at that open rather than at the stop, so a re-run moves those legs to a worse price.
 
 ## What this campaign says the tooling needs
 
@@ -161,4 +161,5 @@ The **noise-area form**, which §M28 put on ElasticBand's thread and which stays
 [#237]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/237
 [#248]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/248
 [#454]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/454
+[#455]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/455
 [#51]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/51

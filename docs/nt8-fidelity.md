@@ -142,7 +142,9 @@ A stop is a market order once triggered, so a bar that opens past it offers no t
 
 Traced at 2023-12-11 09:15: the ratchet reaches 16288.25 and the 09:18 bar opens at 16287.00, already through it. NT8 fills 16287.00, nqbt filled 16288.25.
 
-**The rule does not apply on the entry bar.** The position did not exist at that bar's open, so an open beyond the initial stop says nothing — price still had to travel through the trigger to open the position at all, and only then could it come back to the stop, which it reaches at the stop's own price.
+**On the entry bar it depends on how the entry filled.** A stop entry fills after its bar opens, so an open beyond the initial stop says nothing: price still had to travel through the trigger to open the position at all, and only then could it come back to the stop, which it reaches at the stop's own price. A market entry fills at the open, and so, in time, does a limit the bar opened past, whatever price it fills at. For both of those the open is a price the position was already live at, and a stop the open is past fills there.
+
+The limit case is measured (#455). In `NqbtPassedTargetProbe`'s scenarios 5 and 8, every stop whose limit entry's bar opened past it filled at that open: 2,412 of 2,412 in each run, 317 of them where the entry filled beyond the stop. Every stop on a bar that opened short of it filled at its own price: 59,857 of 59,857. The runs and the rest of what they show are under "A stop sees only the part of its entry bar after the entry" below. Until #455, OpeningRange's limit entries took the stop entry's exception, so on a bar wholly past the stop they booked a stop price the bar never traded. `OpenTrade.stop_gaps_on_entry_bar` says which rule an entry takes.
 
 This one is not long-specific: it moved 56 of 1,380 legs on the pinned MNQ 03-24 DeadCatBounce capture, always to a worse fill and never a better one. It survived the first reconciliation because **none of those legs fall inside that run's 1,168-leg window** — all 1,168 still match on every field. A reconciliation window is evidence about the bars it contains and nothing else.
 
@@ -171,7 +173,7 @@ All four runs' Trades exports match the probe's own log on every trade's entry a
 
 **What it replaced.** `bracket.py` filled every target at its own price. Wherever the bar lay wholly past the target, that booked a price the bar never traded, worse than the one NinjaTrader gives. ElasticBand alone closed such a leg at the entry bar's open (#451), which was right only where the open was the bar's extreme. Every leg the change moved on the trade-log gate's captures was a target exit, almost all in the thin bars before `MNQ 03-24`'s December roll, and the five stored reconciliations are unchanged because none of their windows holds such a bar.
 
-OpeningRange's two limit entries filled a gapped limit at the open until #454, and now fill by this rule through `bracket.limit_fill_price`, the one implementation. Every retest and rejection result written before #454 was measured under the old fill, so a re-run moves each gapped entry to a worse price. A limit entry that gaps past its own stop as well still exits at a stop price outside the bar, which is #455. NinjaTrader accepting a marketable limit entry does not change which of their entries are sent, because not sending one is the archetype's own rule — §M28.2. The probe places no stop, so a bar that takes both a passed target and the stop still falls to "Ambiguous bars resolve to whichever level is nearer the open" below.
+OpeningRange's two limit entries filled a gapped limit at the open until #454, and now fill by this rule through `bracket.limit_fill_price`, the one implementation. Every retest and rejection result written before #454 was measured under the old fill, so a re-run moves each gapped entry to a worse price. A limit entry that gapped past its own stop as well exited at a stop price outside the bar until #455, and now exits at the open: "A stop fills at the open when the bar gaps through it" above. NinjaTrader accepting a marketable limit entry does not change which of their entries are sent, because not sending one is the archetype's own rule — §M28.2. Scenarios 1 to 4 place no stop, so a bar that takes both a passed target and the stop still falls to "Ambiguous bars resolve to whichever level is nearer the open" below.
 
 ### Ambiguous bars resolve to whichever level is nearer the open
 
@@ -196,6 +198,37 @@ When a bar contains both the stop and a target, bar-close OHLC cannot say which 
 **The sign of the error is set by the entry mechanism, and both signs have now been measured.** Run over one configuration at an `ambiguous_share` near 0.9, OpeningRange's fade returns a [profit factor](../README.md#profit-factor) of 0.016 under this rule against 0.012 at the blanket worst case and 2.171 at the blanket best case; its rejection returns 57.953 against 0.274 and 71.654. **Neither sits in the middle of its band — each sits on an opposite end of it.** A stop entry fills as price comes back through the level, so the bar's open lies beyond the fill on the stop's side and the rule books the stop; a limit entry fills as price comes to it, so the open lies on the target's side and the rule books the target. Where an archetype's [bracket](../README.md#bracket) is narrow enough for this to reach most of its legs, the resulting profit factor is a measurement of the assumption rather than of the strategy: [roadmap.md](roadmap.md) §M28.7.
 
 The 2024-01-11 16:11 bar is the clearest evidence: NT8 filled S1's target at 16836.00 **and** stopped S2/S3/S4 at 16842.75 on that one bar.
+
+### A stop sees only the part of its entry bar after the entry
+
+**In the probe, NinjaTrader walks each bar from its open to the extreme nearer it, then to the other extreme, then to the close, and fills orders in that order.** Where the two extremes are equally near, it takes the high first. A stop placed by an entry's fill sees only the part of that path after the entry:
+
+- If the first price there is already past the stop, the stop fills at that price. That price is the open for a market entry, or for a limit the bar opened past.
+- Otherwise it fills at its own price if the path reaches it later.
+- Otherwise it does not fill on the entry bar.
+
+It is the rule above carried onto the bar the entry fills on. For a limit or a market entry it gives the same answer as the bar's range does, which is why only the gapped stop needed fixing for those. **For a stop entry it does not**: the extreme on the stop's side can come before the entry. **This is not yet reconciled with the strategies' own trade lists, and the simulation does not implement it for stop entries** — see below.
+
+Measured by `NqbtPassedTargetProbe.cs` (#455), which sets the stop and entry a tick apart so that the entry bar decides as many stops as possible. Four runs over `MNQ 03-24`, 1 minute, 2023-12-11 → 2024-03-15, Standard fill resolution, zero costs, one trial at a time, alternating long and short. `tools/reconcile_passed_target.py` reads them, and each run's Trades export matches the probe's own log on every trade's entry and exit price and names.
+
+| scenario | entry, and what goes out beside the stop | entries | stop at the open | stop at its own price | not on the entry bar | against the path |
+| -------- | ---------------------------------------- | ------- | ---------------- | --------------------- | -------------------- | ---------------- |
+| 5        | limit a tick inside the close            | 62,269  | 2,412            | 59,857                | 0                    | 0                |
+| 8        | the same, with a target out of reach     | 62,269  | 2,412            | 59,857                | 0                    | 0                |
+| 6        | stop entry two ticks beyond the close    | 39,596  | 0                | 23,178                | 16,418               | 0                |
+| 7        | the same, with a target out of reach     | 38,578  | 0                | 22,633                | 15,945               | 0                |
+
+Each run leaves out its last trial, which filled on a bar after the last one the probe recorded. Every stop that filled on a later bar followed the gapped-stop rule. **On the 895 tied bars where the order decided the outcome, NinjaTrader took the high first on all 895.** The tool walks a tied bar that way, and none of them goes against the path. The target in scenarios 7 and 8 changed nothing.
+
+**The strategies' trade lists disagree on stop entries, and the variable is not found.** Against the DeadCatBounce NQ 03-24 and PullBackAndGo MNQ 06-24 exports, scored with the archive's bars:
+
+- **Eight entry-bar stop-outs the path says cannot happen** (2 DeadCatBounce, 6 PullBackAndGo). The stop's extreme comes before the entry on the path, and NinjaTrader stopped the trade anyway.
+- **The simulation agrees with NinjaTrader on all eight**, because it stops a stop entry on its entry bar wherever the bar's range reaches the stop.
+- **One trade goes the other way**: DeadCatBounce on 2024-01-03, where NinjaTrader filled S1's target before the stop on the entry bar. The path says the same, and the simulation does not.
+
+The probe sends one entry, and the strategies send four with a stop and a target each. The target alone is ruled out by scenario 7. The four entries, the distance between stop and entry, and bars revised since those exports were taken are still open. **Until that is settled, a stop entry's stop keeps the range rule the trade lists support.**
+
+**A stop entry sent on the bar the probe's own market exit filled on was sometimes left working for good.** In scenario 6 that happened to 1,976 of the 8,663 such trials. NinjaTrader never filled those orders and never cancelled them, ignored `CancelOrder`, and wrote nothing to its log. No entry sent after a stop exit or a session-close exit stuck. The probe now waits a bar after its own market exit before the next stop entry, and scenario 7 had none. The cause is unknown. An archetype that exits at market and re-enters on the next bar with a stop entry could meet the same thing.
 
 ### Ratchet reads the just-closed bar
 
@@ -995,7 +1028,7 @@ if (ToTime(Time[0]) > 93000 && ToTime(Time[0]) <= 100000)
 
 **A stop entry at or through the market is never submitted, and here it binds constantly.** §M18's rule, from "A stop-market entry must sit strictly beyond the market": the order is refused on any bar whose close has already reached the trigger — which after a break is most of them. DeadCatBounce is immune to this by construction and the opening range is not, so `entry_offset_ticks` defaults to **1 rather than 0**: at 0 a bar closing exactly on the range extreme can never submit.
 
-**The fill test is DeadCatBounce's, unchanged.** An open at or beyond the trigger fills at the open, because a stop is a market order once triggered; otherwise the bar's favourable extreme must reach the trigger and the fill is at the trigger. `filled_at_open` is false either way, so the gapped-stop rule stays off the entry bar exactly as it does there.
+**The fill test is DeadCatBounce's, unchanged.** An open at or beyond the trigger fills at the open, because a stop is a market order once triggered; otherwise the bar's favourable extreme must reach the trigger and the fill is at the trigger. `stop_gaps_on_entry_bar` is false either way, so the gapped-stop rule stays off the entry bar exactly as it does there.
 
 **The whole bracket is computed from the trigger, not from the fill.** `SetStopLoss` and `SetProfitTarget` are set when the order is submitted and the trigger is the only price known then. Risk is `trigger − stop`, with the stop snapped to the tick first; a gapped fill is worse than planned and its R is measured against the plan. This is what the reconciled DeadCatBounce port already does.
 
@@ -1030,15 +1063,16 @@ Same rule as §M26's: **only a distance is floored, never a level.** `min_bracke
 
 **The retest is the first limit entry in the registry, and its two halves are the stop entry's mirror:**
 
-|                           | stop entry                                | retest's limit                                       |
-| ------------------------- | ----------------------------------------- | ---------------------------------------------------- |
-| NinjaScript               | `EnterLongStopMarket(level + offset)`     | `EnterLongLimit(level - retestOffset)`               |
-| rests                     | beyond the market                         | inside the market                                    |
-| a bar that gaps past it   | fills at the open, **worse** than planned | fills at the limit, or the bar's nearest price       |
-| merely reaching the price | fills — a stop triggers on touch          | does **not** fill under `IsFillLimitOnTouch = false` |
-| slippage                  | applied                                   | **never applied**                                    |
+|                                           | stop entry                                | retest's limit                                       |
+| ----------------------------------------- | ----------------------------------------- | ---------------------------------------------------- |
+| NinjaScript                               | `EnterLongStopMarket(level + offset)`     | `EnterLongLimit(level - retestOffset)`               |
+| rests                                     | beyond the market                         | inside the market                                    |
+| a bar that gaps past it                   | fills at the open, **worse** than planned | fills at the limit, or the bar's nearest price       |
+| merely reaching the price                 | fills — a stop triggers on touch          | does **not** fill under `IsFillLimitOnTouch = false` |
+| its stop, if the entry bar opened past it | fills at the stop's own price             | fills at that open (#455)                            |
+| slippage                                  | applied                                   | **never applied**                                    |
 
-The last three rows are rules this project established for *exits* — "A limit order the market has passed fills at the nearest price the bar traded", "Limit orders must trade **through**, not touch" and the targets taking no slippage — reaching the entry, and #454's probe runs measured the first two on entry limits as well. `bracket.limit_filled` and `bracket.limit_fill_price` are the one implementation, and the entry reads them at `-direction`, because the limit is favourable from the other side.
+The rows on the gap, the touch and the slippage are rules this project established for *exits* — "A limit order the market has passed fills at the nearest price the bar traded", "Limit orders must trade **through**, not touch" and the targets taking no slippage — reaching the entry, and #454's probe runs measured the first two on entry limits as well. `bracket.limit_filled` and `bracket.limit_fill_price` are the one implementation, and the entry reads them at `-direction`, because the limit is favourable from the other side.
 
 **A marketable limit is not sent, and that is the archetype's rule rather than NinjaTrader's.** §M18 establishes that NT8 declines a stop entry at or through the market. A buy limit at or above the close is not declined: #454 sent 5,000 such entries, and NinjaTrader took every one and filled every one the next bar traded through, by the rule above. The simulation still does not send one, so a retest never enters at a price the market has already left, and a port has to say the same thing in its own C#: send `EnterLongLimit` only while the limit is below `Close[0]`, and `EnterShortLimit` only while it is above.
 
@@ -1127,7 +1161,7 @@ With `confirm_entry` on, the signal is §M34's unchanged and only the order chan
 
 **A stop entry at or through the market is never submitted** — §M18's rule, "A stop entry must sit beyond the market to be submitted". It binds on a signal bar that closed on its own extreme, which is why `entry_offset_ticks` defaults to **1**, as OpeningRange's does: at 0 that bar can never submit.
 
-**The fill is DeadCatBounce's.** A gap through the trigger fills at the open, otherwise the bar has to reach the trigger and fills there, and no touch is no fill. `filled_at_open` is false either way, so the gapped-stop rule stays off the entry bar.
+**The fill is DeadCatBounce's.** A gap through the trigger fills at the open, otherwise the bar has to reach the trigger and fills there, and no touch is no fill. `stop_gaps_on_entry_bar` is false either way, so the gapped-stop rule stays off the entry bar.
 
 **The whole bracket is computed from the trigger, not the fill.** `SetStopLoss(CalculationMode.Price, Instrument.MasterInstrument.RoundToTickSize(slow[0] - StopOffsetTicks * TickSize))` and the targets are set before the order is submitted, from the signal bar's slow average and from the trigger. Risk is `trigger − stop` and a gapped fill is worse than planned, which is OpeningRange's rule and the reconciled DeadCatBounce port's. **So R here is not the market entry's R**: it is measured from a price at least a tick beyond the signal bar's extreme rather than from the next open, and it is the wider of the two on every trade that fills.
 

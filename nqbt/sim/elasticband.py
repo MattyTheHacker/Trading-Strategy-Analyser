@@ -351,7 +351,7 @@ def simulate_elasticband(  # noqa: C901, PLR0912, PLR0915 - one branch per rule,
                     initial_stop=candidate_stop,
                     risk=candidate_risk,
                     direction=d,
-                    filled_at_open=True,
+                    stop_gaps_on_entry_bar=True,
                 )
                 stop = candidate_stop
                 entry_extreme = band.excursion_extreme[pending_bar]

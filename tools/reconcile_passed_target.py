@@ -411,21 +411,15 @@ def misattributed_stops(run: Run, frame: pd.DataFrame) -> int:
     return misattributed(run, frame, STOP_LOSS, "stop")
 
 
-def bar_paths(open_: float, high: float, low: float, close: float) -> list[tuple[float, float, float, float]]:
-    """Return the orders a bar's prices can be walked in: to the extreme nearer the open first.
+def bar_path(open_: float, high: float, low: float, close: float) -> tuple[float, float, float, float]:
+    """Return the order a bar's prices are walked in: the extreme nearer the open first, the high on a tie.
 
-    Both orders where the two extremes are equally near -- ``docs/nt8-fidelity.md``, "Ambiguous
-    bars resolve to whichever level is nearer the open".
+    ``docs/nt8-fidelity.md``, "A stop sees only the part of its entry bar after the entry".
     """
-    high_first = (open_, high, low, close)
-    low_first = (open_, low, high, close)
-    if high - open_ < open_ - low:
-        return [high_first]
-
     if open_ - low < high - open_:
-        return [low_first]
+        return (open_, low, high, close)
 
-    return [high_first, low_first]
+    return (open_, high, low, close)
 
 
 def path_after_entry(
@@ -437,17 +431,22 @@ def path_after_entry(
     past too, and otherwise the entry fills where the path first trades its level -- through it,
     for a limit.
     """
-    opened_past = side * (path[0] - level) >= 0 if entry_type == STOP_MARKET else side * (path[0] - level) < 0
-    if entry_type == MARKET or opened_past:
+    if entry_type == MARKET or has_traded(entry_type, side, path[0], level):
         return path
 
     for point in range(1, len(path)):
-        price = path[point]
-        trades = side * (price - level) >= 0 if entry_type == STOP_MARKET else side * (price - level) < 0
-        if trades:
+        if has_traded(entry_type, side, path[point], level):
             return (level, *path[point:])
 
     return None
+
+
+def has_traded(entry_type: str, side: float, price: float, level: float) -> bool:
+    """Return whether ``price`` has traded an entry's level: reached it for a stop, through it for a limit."""
+    if entry_type == STOP_MARKET:
+        return side * (price - level) >= 0
+
+    return side * (price - level) < 0
 
 
 def stop_on_path(after_entry: tuple[float, ...], side: float, stop: float) -> float | None:
@@ -476,22 +475,17 @@ class StoppedEntry(NamedTuple):
 
 
 def entry_bar_outcome(trade: StoppedEntry, ohlc: tuple[float, float, float, float]) -> str:
-    """Return what a stop did on its entry bar, read against every path the bar can be walked along.
+    """Return what a stop did on its entry bar, read against the bar's path.
 
-    ``at_open``, ``at_stop`` and ``not_reached`` are the stop doing what the paths say, ``tie`` is
-    two equally near extremes saying different things, and ``against_path`` is anything else.
+    ``at_open``, ``at_stop`` and ``not_reached`` are the stop doing what the path says, and
+    ``against_path`` is anything else, a path that never fills the entry included.
     """
-    expected: set[float | None] = set()
-    for path in bar_paths(*ohlc):
-        after_entry = path_after_entry(trade.entry_type, trade.side, trade.level, path)
-        if after_entry is not None:
-            expected.add(stop_on_path(after_entry, trade.side, trade.stop))
-
-    if len(expected) > 1:
-        return "tie"
+    after_entry = path_after_entry(trade.entry_type, trade.side, trade.level, bar_path(*ohlc))
+    if after_entry is None:
+        return "against_path"
 
     actual = trade.fill_on_entry_bar
-    if expected != {actual}:
+    if stop_on_path(after_entry, trade.side, trade.stop) != actual:
         return "against_path"
 
     if actual is None:
@@ -500,7 +494,7 @@ def entry_bar_outcome(trade: StoppedEntry, ohlc: tuple[float, float, float, floa
     return "at_stop" if actual == trade.stop else "at_open"
 
 
-ENTRY_BAR_OUTCOMES = ("at_open", "at_stop", "not_reached", "tie", "against_path")
+ENTRY_BAR_OUTCOMES = ("at_open", "at_stop", "not_reached", "against_path")
 """What :func:`entry_bar_outcome` returns, in the order the report prints them."""
 
 
@@ -597,15 +591,14 @@ def stops_after_entry(frame: pd.DataFrame, bars: pd.DataFrame) -> dict[str, dict
 def path_verdict(counts: dict[str, int]) -> str:
     """Return whether every entry bar's stop did what the bar's path says, in a few words."""
     broken = counts["against_path"]
-    ties = counts["tie"]
-    read = sum(counts.values()) - ties
-    if read == 0:
+    total = sum(counts.values())
+    if total == 0:
         return "no instances in this run"
 
     if broken:
-        return f"{broken} of {read} break the rule, {ties} more on a tie"
+        return f"{broken} of {total} break the rule"
 
-    return f"all {read} as the bar's path says, {ties} more on a tie"
+    return f"all {total} as the bar's path says"
 
 
 def stop_breaks(counts: dict[str, int]) -> int:

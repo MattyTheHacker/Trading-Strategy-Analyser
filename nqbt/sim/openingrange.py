@@ -346,8 +346,9 @@ def simulate_openingrange(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
                     initial_stop=pending_stop,
                     risk=risk,
                     direction=direction,
-                    # Entered intrabar: the position did not exist at this bar's open.
-                    filled_at_open=False,
+                    # A limit the bar opened past filled as the bar opened, and a stop entry later --
+                    # docs/nt8-fidelity.md, "A stop fills at the open when the bar gaps through it".
+                    stop_gaps_on_entry_bar=rules.entry_mode in ORB_LIMIT_ENTRIES,
                 )
                 stop = pending_stop
                 excursion = bracket.start_excursion(bars.high[i], bars.low[i], i)

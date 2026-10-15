@@ -735,7 +735,6 @@ def test_a_stop_its_entry_bar_opened_past_is_read_at_the_price_it_filled_at(
         "at_open": 0,
         "at_stop": 1,
         "not_reached": 0,
-        "tie": 0,
         "against_path": 0,
     }
 
@@ -860,27 +859,32 @@ def test_a_stop_behind_a_stop_entry_the_path_never_comes_back_to_is_left_for_a_l
     assert rpt.report(run) is True
 
 
-def test_a_stop_two_equally_near_extremes_disagree_on_is_counted_apart(tmp_path: Path) -> None:
-    """Walked high first, the path comes back down through the stop; walked low first, it does not."""
+@pytest.mark.parametrize(
+    ("price", "reported_bar", "key"), [(100.25, 0, "at_stop"), (100.0, 1, "against_path")]
+)
+def test_a_bar_whose_extremes_are_equally_near_its_open_is_walked_high_first(
+    tmp_path: Path, price: float, reported_bar: int, key: str
+) -> None:
+    """Walked high first, the path comes back through the stop after the entry; low first, it would not."""
     bars = [bar(0, 100.0, 100.0), bar(1, 100.0, 100.5, high=100.75, low=99.25), bar(2, 100.0, 100.0)]
-    run = read_run(write_run(tmp_path, stop_entry_events(100.25), bars))
+    run = read_run(write_run(tmp_path, stop_entry_events(price, stop_reported_bar=reported_bar), bars))
     stops = rpt.stops_after_entry(rpt.stop_trials(run), run.bars)
-    assert stops["gapped"]["entry_bar"]["tie"] == 1
-    assert rpt.report(run) is True
+    assert stops["gapped"]["entry_bar"][key] == 1
+    assert rpt.report(run) is (key == "at_stop")
 
 
 @pytest.mark.parametrize(
     ("ohlc", "expected"),
     [
-        ((100.0, 100.25, 99.0, 99.5), [(100.0, 100.25, 99.0, 99.5)]),
-        ((100.0, 101.0, 99.75, 100.5), [(100.0, 99.75, 101.0, 100.5)]),
-        ((100.0, 100.5, 99.5, 100.0), [(100.0, 100.5, 99.5, 100.0), (100.0, 99.5, 100.5, 100.0)]),
+        ((100.0, 100.25, 99.0, 99.5), (100.0, 100.25, 99.0, 99.5)),
+        ((100.0, 101.0, 99.75, 100.5), (100.0, 99.75, 101.0, 100.5)),
+        ((100.0, 100.5, 99.5, 100.0), (100.0, 100.5, 99.5, 100.0)),
     ],
 )
 def test_a_bar_is_walked_to_the_extreme_nearer_its_open_first(
-    ohlc: tuple[float, float, float, float], expected: list[tuple[float, ...]]
+    ohlc: tuple[float, float, float, float], expected: tuple[float, float, float, float]
 ) -> None:
-    assert rpt.bar_paths(*ohlc) == expected
+    assert rpt.bar_path(*ohlc) == expected
 
 
 @pytest.mark.parametrize(
@@ -950,18 +954,9 @@ def test_an_entry_fill_no_bar_traded_at_fails_the_lag(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("counts", "expected"),
     [
-        (
-            {"at_open": 0, "at_stop": 0, "not_reached": 0, "tie": 0, "against_path": 0},
-            "no instances in this run",
-        ),
-        (
-            {"at_open": 1, "at_stop": 2, "not_reached": 1, "tie": 1, "against_path": 0},
-            "all 4 as the bar's path says, 1 more on a tie",
-        ),
-        (
-            {"at_open": 0, "at_stop": 2, "not_reached": 0, "tie": 0, "against_path": 1},
-            "1 of 3 break the rule, 0 more on a tie",
-        ),
+        ({"at_open": 0, "at_stop": 0, "not_reached": 0, "against_path": 0}, "no instances in this run"),
+        ({"at_open": 1, "at_stop": 2, "not_reached": 1, "against_path": 0}, "all 4 as the bar's path says"),
+        ({"at_open": 0, "at_stop": 2, "not_reached": 0, "against_path": 1}, "1 of 3 break the rule"),
     ],
 )
 def test_the_path_verdict_passes_a_set_only_when_every_stop_did_what_its_path_says(

@@ -40,8 +40,16 @@ below and is what you quote; this file is the index, not the record.
   for it".
 - **A stop that gaps fills at the open, not at the stop price** — a stop is a market order once
   triggered. This holds for **exits as well as entries**; the exit path missed it until M15.5.
-  It does *not* apply on the entry bar: the position did not exist at that bar's open, so price
-  had to travel through the trigger and only then back to the stop.
+  On the entry bar it holds for a **market or limit** entry, which fills at the open in time,
+  and *not* for a **stop** entry, which fills after the open, so its stop is reached at the
+  stop's own price. `OpenTrade.stop_gaps_on_entry_bar` carries which; OpeningRange's limit
+  entries took the stop entry's exception until #455. `docs/nt8-fidelity.md`, "A stop fills at
+  the open when the bar gaps through it".
+- **Whether a stop entry's stop is reached on its entry bar at all is unsettled.** The probe
+  says only the part of the bar's path after the entry counts; the strategies' own trade lists
+  say the bar's range does, and the simulation keeps the range. **Do not switch it to the path
+  without a trade list behind it.** `docs/nt8-fidelity.md`, "A stop sees only the part of its
+  entry bar after the entry".
 - **A stop entry at or through the market is never submitted.** `EnterLongStopMarket(High[0])`
   on a bar that closed on its high is not a stop order and NT8 declines it. DeadCatBounce is
   immune by construction — the `min(...)` cap puts the trigger below the close on exactly those
