@@ -31,7 +31,7 @@ dev = [
     "ruff==0.17.0",
     "mypy==2.4.0",
     "pandas-stubs==3.0.5.260914",
-    "pymarkdownlnt==0.9.40",
+    "pymarkdownlnt==0.9.41",
     "mdformat-gfm==1.0.0",
     "mdformat-frontmatter==2.1.2",
     "libcst==1.9.0",
