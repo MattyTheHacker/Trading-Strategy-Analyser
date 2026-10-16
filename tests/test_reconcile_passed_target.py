@@ -15,7 +15,7 @@ import pytest
 from nqbt.sim import bracket
 from nqbt.trades import EXIT_STOP
 from tools import reconcile_passed_target as rpt
-from tools.reconcile_order_lifetime import EXECUTION, ORDER_UPDATE, SUBMIT, read_run
+from tools.reconcile_order_lifetime import EXECUTION, ORDER_UPDATE, SUBMIT, lag_is_clean, read_run
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -327,7 +327,7 @@ def test_the_lag_is_a_clean_plus_one_when_every_entry_is_the_next_bars_open(tmp_
     run = read_run(write_run(tmp_path, entry_bar_events(), ENTRY_BAR_BARS))
     counts = rpt.measure_lag(run)
     assert counts == {"fills": 2, "reported": 0, "reported_plus_one": 2, "both": 0, "neither": 0}
-    assert rpt.lag_is_clean(counts)
+    assert lag_is_clean(counts)
 
 
 def test_a_callback_naming_the_bar_it_filled_on_is_not_read_as_lagging(tmp_path: Path) -> None:
@@ -335,7 +335,7 @@ def test_a_callback_naming_the_bar_it_filled_on_is_not_read_as_lagging(tmp_path:
     run = read_run(write_run(tmp_path, entry_bar_events(lag=0), ENTRY_BAR_BARS))
     counts = rpt.measure_lag(run)
     assert counts["reported"] == 2
-    assert not rpt.lag_is_clean(counts)
+    assert not lag_is_clean(counts)
     assert rpt.report(run) is False
 
 
@@ -344,20 +344,20 @@ def test_an_entry_two_equal_opens_explain_decides_nothing(tmp_path: Path) -> Non
     run = read_run(write_run(tmp_path, [entry_fill(1, 0, LONG, 100.25)], bars))
     counts = rpt.measure_lag(run)
     assert counts["both"] == 1
-    assert not rpt.lag_is_clean(counts)
+    assert not lag_is_clean(counts)
 
 
 def test_an_entry_no_open_explains_fails_the_lag_check(tmp_path: Path) -> None:
     run = read_run(write_run(tmp_path, [entry_fill(1, 0, LONG, 100.125)], ENTRY_BAR_BARS))
     counts = rpt.measure_lag(run)
     assert counts["neither"] == 1
-    assert not rpt.lag_is_clean(counts)
+    assert not lag_is_clean(counts)
 
 
 def test_a_run_with_no_entry_fills_does_not_pass_the_lag_check(tmp_path: Path) -> None:
     """A probe that traded nothing has measured nothing, and must not read as clean."""
     run = read_run(write_run(tmp_path, [target_set(1, 0, LONG, LONG_TARGET)], ENTRY_BAR_BARS))
-    assert not rpt.lag_is_clean(rpt.measure_lag(run))
+    assert not lag_is_clean(rpt.measure_lag(run))
 
 
 # Scenario 2. A long entered at bar 1's open has its target moved to a tick over bar 1's close;
@@ -551,7 +551,7 @@ def test_the_lag_is_measured_on_the_probes_exits_where_no_entry_is_a_market_orde
     run = read_run(write_run(tmp_path, limit_entry_events(), LIMIT_BARS))
     counts = rpt.measure_lag(run)
     assert counts["fills"] == 2
-    assert rpt.lag_is_clean(counts)
+    assert lag_is_clean(counts)
 
 
 @pytest.mark.parametrize(("low", "key"), [(99.75, "touched_unfilled"), (99.5, "through_unfilled")])
@@ -1054,7 +1054,7 @@ def test_the_lag_falls_back_to_the_entries_prices_where_nothing_filled_at_market
     assert rpt.measure_lag(run)["fills"] == 0
     counts = rpt.measure_lag_on_entries(run)
     assert counts == {"fills": 3, "reported": 0, "reported_plus_one": 1, "both": 2, "neither": 0}
-    assert rpt.lag_is_clean(counts)
+    assert lag_is_clean(counts)
 
 
 def test_an_entry_reported_on_the_bar_it_filled_on_is_not_read_as_lagging(tmp_path: Path) -> None:
@@ -1064,7 +1064,7 @@ def test_an_entry_reported_on_the_bar_it_filled_on_is_not_read_as_lagging(tmp_pa
     run = read_run(write_run(tmp_path, events, bars))
     counts = rpt.measure_lag_on_entries(run)
     assert counts["reported"] == 1
-    assert not rpt.lag_is_clean(counts)
+    assert not lag_is_clean(counts)
     assert rpt.report(run) is False
 
 
@@ -1073,7 +1073,7 @@ def test_an_entry_fill_no_bar_traded_at_fails_the_lag(tmp_path: Path) -> None:
     events[3]["execution_price"] = 101.0
     counts = rpt.measure_lag_on_entries(read_run(write_run(tmp_path, events, STOP_BARS)))
     assert counts["neither"] == 1
-    assert not rpt.lag_is_clean(counts)
+    assert not lag_is_clean(counts)
 
 
 @pytest.mark.parametrize(

@@ -21,7 +21,15 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from nqbt import logsetup
-from tools.reconcile_order_lifetime import EXECUTION, ORDER_UPDATE, SUBMIT, Run, read_run
+from tools.reconcile_order_lifetime import (
+    EXECUTION,
+    ORDER_UPDATE,
+    SUBMIT,
+    Run,
+    count_fills_at_opens,
+    lag_is_clean,
+    read_run,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Collection
@@ -103,24 +111,8 @@ def market_fills(run: Run) -> pd.DataFrame:
 
 
 def measure_lag(run: Run) -> dict[str, int]:
-    """Count the market fills at the reported bar's open, against the next bar's.
-
-    A market order fills at an open, so whichever bar's open explains every fill is the bar the
-    callback was really reporting on. A fill both opens explain decides nothing.
-    """
-    fills = market_fills(run)
-    opens = run.bars["open"]
-    price: FloatArray = fills["execution_price"].to_numpy(dtype=np.float64)
-    at_reported: BoolArray = opens.reindex(fills["bar"]).to_numpy(dtype=np.float64) == price
-    at_next: BoolArray = opens.reindex(fills["bar"] + 1).to_numpy(dtype=np.float64) == price
-
-    return {
-        "fills": len(fills),
-        "reported": int((at_reported & ~at_next).sum()),
-        "reported_plus_one": int((at_next & ~at_reported).sum()),
-        "both": int((at_reported & at_next).sum()),
-        "neither": int((~at_reported & ~at_next).sum()),
-    }
+    """Count the probe's market fills at the reported bar's open, against the next bar's."""
+    return count_fills_at_opens(market_fills(run), run.bars, "execution_price")
 
 
 def measure_lag_on_entries(run: Run) -> dict[str, int]:
@@ -149,11 +141,6 @@ def measure_lag_on_entries(run: Run) -> dict[str, int]:
         "both": int((at_reported & at_next).sum()),
         "neither": int((~at_reported & ~at_next).sum()),
     }
-
-
-def lag_is_clean(counts: dict[str, int]) -> bool:
-    """Return whether every fill that decides anything says the callback lags one bar."""
-    return counts["reported_plus_one"] > 0 and counts["reported"] == 0 and counts["neither"] == 0
 
 
 def trials(run: Run, lag: int = 1) -> pd.DataFrame:
