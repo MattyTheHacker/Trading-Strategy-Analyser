@@ -2,7 +2,7 @@
 
     uv run tools/campaign_sweep.py --n-jobs 8
     uv run tools/campaign_sweep.py --split --strata context --n-jobs 8
-    uv run tools/campaign_sweep.py --variants orb-fade --strata orb-fade --split
+    uv run tools/campaign_sweep.py --variants orb-fade --strata orb-fade --split --extend-stored
 
 ``--variants`` picks the grid and ``--strata`` the cells, and a cell already stored is skipped.
 Every option and variant set, and why each grid looks the way it does:
@@ -101,7 +101,7 @@ from nqbt.sim.types import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator, Sequence
+    from collections.abc import Callable, Iterable, Iterator, Sequence
 
     from nqbt.archetypes import Archetype, ArchetypeParams, AxisValue, Params
 
@@ -2974,6 +2974,15 @@ def swept_on(frame: pd.DataFrame) -> SweptBars:
     return SweptBars(len(frame), frame.index[0].tz_localize(None), frame.index[-1].tz_localize(None))
 
 
+def at_point(name: str, root: str, minutes: int, window: str) -> str:
+    """Return the SQL that joins one archetype's stored rows to their sweeps, kept to one point."""
+    return (
+        "FROM combos c JOIN sweeps s USING (sweep_id) "
+        f"WHERE s.strategy = '{name}' AND s.root = '{root}' AND s.resolution = {int(minutes)} "
+        f"AND c.\"window\" = '{window}'"
+    )
+
+
 def stored_cells(name: str, root: str, minutes: int, window: str) -> dict[tuple[str, str], set[SweptBars]]:
     """Return every (variant, stratum) cell one archetype's database holds at one point, and its bars."""
     path: paths.Path = db_path(name)
@@ -2981,10 +2990,8 @@ def stored_cells(name: str, root: str, minutes: int, window: str) -> dict[tuple[
         return {}
 
     rows: pd.DataFrame = results.query(
-        "SELECT DISTINCT c.variant, c.stratum, s.bars, s.first_bar, s.last_bar "  # noqa: S608 - every value is the campaign's own
-        "FROM combos c JOIN sweeps s USING (sweep_id) "
-        f"WHERE s.strategy = '{name}' AND s.root = '{root}' AND s.resolution = {int(minutes)} "
-        f"AND c.\"window\" = '{window}'",
+        "SELECT DISTINCT c.variant, c.stratum, s.bars, s.first_bar, s.last_bar "
+        + at_point(name, root, minutes, window),
         path,
     )
     stored: dict[tuple[str, str], set[SweptBars]] = {}
@@ -3022,6 +3029,55 @@ def unstored(
     return fresh
 
 
+def held_values(
+    name: str,
+    root: str,
+    minutes: int,
+    window: str,
+    axes: Iterable[str],
+) -> dict[tuple[str, str], dict[str, set[object]]]:
+    """Return the values each cell stored at one point holds, for every one of ``axes`` stored as a column."""
+    path: paths.Path = db_path(name)
+    columns: set[str] = set(
+        results.query("SELECT column_name FROM information_schema.columns WHERE table_name = 'combos'", path)[
+            "column_name"
+        ]
+    )
+    present: list[str] = [axis for axis in axes if axis in columns]
+    lists: str = "".join(f', list(DISTINCT c."{axis}") AS "{axis}"' for axis in present)
+    rows: pd.DataFrame = results.query(
+        f"SELECT c.variant, c.stratum{lists} "
+        + at_point(name, root, minutes, window)
+        + " GROUP BY c.variant, c.stratum",
+        path,
+    )
+
+    return {
+        (str(row["variant"]), str(row["stratum"])): {axis: set(row[axis]) for axis in present}
+        for _, row in rows.iterrows()
+    }
+
+
+def holds_every_value(held: dict[str, set[object]], grid: sweep.Grid) -> bool:
+    """Say whether a stored cell already holds every value ``grid`` tries on each of its axes."""
+    return all(axis in held and set(values) <= held[axis] for axis, values in grid.axes.items())
+
+
+def extended(
+    skipped: list[tuple[str, str, sweep.Grid]],
+    held: dict[tuple[str, str], dict[str, set[object]]],
+) -> list[tuple[str, str, sweep.Grid]]:
+    """Return the skipped cells whose grid tries an axis value the stored cell does not hold yet.
+
+    ``tools/README.md`` § "campaign_sweep.py".
+    """
+    return [
+        (variant, stratum, grid)
+        for variant, stratum, grid in skipped
+        if not holds_every_value(held.get((variant, stratum), {}), grid)
+    ]
+
+
 def workers_for(combinations: int, bars: int, n_jobs: int) -> int:
     """Return the joblib worker count for one sweep call of ``combinations`` over ``bars``."""
     if combinations * bars < SERIAL_BELOW_COMBINATION_BARS:
@@ -3041,13 +3097,15 @@ def run_point(
     cuts: Cuts,
     *,
     n_jobs: int,
+    extend_stored: bool = False,
 ) -> None:
     """Sweep every variant x stratum at one (root, archetype, resolution, window) point.
 
     The variants share one dataset built from the union of their specs, and their results are
     concatenated into a single ``sweeps`` row: a stratum is a parameter, not a dataset. Every
     cell runs in one sweep call, so ``n_jobs`` is chosen for the point as a whole. A cell already
-    stored at the point is skipped.
+    stored at the point is skipped, unless ``extend_stored`` is set and its grid tries an axis
+    value the cell does not hold, when it is swept again and its rows added.
     """
     archetype: Archetype = variants[0].archetype
     requested: list[tuple[str, str, sweep.Grid]] = [
@@ -3055,19 +3113,39 @@ def run_point(
         for variant in variants
         for stratum, grid in grids_for(variant, which, cuts)
     ]
-    named: list[tuple[str, str, sweep.Grid]] = unstored(
+    fresh: list[tuple[str, str, sweep.Grid]] = unstored(
         requested,
         stored_cells(archetype.name, root, minutes, window),
         frame,
     )
+    kept: set[tuple[str, str]] = {(variant, stratum) for variant, stratum, _ in fresh}
+    skipped: list[tuple[str, str, sweep.Grid]] = [cell for cell in requested if cell[:2] not in kept]
+    if extend_stored and skipped:
+        axes: set[str] = {axis for _, _, grid in skipped for axis in grid.axes}
+        grown: list[tuple[str, str, sweep.Grid]] = extended(
+            skipped, held_values(archetype.name, root, minutes, window, sorted(axes))
+        )
+        kept |= {(variant, stratum) for variant, stratum, _ in grown}
+        if grown:
+            logger.info(
+                "  %-4s %-9s %2dm  %d stored cells extended with values they do not hold",
+                root,
+                window,
+                minutes,
+                len(grown),
+            )
+
+    named: list[tuple[str, str, sweep.Grid]] = [cell for cell in requested if cell[:2] in kept]
     if len(named) < len(requested):
+        unchecked: str = "the costs or code" if extend_stored else "their grid or code"
         logger.warning(
-            "  %-4s %-9s %2dm  %d of %d cells already stored, skipped without checking their grid or code",
+            "  %-4s %-9s %2dm  %d of %d cells already stored, skipped without checking %s",
             root,
             window,
             minutes,
             len(requested) - len(named),
             len(requested),
+            unchecked,
         )
 
     if not named:
@@ -3500,6 +3578,11 @@ def main(argv: list[str]) -> int:
         default=[VOLUME_BASELINE_SESSIONS],
         help="prior sessions the baseline spans, one cell per rung; a ladder needs --volume-quantiles",
     )
+    parser.add_argument(
+        "--extend-stored",
+        action="store_true",
+        help="sweep a stored cell again, adding its rows, where this grid tries a value it does not hold",
+    )
     args = parser.parse_args(argv[1:])
     args.strategies = args.strategies or list(variants_for(args.variants))
     args.regime_quantiles = quantile_pair(args.regime_quantiles)
@@ -3546,6 +3629,7 @@ def main(argv: list[str]) -> int:
                             minutes, Cuts(regime=fitted.get(minutes, ()), volume=volumes.get(minutes, ()))
                         ),
                         n_jobs=args.n_jobs,
+                        extend_stored=args.extend_stored,
                     )
     logger.info("")
     logger.info("done in %.1f min", (time.perf_counter() - started) / 60.0)
