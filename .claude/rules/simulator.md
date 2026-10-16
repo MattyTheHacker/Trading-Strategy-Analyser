@@ -27,11 +27,14 @@ below and is what you quote; this file is the index, not the record.
   best case is the other end; both exist only so `nqbt/disambiguate.py` has the two outcomes to
   choose between, and **neither is ever ranked on**. **The rule is unfitted where an entry fills
   inside the ambiguous bar** — the trade list that established it has no such bar, and the bar's
-  open is then not the price the trade was live from. `docs/roadmap.md` §M28.4.
+  open is then not the price the trade was live from. `docs/roadmap.md` §M28.4. A stop entry's
+  own bar no longer uses it: the bar's path decides there, below.
 - **The whole position closes on an ambiguous bar under either policy** — targets-first fills
   what it can and stops the remainder on the same bar. So the arms are the same trades leg for
   leg, which is what lets a diagnostic select rows between them rather than recompute a price.
-  **Do not "optimise" the targets-first branch into leaving legs open.**
+  **Do not "optimise" the targets-first branch into leaving legs open.** A stop entry's own bar
+  can leave a leg open, but which legs leave it does not depend on the policy, so the arms still
+  match there.
 - **Every stop level is snapped to the tick grid wherever targets are, trails included.** An
   exchange takes a stop at a half tick no more than a limit, so an initial stop is snapped before
   the risk is taken and a trail candidate before the ratchet compares it, by `bracket.round_to_tick`
@@ -40,8 +43,18 @@ below and is what you quote; this file is the index, not the record.
   for it".
 - **A stop that gaps fills at the open, not at the stop price** — a stop is a market order once
   triggered. This holds for **exits as well as entries**; the exit path missed it until M15.5.
-  It does *not* apply on the entry bar: the position did not exist at that bar's open, so price
-  had to travel through the trigger and only then back to the stop.
+  On the entry bar it holds for a **market or limit** entry, which fills at the open in time.
+  A **stop** entry fills after the open, and `OpenTrade.stop_entry` sends its entry bar down the
+  rule below instead; OpeningRange's limit entries took the stop entry's exception until #455.
+  `docs/nt8-fidelity.md`, "A stop fills at the open when the bar gaps through it".
+- **A stop entry's own bar is read leg by leg along the bar's path**: open, nearer extreme
+  (the high on a tie), farther extreme, close. The **last** leg sees the path from its entry on,
+  and every **earlier** leg the whole stretch its entry filled in, which can start at an open past
+  the stop. Whichever of a leg's stop and target its part of the path reaches first takes it, so
+  the last leg can stay open where the others stop. Measured by the probe and matched on both
+  strategies' trade lists, leg for leg; why the last entry differs is not known. **Do not collapse
+  it back to one rule for the whole position.** `docs/nt8-fidelity.md`, "A stop on its entry bar
+  is read along the bar's path".
 - **A stop entry at or through the market is never submitted.** `EnterLongStopMarket(High[0])`
   on a bar that closed on its high is not a stop order and NT8 declines it. DeadCatBounce is
   immune by construction — the `min(...)` cap puts the trigger below the close on exactly those

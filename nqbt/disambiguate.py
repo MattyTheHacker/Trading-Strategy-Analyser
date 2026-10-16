@@ -175,8 +175,8 @@ def first_target(
 def stop_is_the_one_it_opened_with(legs: pd.DataFrame, worst_legs: pd.DataFrame, slippage: float) -> bool:
     """Return whether ``initial_stop`` was still the live stop when the bar resolved.
 
-    The worst-case arm exits **every** open leg at the stop on an ambiguous bar, so its fill is
-    the live stop's fill and disagreeing with ``initial_stop`` means the stop moved. Derived
+    The worst-case arm exits **every** ambiguous leg at the stop, so its fill is the live stop's
+    fill and disagreeing with ``initial_stop`` means the stop moved. Derived
     from the arms rather than declared per archetype, so a trailing one is caught by the data.
     """
     if worst_legs.empty:
@@ -256,7 +256,9 @@ def resolve(
     for (trade_id, exit_bar), legs in ambiguous.groupby(["trade_id", "exit_bar"], sort=True):
         position = int(exit_bar)  # type: ignore[call-overload]  # an index by construction
         coarse_bar: pd.Series[float] = coarse.iloc[position]
-        worst_legs: pd.DataFrame = worst[(worst["trade_id"] == trade_id) & (worst["exit_bar"] == exit_bar)]
+        worst_legs: pd.DataFrame = worst[
+            (worst["trade_id"] == trade_id) & (worst["exit_bar"] == exit_bar) & worst["ambiguous_bar"]
+        ]
         status, stop, target = _verdict(
             legs,
             worst_legs,
@@ -313,8 +315,9 @@ on a price."""
 def aligned(ranked: pd.DataFrame, worst: pd.DataFrame, best: pd.DataFrame) -> bool:
     """Return whether the three arms are the same trades, leg for leg, in the same order.
 
-    They are, because the whole position closes on an ambiguous bar under either policy; this
-    checks rather than assumes it.
+    They are, because which legs leave a bar does not depend on the policy: the whole position
+    closes on an ambiguous bar, and on a stop entry's own bar each leg leaves where its part of the
+    path reaches a level, in leg order. This checks rather than assumes it.
     """
     keys = ["trade_id", "leg", "entry_bar", "exit_bar"]
 

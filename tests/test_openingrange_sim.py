@@ -532,6 +532,32 @@ def test_a_retest_a_bar_gaps_past_and_trades_back_to_fills_at_its_limit() -> Non
     assert trades["entry_price"].iloc[0] == RANGE_HIGH
 
 
+def test_a_retest_a_bar_gaps_past_its_stop_as_well_is_stopped_at_that_open() -> None:
+    """The limit filled at the open, which is already past the stop, so the stop fills there (#455).
+
+    ``docs/nt8-fidelity.md``, "A stop fills at the open when the bar gaps through it".
+    """
+    # The limit is at 110 and the stop at 100; the bar opens at 95 and never trades back past 96.
+    rows = [BELOW, BREAKS, (95.0, 96.0, 94.0, 95.5)]
+    trades = run(rows, signal_at=(0, 1, 2), entry_mode=ORB_ENTRY_RETEST, stop_mode=ORB_STOP_FRACTION)
+
+    assert trades["entry_price"].iloc[0] == 96.0
+    assert (trades["exit_reason"] == "stop").all()
+    assert (trades["exit_price"] == 95.0).all()
+    assert (trades["exit_bar"] == trades["entry_bar"]).all()
+
+
+def test_a_breakout_whose_bar_opened_past_its_stop_is_stopped_at_the_stops_own_price() -> None:
+    """A stop entry fills after its bar opens, so the gapped-stop rule stays off its entry bar."""
+    # The buy stop is at 110 and the stop at 100; the bar opens at 99, under the stop.
+    rows = [BELOW, (99.0, 112.0, 98.0, 99.5)]
+    trades = run(rows, signal_at=(0,), entry_mode=ORB_ENTRY_BREAKOUT, stop_mode=ORB_STOP_FRACTION)
+
+    assert trades["entry_price"].iloc[0] == RANGE_HIGH
+    assert (trades["exit_reason"] == "stop").all()
+    assert (trades["exit_price"] == 100.0).all()
+
+
 def test_a_retest_limit_takes_no_slippage() -> None:
     """The rule the bracket's targets already follow, applied to the entry that is a limit."""
     rows = [BELOW, BREAKS, (112.0, 114.0, 105.0, 113.0)]
@@ -666,6 +692,24 @@ def test_a_short_rejection_a_bar_gaps_past_fills_at_the_bars_low() -> None:
     )
 
     assert trades["entry_price"].iloc[0] == 110.0
+
+
+def test_a_short_rejection_a_bar_gaps_past_its_stop_as_well_is_stopped_at_that_open() -> None:
+    """The short side of #455, through the other limit entry."""
+    # The limit is at 109 and the stop at 120; the bar opens at 122 and never trades back past 121.
+    gaps_over_the_stop = (122.0, 123.0, 121.0, 122.5)
+    trades = run(
+        [BELOW, gaps_over_the_stop],
+        signal_at=(0, 1),
+        direction=SHORT,
+        entry_mode=ORB_ENTRY_REJECTION,
+        stop_mode=ORB_STOP_FRACTION,
+        entry_offset_ticks=4.0,
+    )
+
+    assert trades["entry_price"].iloc[0] == 121.0
+    assert (trades["exit_reason"] == "stop").all()
+    assert (trades["exit_price"] == 122.0).all()
 
 
 # -- the targets ----------------------------------------------------------------

@@ -81,7 +81,7 @@ def simulate_insidebar(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rul
     pending_direction = 0.0
 
     d = 0.0
-    trade = bracket.OpenTrade(0, 0, 0.0, 0.0, 0.0, d, True)
+    trade = bracket.OpenTrade(0, 0, 0.0, 0.0, 0.0, d, False)
     stop = 0.0
     excursion = bracket.Excursion(0.0, 0.0, 0, 0)
     legs = bracket.Legs(
@@ -161,7 +161,7 @@ def simulate_insidebar(  # noqa: C901, PLR0912, PLR0915 - one branch per NT8 rul
                     initial_stop=candidate_stop,
                     risk=candidate_risk,
                     direction=d,
-                    filled_at_open=True,
+                    stop_entry=False,
                 )
                 stop = candidate_stop
                 excursion = bracket.start_excursion(bars.high[i], bars.low[i], i)

@@ -87,9 +87,9 @@ class FillRules(NamedTuple):
 class OpenTrade(NamedTuple):
     """The position as it opened -- fixed for its whole life, whatever the stop does after.
 
-    ``filled_at_open`` is false for an entry that filled intrabar, which keeps the gapped-stop
-    rule off its entry bar -- ``docs/nt8-fidelity.md``, "A stop fills at the open when the bar
-    gaps through it".
+    ``stop_entry`` is true for a stop entry, whose legs each read their entry bar along the bar's
+    path, and false for a market or limit entry, whose stop takes the whole entry bar --
+    ``docs/nt8-fidelity.md``, "A stop on its entry bar is read along the bar's path".
     """
 
     trade_id: int
@@ -98,7 +98,7 @@ class OpenTrade(NamedTuple):
     initial_stop: float
     risk: float
     direction: float
-    filled_at_open: bool
+    stop_entry: bool
 
 
 class Legs(NamedTuple):
@@ -399,7 +399,9 @@ def resolve_brackets(  # noqa: C901, PLR0912 - one branch per NT8 exit rule, in 
     Order of resolution: the stop takes the whole position unless the ambiguity policy says the
     targets were reached first; targets fill with no slippage, at their own price or the nearest
     one the bar traded (``limit_fill_price``); anything still open after a targets-first bar leaves at
-    the stop on that same bar; and force-flat is last.
+    the stop on that same bar; and force-flat is last. A stop entry's own bar is the exception: each
+    leg walks the bar's path from its own point (:func:`leg_exit_on_stop_entry_bar`), is written in
+    leg order, and is flagged ambiguous only where its own walk reached both levels.
     Called by both the in-position path and the entry-bar path.
     """
     n_legs = legs.is_open.size
@@ -407,12 +409,41 @@ def resolve_brackets(  # noqa: C901, PLR0912 - one branch per NT8 exit rule, in 
     open_px = bars.open_[i]
     adverse_px, favourable_px = sided(bars.low[i], bars.high[i], direction)
     slippage = slippage_points(costs)
-    # The position was held from this bar's open unless it filled intrabar on this very bar.
-    held_from_bar_open = i > trade.entry_bar or trade.filled_at_open
+    if i == trade.entry_bar and trade.stop_entry:
+        # Each leg reads the bar along its path from its own point, so the legs can part here --
+        # docs/nt8-fidelity.md, "A stop on its entry bar is read along the bar's path".
+        path = bar_path(bars, i)
+        point = stop_entry_point(path, trade, slippage)
+        for leg in range(n_legs):
+            if not legs.is_open[leg]:
+                continue
+
+            start = point if leg == n_legs - 1 else max(point - 1, 0)
+            reason, price, ambiguous = leg_exit_on_stop_entry_bar(
+                path, start, stop, legs.target[leg], direction, fills
+            )
+            if reason == NO_EXIT:
+                continue
+
+            if reason == EXIT_TARGET:
+                fill = limit_fill_price(price, adverse_px, direction)
+            else:
+                fill = price - direction * slippage
+
+            written = write_leg(
+                out, written, trade, legs, leg, LegExit(i, fill, reason, ambiguous), excursion, costs
+            )
+            if written < 0:
+                return -1, False
+
+            legs.is_open[leg] = False
+
+        # A leg still open reached neither its stop nor its target on its part of the path.
+        return flatten_at_session_close(out, written, trade, legs, excursion, bars, i, costs, ambiguous=False)
 
     # The stop fills at the open when the bar gapped through it, otherwise at its own price.
     stop_fill = stop
-    if held_from_bar_open and direction * open_px < direction * stop:
+    if direction * open_px < direction * stop:
         stop_fill = open_px
 
     stop_hit = direction * adverse_px <= direction * stop
@@ -431,23 +462,9 @@ def resolve_brackets(  # noqa: C901, PLR0912 - one branch per NT8 exit rule, in 
     if stop_hit and not targets_first:
         # The whole position leaves at the stop, adverse slippage meaning a worse fill.
         fill = stop_fill - direction * slippage
-        for leg in range(n_legs):
-            if legs.is_open[leg]:
-                written = write_leg(
-                    out,
-                    written,
-                    trade,
-                    legs,
-                    leg,
-                    LegExit(i, fill, EXIT_STOP, ambiguous),
-                    excursion,
-                    costs,
-                )
-                if written < 0:
-                    return -1, False
-
-                legs.is_open[leg] = False
-        return written, False
+        return close_open_legs(
+            out, written, trade, legs, LegExit(i, fill, EXIT_STOP, ambiguous), excursion, costs
+        ), False
 
     for leg in range(n_legs):
         if legs.is_open[leg] and not np.isnan(legs.target[leg]):  # noqa: SIM102 - needs a continue guard; #146
@@ -474,50 +491,148 @@ def resolve_brackets(  # noqa: C901, PLR0912 - one branch per NT8 exit rule, in 
         # The inferred path reached the targets first and the stop on the way back,
         # so whatever is still open leaves on this same bar.
         fill = stop_fill - direction * slippage
-        for leg in range(n_legs):
-            if legs.is_open[leg]:
-                written = write_leg(
-                    out,
-                    written,
-                    trade,
-                    legs,
-                    leg,
-                    LegExit(i, fill, EXIT_STOP, ambiguous),
-                    excursion,
-                    costs,
-                )
-                if written < 0:
-                    return -1, False
+        written = close_open_legs(
+            out, written, trade, legs, LegExit(i, fill, EXIT_STOP, ambiguous), excursion, costs
+        )
+        if written < 0:
+            return -1, False
 
-                legs.is_open[leg] = False
+    return flatten_at_session_close(out, written, trade, legs, excursion, bars, i, costs, ambiguous)
 
+
+@njit(cache=True)
+def flatten_at_session_close(
+    out: FloatArray,
+    written: int,
+    trade: OpenTrade,
+    legs: Legs,
+    excursion: Excursion,
+    bars: Bars,
+    i: int,
+    costs: Costs,
+    ambiguous: bool,
+) -> tuple[int, bool]:
+    """Close every leg still open at bar ``i``'s close, if it is a force-flat bar.
+
+    Returns the new write count and whether the position is still open, as
+    :func:`resolve_brackets` does.
+    """
     still_open = False
-    for leg in range(n_legs):
+    for leg in range(legs.is_open.size):
         if legs.is_open[leg]:
             still_open = True
             break
 
     if still_open and bars.force_flat[i]:
-        fill = bars.close[i] - direction * slippage
-        for leg in range(n_legs):
-            if legs.is_open[leg]:
-                written = write_leg(
-                    out,
-                    written,
-                    trade,
-                    legs,
-                    leg,
-                    LegExit(i, fill, EXIT_SESSION_CLOSE, ambiguous),
-                    excursion,
-                    costs,
-                )
-                if written < 0:
-                    return -1, False
-
-                legs.is_open[leg] = False
-        still_open = False
+        fill = bars.close[i] - trade.direction * slippage_points(costs)
+        leg_exit = LegExit(i, fill, EXIT_SESSION_CLOSE, ambiguous)
+        return close_open_legs(out, written, trade, legs, leg_exit, excursion, costs), False
 
     return written, still_open
+
+
+@njit(cache=True)
+def close_open_legs(
+    out: FloatArray,
+    written: int,
+    trade: OpenTrade,
+    legs: Legs,
+    leg_exit: LegExit,
+    excursion: Excursion,
+    costs: Costs,
+) -> int:
+    """Close every leg still open as ``leg_exit`` says. Returns the new write count, -1 if ``out`` is full."""
+    for leg in range(legs.is_open.size):
+        if legs.is_open[leg]:
+            written = write_leg(out, written, trade, legs, leg, leg_exit, excursion, costs)
+            if written < 0:
+                return -1
+
+            legs.is_open[leg] = False
+
+    return written
+
+
+NO_EXIT = -1.0
+"""What :func:`leg_exit_on_stop_entry_bar` returns for a leg its bar leaves open; no exit code is
+negative."""
+
+
+@njit(cache=True)
+def bar_path(bars: Bars, i: int) -> tuple[float, float, float, float]:
+    """Return the order NT8 walks bar ``i``'s prices in: the open, the nearer extreme, the other, the close.
+
+    The high goes first where the two are equally near.
+    """
+    open_px = bars.open_[i]
+    if open_px - bars.low[i] < bars.high[i] - open_px:
+        return open_px, bars.low[i], bars.high[i], bars.close[i]
+
+    return open_px, bars.high[i], bars.low[i], bars.close[i]
+
+
+@njit(cache=True)
+def stop_entry_point(path: tuple[float, float, float, float], trade: OpenTrade, slippage: float) -> int:
+    """Return the point on its bar's path that ends the stretch a stop entry filled in.
+
+    That is the open, point 0, where the bar opened past the trigger, and otherwise the extreme on
+    the entry's side, which the stretch the trigger lies on runs to. Whether the bar opened past
+    the trigger is read off the fill, which is the open or the trigger plus the slippage.
+    """
+    direction = trade.direction
+    if direction * path[0] >= direction * trade.entry_price - slippage:
+        return 0
+
+    if direction * path[1] >= direction * path[2]:
+        return 1
+
+    return 2
+
+
+@njit(cache=True)
+def leg_exit_on_stop_entry_bar(
+    path: tuple[float, float, float, float],
+    start: int,
+    stop: float,
+    target: float,
+    direction: float,
+    fills: FillRules,
+) -> tuple[float, float, bool]:
+    """Return how one leg leaves a stop entry's own bar, walking the bar's path from point ``start``.
+
+    The exit code, or :data:`NO_EXIT`; the price before slippage; and whether the walk reached both
+    the stop and the target, which is where the ambiguity policy chooses. Otherwise whichever the
+    walk reaches first takes the leg. The stop fills at its own price, or at the open where the
+    walk starts past it, and the target at its own, which :func:`limit_fill_price` then clamps.
+    """
+    stop_at = -1
+    target_at = -1
+    for point in range(start, len(path)):
+        if stop_at < 0 and direction * path[point] <= direction * stop:
+            stop_at = point
+
+        if (
+            target_at < 0
+            and not np.isnan(target)
+            and limit_filled(path[point], target, fills.fill_limit_on_touch, direction)
+        ):
+            target_at = point
+
+    both = stop_at >= 0 and target_at >= 0
+    stop_first = stop_at >= 0
+    if both:
+        if fills.ambiguity_policy == AMBIGUITY_NEAREST_TO_OPEN:
+            stop_first = stop_at < target_at
+        else:
+            stop_first = fills.ambiguity_policy == AMBIGUITY_WORST_CASE
+
+    if stop_first:
+        return EXIT_STOP, path[0] if stop_at == 0 else stop, both
+
+    if target_at >= 0:
+        return EXIT_TARGET, target, both
+
+    return NO_EXIT, np.nan, both
 
 
 @njit(cache=True)

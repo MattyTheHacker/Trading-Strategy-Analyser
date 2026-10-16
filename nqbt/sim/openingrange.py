@@ -279,7 +279,7 @@ def simulate_openingrange(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
     pending_stop = 0.0
     pending_width = 0.0
 
-    trade = bracket.OpenTrade(0, 0, 0.0, 0.0, 0.0, direction, False)
+    trade = bracket.OpenTrade(0, 0, 0.0, 0.0, 0.0, direction, rules.entry_mode not in ORB_LIMIT_ENTRIES)
     stop = 0.0
     excursion = bracket.Excursion(0.0, 0.0, 0, 0)
     legs = bracket.Legs(
@@ -346,8 +346,7 @@ def simulate_openingrange(  # noqa: C901, PLR0912, PLR0915 - one branch per rule
                     initial_stop=pending_stop,
                     risk=risk,
                     direction=direction,
-                    # Entered intrabar: the position did not exist at this bar's open.
-                    filled_at_open=False,
+                    stop_entry=rules.entry_mode not in ORB_LIMIT_ENTRIES,
                 )
                 stop = pending_stop
                 excursion = bracket.start_excursion(bars.high[i], bars.low[i], i)
