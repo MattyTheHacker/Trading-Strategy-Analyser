@@ -3137,13 +3137,15 @@ def run_point(
 
     named: list[tuple[str, str, sweep.Grid]] = [cell for cell in requested if cell[:2] in kept]
     if len(named) < len(requested):
+        unchecked: str = "the costs or code" if extend_stored else "their grid or code"
         logger.warning(
-            "  %-4s %-9s %2dm  %d of %d cells already stored, skipped without checking their grid or code",
+            "  %-4s %-9s %2dm  %d of %d cells already stored, skipped without checking %s",
             root,
             window,
             minutes,
             len(requested) - len(named),
             len(requested),
+            unchecked,
         )
 
     if not named:

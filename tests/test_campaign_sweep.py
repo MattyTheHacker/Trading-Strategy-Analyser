@@ -3643,6 +3643,18 @@ def test_extend_stored_adds_to_a_cell_only_while_its_grid_tries_a_value_the_cell
         assert stored() == [1.0, 2.0, 2.0, 3.0], f"{variant.axes} was added to a cell holding all of it"
 
 
+def test_a_cell_skipped_under_extend_stored_is_warned_of_as_checked_for_its_values(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setattr(campaign_sweep, "CAMPAIGN_DIR", tmp_path)
+    frame = walk_bars(3000, seed=5)
+    tiny = tiny_variant()
+    run_point(frame, [tiny], "MNQ", 1, "holdout", 1, UNFILTERED, NO_CUTS, n_jobs=1)
+    with caplog.at_level(logging.WARNING, logger=campaign_sweep.__name__):
+        run_point(frame, [tiny], "MNQ", 1, "holdout", 2, UNFILTERED, NO_CUTS, n_jobs=1, extend_stored=True)
+    assert "1 of 1 cells already stored, skipped without checking the costs or code" in caplog.text
+
+
 def test_extend_stored_still_refuses_a_cell_stored_on_other_bars(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
