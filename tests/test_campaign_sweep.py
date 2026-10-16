@@ -31,6 +31,7 @@ from nqbt import (
     results,
     sessionrange,
     sessions,
+    splice,
     sweep,
     timeofday,
     trades,
@@ -230,6 +231,7 @@ from tools.campaign_sweep import (
     fit_regime,
     fit_volume,
     grids_for,
+    holds_every_value,
     insidebartrailing_confluence_arms,
     insidebartrailing_sizing_high_variants,
     insidebartrailing_sizing_variants,
@@ -3604,6 +3606,91 @@ def test_a_skipped_cell_is_warned_of_and_the_notes_count_only_the_cells_swept(
     notes = results.query("SELECT notes FROM sweeps ORDER BY sweep_id", db_path("DeadCatBounce"))["notes"]
     assert "; variants=1; cells=1 of 1;" in notes.iloc[0]
     assert "; variants=1; cells=1 of 2;" in notes.iloc[1]
+
+
+def test_a_stored_cell_holds_a_grid_only_when_it_holds_every_value_on_every_axis() -> None:
+    ((_, grid),) = grids_for(tiny_variant(), UNFILTERED)
+    assert holds_every_value({"tp_multiplier": {1.0, 2.0, 3.0}}, grid)
+    assert holds_every_value({"tp_multiplier": {np.float64(1.0), np.float64(2.0)}}, grid)
+    assert not holds_every_value({"tp_multiplier": {1.0}}, grid), "a value the cell lacks"
+    assert not holds_every_value({}, grid), "an axis the cell's table has no column for"
+
+
+def test_extend_stored_adds_to_a_cell_only_while_its_grid_tries_a_value_the_cell_lacks(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(campaign_sweep, "CAMPAIGN_DIR", tmp_path)
+    frame = walk_bars(3000, seed=5)
+    tiny = tiny_variant()
+    wider = replace(tiny, axes={"tp_multiplier": [2.0, 3.0]})
+
+    def stored() -> list[float]:
+        query = "SELECT tp_multiplier FROM combos ORDER BY tp_multiplier"
+
+        return results.query(query, db_path("DeadCatBounce"))["tp_multiplier"].tolist()
+
+    run_point(frame, [tiny], "MNQ", 1, "holdout", 1, UNFILTERED, NO_CUTS, n_jobs=1)
+    run_point(frame, [wider], "MNQ", 1, "holdout", 2, UNFILTERED, NO_CUTS, n_jobs=1)
+    assert stored() == [1.0, 2.0], "a stored cell was extended without being asked"
+    run_point(frame, [wider], "MNQ", 1, "holdout", 3, UNFILTERED, NO_CUTS, n_jobs=1, extend_stored=True)
+    assert stored() == [1.0, 2.0, 2.0, 3.0], (
+        "the whole grid is added, a value the cell already holds included"
+    )
+    for batch_id, variant in enumerate([wider, tiny], start=4):
+        run_point(
+            frame, [variant], "MNQ", 1, "holdout", batch_id, UNFILTERED, NO_CUTS, n_jobs=1, extend_stored=True
+        )
+        assert stored() == [1.0, 2.0, 2.0, 3.0], f"{variant.axes} was added to a cell holding all of it"
+
+
+def test_extend_stored_still_refuses_a_cell_stored_on_other_bars(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(campaign_sweep, "CAMPAIGN_DIR", tmp_path)
+    frame = walk_bars(3000, seed=5)
+    tiny = tiny_variant()
+    run_point(frame, [tiny], "MNQ", 1, "holdout", 1, UNFILTERED, NO_CUTS, n_jobs=1)
+    wider = replace(tiny, axes={"tp_multiplier": [2.0, 3.0]})
+    with pytest.raises(SystemExit, match="already stored"):
+        run_point(
+            frame.iloc[:-10],
+            [wider],
+            "MNQ",
+            1,
+            "holdout",
+            2,
+            UNFILTERED,
+            NO_CUTS,
+            n_jobs=1,
+            extend_stored=True,
+        )
+
+
+@pytest.mark.parametrize("flag", [[], ["--extend-stored"]])
+def test_the_command_line_hands_extend_stored_to_every_point(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, flag: list[str]
+) -> None:
+    monkeypatch.setattr(campaign_sweep, "CAMPAIGN_DIR", tmp_path)
+    monkeypatch.setattr(splice, "load_continuous", lambda _: walk_bars(3000, seed=5))
+    asked: list[bool] = []
+
+    def record(*_: object, n_jobs: int, extend_stored: bool) -> None:
+        del n_jobs
+        asked.append(extend_stored)
+
+    monkeypatch.setattr(campaign_sweep, "run_point", record)
+    argv = [
+        "campaign_sweep.py",
+        "--strategies",
+        "DeadCatBounce",
+        "--roots",
+        "MNQ",
+        "--resolutions",
+        "1",
+        *flag,
+    ]
+    assert campaign_sweep.main(argv) == 0
+    assert asked == [bool(flag)]
 
 
 def test_insidebartrailing_with_no_kept_label_keeps_only_the_arms_that_need_none() -> None:
