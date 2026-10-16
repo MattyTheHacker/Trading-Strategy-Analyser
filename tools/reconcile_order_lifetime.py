@@ -12,10 +12,15 @@ import logging
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
+import numpy as np
 import pandas as pd
 
 from nqbt import logsetup
+
+if TYPE_CHECKING:
+    from nqbt.arrays import BoolArray, FloatArray
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +28,23 @@ EXPECTED_ARGV = 2
 
 PROBE_SIGNALS = ("probe1", "probe2")
 SESSION_CLOSE_EXIT = "Exit on session close"
+
+EXIT_LONG = "Sell"
+"""NinjaTrader's name for an ``ExitLong()`` order, which scenario 7's SUBMIT row carries too."""
+
+CLOSE_POSITION = "Close position"
+"""The order NinjaTrader adds itself when an entry reverses an open position."""
+
+SECOND_ENTRY = "probe2"
+"""Scenario 7's entry beside the exit."""
+
+PAIR_SIDES = {"Buy": "same side", "SellShort": "other side"}
+"""Scenario 7's second entry, by its action, against the long it is sent beside."""
+
+UNKNOWN_SIDE = "unknown side"
+"""A pair whose second entry is missing, or carries an action :data:`PAIR_SIDES` does not name."""
+
+MARKET = "Market"
 
 SUBMIT = "SUBMIT"
 CANCEL_REQUEST = "CANCEL_REQUEST"
@@ -69,7 +91,7 @@ def read_run(events_path: Path) -> Run:
 
 
 def entry_fills(run: Run) -> pd.DataFrame:
-    """Select the execution rows for the probe's own entry orders, which are the price-triggered ones."""
+    """Select the execution rows for the probe's own entry orders, stop and market alike."""
     events = run.events
 
     return events[(events["kind"] == EXECUTION) & events["signal_name"].isin(PROBE_SIGNALS)]
@@ -84,13 +106,14 @@ def reaches(bar: pd.Series[float], trigger: float, action: str) -> bool:
 
 
 def measure_entry_lag(run: Run) -> dict[str, int]:
-    """Count how many entry fills the reported bar explains, against the bar after it.
+    """Count how many stop entry fills the reported bar explains, against the bar after it.
 
     The discriminator is price: a stop fills only on a bar whose range reaches the trigger, so
     whichever candidate explains every fill is the bar the callback was really reporting on.
     """
+    fills = entry_fills(run)
     counts = {"fills": 0, "reported": 0, "reported_plus_one": 0, "unresolved": 0}
-    for _, fill in entry_fills(run).iterrows():
+    for _, fill in fills[fills["order_type"] != MARKET].iterrows():
         counts["fills"] += 1
         resolved = False
         for offset, key in ((0, "reported"), (1, "reported_plus_one")):
@@ -128,6 +151,114 @@ def measure_session_close_exit_lag(run: Run) -> dict[str, int]:
         counts["inside_reported"] += int(bar["low"] <= price <= bar["high"])
 
     return counts
+
+
+def stop_lag_is_clean(counts: dict[str, int]) -> bool:
+    """Return whether every stop entry fill says the callback lags one bar, or there is none."""
+    return counts["fills"] == 0 or (
+        counts["reported_plus_one"] == counts["fills"] and counts["reported"] == 0
+    )
+
+
+def count_fills_at_opens(fills: pd.DataFrame, bars: pd.DataFrame, price_column: str) -> dict[str, int]:
+    """Count market fills at the reported bar's open, against the next bar's.
+
+    ``tools/README.md`` § "reconcile_order_lifetime.py".
+    """
+    opens = bars["open"]
+    price: FloatArray = fills[price_column].to_numpy(dtype=np.float64)
+    at_reported: BoolArray = opens.reindex(fills["bar"]).to_numpy(dtype=np.float64) == price
+    at_next: BoolArray = opens.reindex(fills["bar"] + 1).to_numpy(dtype=np.float64) == price
+
+    return {
+        "fills": len(fills),
+        "reported": int((at_reported & ~at_next).sum()),
+        "reported_plus_one": int((at_next & ~at_reported).sum()),
+        "both": int((at_reported & at_next).sum()),
+        "neither": int((~at_reported & ~at_next).sum()),
+    }
+
+
+def lag_is_clean(counts: dict[str, int]) -> bool:
+    """Return whether every market fill that decides anything says the callback lags one bar."""
+    return counts["reported_plus_one"] > 0 and counts["reported"] == 0 and counts["neither"] == 0
+
+
+def measure_market_entry_lag(run: Run) -> dict[str, int]:
+    """Count the probe's market entry fills at the reported bar's open, against the next bar's."""
+    fills = entry_fills(run)
+
+    return count_fills_at_opens(fills[fills["order_type"] == MARKET], run.bars, "average_fill_price")
+
+
+def exit_and_entry_pairs(run: Run, lag: int = 1) -> pd.DataFrame:
+    """Return one row per scenario 7 pair: its side, what NinjaTrader did with it, and the position after.
+
+    The pair goes in at ``pair_bar``'s close and fills at the next bar's open, so ``fill_bar`` is
+    that bar and its bar row holds the position the fills left. ``lag`` corrects the execution
+    rows' bars as :func:`lifetimes` does. ``tools/README.md`` § "reconcile_order_lifetime.py".
+    """
+    events = run.events
+    submits = events[events["kind"] == SUBMIT]
+    exits = submits[submits["signal_name"] == EXIT_LONG].drop_duplicates("trial").set_index("trial")
+    entries = submits[submits["signal_name"] == SECOND_ENTRY].drop_duplicates("trial").set_index("trial")
+    pairs = pd.DataFrame({"pair_bar": exits["bar"]})
+    pairs["fill_bar"] = pairs["pair_bar"] + 1
+    pairs["side"] = entries["order_action"].map(PAIR_SIDES).reindex(pairs.index).fillna(UNKNOWN_SIDE)
+    acknowledged = lifetimes(run, SECOND_ENTRY, lag)["acknowledged"]
+    pairs["acknowledged"] = acknowledged.reindex(pairs.index).fillna(value=False).astype(bool)
+
+    updates = events[(events["kind"] == ORDER_UPDATE) & (events["signal_name"] == CLOSE_POSITION)]
+    on_pair_bar = updates.merge(pairs[["pair_bar"]].reset_index().rename(columns={"pair_bar": "bar"}))
+    pairs["close_position_sent"] = pairs.index.isin(on_pair_bar["trial"])
+
+    executions = events[(events["kind"] == EXECUTION) & (events["signal_name"] != SESSION_CLOSE_EXIT)]
+    executions = executions.assign(fill_bar=executions["bar"] + lag)
+    at_fill = executions.merge(pairs[["fill_bar"]].reset_index(), on=["trial", "fill_bar"])
+    open_at_fill: FloatArray = run.bars["open"].reindex(at_fill["fill_bar"]).to_numpy(dtype=np.float64)
+    at_fill = at_fill.assign(at_open=at_fill["average_fill_price"].to_numpy(dtype=np.float64) == open_at_fill)
+    by_trial = at_fill.sort_values("signal_name").groupby("trial")
+    pairs["filled"] = by_trial["signal_name"].agg("+".join).reindex(pairs.index).fillna("none")
+    pairs["all_at_open"] = by_trial["at_open"].all().reindex(pairs.index).fillna(value=False).astype(bool)
+    pairs["close_position_filled"] = pairs.index.isin(
+        at_fill.loc[at_fill["signal_name"] == CLOSE_POSITION, "trial"]
+    )
+
+    bars = run.bars.reindex(pairs["fill_bar"])
+    pairs["recorded"] = pairs["fill_bar"].isin(run.bars.index).to_numpy()
+    quantity = bars["position_quantity"].astype("Int64").astype(str)
+    pairs["position"] = (bars["market_position"].astype(str) + " " + quantity).to_numpy()
+
+    return pairs
+
+
+def close_position_states(run: Run) -> dict[str, int]:
+    """Count the rows of NinjaTrader's own ``Close position`` orders by kind and state, over the whole run."""
+    rows = run.events[run.events["signal_name"] == CLOSE_POSITION]
+    labels = rows["kind"] + " " + rows["order_state"].astype(str)
+
+    return {str(k): int(v) for k, v in labels.value_counts().sort_index().items()}
+
+
+def pair_outcomes(pairs: pd.DataFrame) -> dict[str, dict[str, object]]:
+    """Return scenario 7's outcome counts per side, over the pairs whose fill bar the probe recorded."""
+    out: dict[str, dict[str, object]] = {}
+    recorded = pairs[pairs["recorded"]]
+    for side, group in recorded.groupby("side"):
+        out[str(side)] = {
+            "pairs": len(group),
+            "entry_acknowledged": int(group["acknowledged"].sum()),
+            "position_after": {str(k): int(v) for k, v in group["position"].value_counts().items()},
+            "filled": {str(k): int(v) for k, v in group["filled"].value_counts().items()},
+            "all_fills_at_the_open": int(group["all_at_open"].sum()),
+            "close_position_sent": int(group["close_position_sent"].sum()),
+            "close_position_filled": int(group["close_position_filled"].sum()),
+        }
+    unrecorded = int((~pairs["recorded"]).sum())
+    if unrecorded:
+        out["unrecorded"] = {"pairs": unrecorded}
+
+    return out
 
 
 def lifetimes(run: Run, signal: str, lag: int = 1) -> pd.DataFrame:
@@ -240,6 +371,34 @@ def fills_after_cancel(run: Run, lag: int = 1) -> dict[str, int]:
     }
 
 
+def report_entry_lag(run: Run) -> bool:
+    """Print the callback lag on the stop and market entry fills. False if either did not resolve."""
+    stop = measure_entry_lag(run)
+    market = measure_market_entry_lag(run)
+    # A run with no entry fills at all still prints the stop line, as it did before market entries.
+    if stop["fills"] or not market["fills"]:
+        logger.info("callback lag on entry fills: %s", stop)
+
+    if market["fills"]:
+        logger.info("callback lag on market entry fills: %s", market)
+
+    consistent = stop_lag_is_clean(stop) and (market["fills"] == 0 or lag_is_clean(market))
+    if not consistent:
+        logger.warning("  entry-fill lag is NOT a clean +1 in this run; every bar below is suspect")
+
+    return consistent
+
+
+def report_pairs(run: Run) -> None:
+    """Print scenario 7's outcomes per side, and every row of NinjaTrader's own ``Close position`` orders."""
+    for side, outcome in pair_outcomes(exit_and_entry_pairs(run)).items():
+        logger.info("exit and entry on one bar, %s: %s", side, outcome)
+
+    states = close_position_states(run)
+    if states:
+        logger.info("Close position order rows over the run: %s", states)
+
+
 def report(run: Run) -> bool:
     """Print every measurement the run supports. False if the lag checks did not resolve."""
     logger.info("run: %s", run.stem)
@@ -253,13 +412,7 @@ def report(run: Run) -> bool:
             effective["order_fill_resolution"],
         )
 
-    entry = measure_entry_lag(run)
-    logger.info("callback lag on entry fills: %s", entry)
-    consistent = entry["fills"] == 0 or (
-        entry["reported_plus_one"] == entry["fills"] and entry["reported"] == 0
-    )
-    if not consistent:
-        logger.warning("  entry-fill lag is NOT a clean +1 in this run; every bar below is suspect")
+    consistent = report_entry_lag(run)
 
     exits = measure_session_close_exit_lag(run)
     if exits["exits"]:
@@ -290,6 +443,8 @@ def report(run: Run) -> bool:
     edge = last_bar_fills(run)
     if edge:
         logger.info("session edge: %s", edge)
+
+    report_pairs(run)
 
     return consistent
 
