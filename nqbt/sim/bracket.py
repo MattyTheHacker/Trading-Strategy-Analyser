@@ -419,7 +419,9 @@ def resolve_brackets(  # noqa: C901, PLR0912 - one branch per NT8 exit rule, in 
                 continue
 
             start = point if leg == n_legs - 1 else max(point - 1, 0)
-            reason, price, ambiguous = leg_exit_on_stop_entry_bar(path, start, stop, legs.target[leg], direction, fills)
+            reason, price, ambiguous = leg_exit_on_stop_entry_bar(
+                path, start, stop, legs.target[leg], direction, fills
+            )
             if reason == NO_EXIT:
                 continue
 
@@ -428,14 +430,16 @@ def resolve_brackets(  # noqa: C901, PLR0912 - one branch per NT8 exit rule, in 
             else:
                 fill = price - direction * slippage
 
-            written = write_leg(out, written, trade, legs, leg, LegExit(i, fill, reason, ambiguous), excursion, costs)
+            written = write_leg(
+                out, written, trade, legs, leg, LegExit(i, fill, reason, ambiguous), excursion, costs
+            )
             if written < 0:
                 return -1, False
 
             legs.is_open[leg] = False
 
         # A leg still open reached neither its stop nor its target on its part of the path.
-        return flatten_at_session_close(out, written, trade, legs, excursion, bars, i, costs, False)
+        return flatten_at_session_close(out, written, trade, legs, excursion, bars, i, costs, ambiguous=False)
 
     # The stop fills at the open when the bar gapped through it, otherwise at its own price.
     stop_fill = stop
