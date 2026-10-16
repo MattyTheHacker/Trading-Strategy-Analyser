@@ -4,14 +4,15 @@ The commands that rebuild the nine campaign databases from scratch and then swee
 
 The script has four parts. **Part 1 is exactly what the databases held on 2026-10-16**, checked by a dry run of every command against them: every stored cell comes from a command, and no command makes a cell that was not stored. Its rows are the ones to compare with the old ones. Parts 2 to 4 add every sweep the stored campaigns never ran or no longer hold. Every command in them passes the tool's own checks. A campaign stored or pre-registered after that date needs its command added here.
 
-| part | what it sweeps                                                   | 2 workers | 12 workers |
-| ---- | ---------------------------------------------------------------- | --------- | ---------- |
-| 1    | what the databases held on 2026-10-16                            | ~115 h    | ~37 h      |
-| 2    | everything else at 2 to 15 minutes, on MNQ and NQ                | ~440 h    | ~140 h     |
-| 3    | the campaign grids on ES, MES, GC, MGC and SI                    | ~55 h     | ~17 h      |
-| 4    | every set in parts 1 to 3 again at 1 minute, wherever it can run | ~700 h    | ~225 h     |
+| part  | what it sweeps                                                   | one F16as_v7           |
+| ----- | ---------------------------------------------------------------- | ---------------------- |
+| 1     | what the databases held on 2026-10-16                            | 13–19 h                |
+| 2     | everything else at 2 to 15 minutes, on MNQ and NQ                | 49–73 h                |
+| 3     | the campaign grids on ES, MES, GC, MGC and SI                    | 6–9 h                  |
+| 4     | every set in parts 1 to 3 again at 1 minute, wherever it can run | 78–117 h               |
+| total |                                                                  | 145–220 h, 6 to 9 days |
 
-The estimates apply each strategy's recorded seconds per combination and bar, at each bar size, to what each command plans, and scale them as [#439] does. Read them as ±30%. §M50 in every stratum is about half of part 2.
+The estimates are for the machine chosen for the run: one Standard_F16as_v7, 16 cores on Linux. They apply each strategy's recorded seconds per combination and bar, at each bar size, to what each command plans, then take the machine as 6 to 9 times the development laptop at 2 workers: about 1.4 times for Linux, measured in PR #443, and the rest for its cores, which is assumed. Benchmark the machine before trusting them, by re-running PR #443's two passes on it. A machine with twice the cores takes about half the time. §M50 in every stratum is about half of part 2.
 
 ## Before you start
 
@@ -24,14 +25,14 @@ uv sync --locked
 
 ## The commands
 
-Save this as a script and run it unattended, with its output redirected to a log. Set `N_JOBS` for the machine; it applies only to sweep calls large enough to use workers (`tools/README.md` § "campaign_sweep.py").
+Save this as a script and run it unattended, with its output redirected to a log. `N_JOBS` is one per core on an F16as_v7; change it with the machine. It applies only to sweep calls large enough to use workers (`tools/README.md` § "campaign_sweep.py").
 
 **It is safe to run again.** After an interruption or a failure, a second run skips every cell already stored and every cut already fitted, so it carries on where the first stopped. `set -e` stops it at the first command that fails. Each part can also be stopped after, since nothing in a later part feeds an earlier one.
 
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
-N_JOBS=8
+N_JOBS=16
 STRATEGIES=(DeadCatBounce PullBackAndGo InsideBar InsideBarTrailing EmaCrossover
             EmaPullback ElasticBand OpeningRange SqueezeBreakout)
 sweep() { uv run --no-sync tools/campaign_sweep.py --n-jobs "$N_JOBS" "$@"; }
