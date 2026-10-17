@@ -195,6 +195,12 @@ The first reproduces the stored 5 and 10 minutes and adds 2 and 15. The second i
 
 ## Afterwards
 
-Compare part 1's rows with the old ones. Only a campaign whose rows changed needs its reads and findings redone ([#439]).
+Compare part 1's rows with the old ones, with OLD the folder moved aside before the run:
+
+```bash
+uv run --no-sync tools/campaign_compare.py OLD results/campaign/ --out cells.csv
+```
+
+It opens the databases read-only, so run it once the script has stopped, or against a copy taken when part 1 finished. Every stored cell comes back `identical`, `changed` or `old only`; `narrow`'s cells are `old only` until it runs, and any other is a stored cell part 1 did not reproduce. Cells the later parts added are `new only` and do not fail it. Only a campaign whose rows changed needs its reads and findings redone ([#439]). `tools/README.md` § "campaign_compare.py" says what is compared.
 
 [#439]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/439

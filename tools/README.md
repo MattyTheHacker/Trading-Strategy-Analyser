@@ -31,7 +31,7 @@ These hold across the reading tools below, so they are stated once here rather t
 
 | group                             | tools                                                                                                                                                                                                                                                                                        |
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Sweeping                          | `campaign_sweep.py`, `rerun_sweeps.py`, `restamp_tier2.py`                                                                                                                                                                                                                                   |
+| Sweeping                          | `campaign_sweep.py`, `rerun_sweeps.py`, `restamp_tier2.py`, `campaign_compare.py`                                                                                                                                                                                                            |
 | Storing and re-running trade logs | `campaign_shortlist.py`, `campaign_swept.py`, `campaign_annotate.py`                                                                                                                                                                                                                         |
 | Reading a campaign                | `campaign_report.py`, `campaign_holdout.py`, `campaign_paired.py`, `campaign_crossread.py`, `campaign_crossroot.py`, `campaign_labels.py`, `campaign_hold.py`, `campaign_early_exit.py`                                                                                                      |
 | Testing a shortlist               | `campaign_null.py`, `campaign_contracts.py`, `campaign_montecarlo.py`, `campaign_walkforward.py`, `campaign_exits.py`, `campaign_ambiguity.py`, `campaign_review.py`, `campaign_confluence.py`, `campaign_flatten.py`, `campaign_sizing.py`, `geometry_contribution.py`, `campaign_gates.py` |
@@ -208,6 +208,23 @@ uv run tools/restamp_tier2.py results/sweeps.duckdb --write
 - **It cannot see a field no sweep stores.** `sweep.run_combination` drops an archetype's `not_sweepable` fields, `target_r_multiples` on DeadCatBounce and PullBackAndGo among them, so a variant whose base moved one reads here as its default.
 - **It only downgrades, and reads only rows stamped `reconciled`.** A `tier-1-only` row is never promoted, a row stored with no stamp is not read, and the `sweeps` table's own `tier2` stays the archetype's.
 - **A row it cannot rebuild keeps its stamp and the tool exits 2**, naming the first error, so a database it could not fully check is not read as one that passed.
+
+### campaign_compare.py
+
+Compares two folders of campaign databases [cell](../README.md#cell) by cell and row for row, and exits 1 when a stored cell changed or is missing from the second.
+
+```bash
+uv run tools/campaign_compare.py OLD NEW
+uv run tools/campaign_compare.py OLD NEW --strategies InsideBar --out cells.csv
+```
+
+**It is the comparison step of [`resweep.md`](resweep.md).** A fill fix moves stored rows, so once the campaigns are re-swept into an empty `results/campaign/`, only a campaign whose rows changed needs its reads and findings redone. OLD is the folder moved aside and NEW the re-run.
+
+- **A cell is the unit the sweep stores and skips**: one archetype's variant, stratum, root, resolution and window. Each is reported `identical`, `changed`, `old only` or `new only`, beside both sides' row counts, the rows each side holds that the other does not, total trades, median profit factor, and whether both ran on the same bars, blank for a one-sided cell. `--out` writes that table.
+- **Rows are compared as multisets over every column the stored cell fills**, so neither the order they were stored in nor their `combo_id` matters, and a row stored twice and reproduced once counts once. Equal numbers match whatever their bytes: `-0.0` matches `0.0`, and NaN and null match themselves.
+- **A column is compared only where every sweep that stored rows in the cell filled it.** One no stored row fills was added by a later campaign, and the stored rows ran at its default, the reading `campaign_crossread.ran_at` takes. A cell a later sweep extended, as `--extend-stored` does, holds rows from two versions of the code, so a column only the later sweep wrote is left out of that whole cell rather than read as changed in the earlier rows, and a change confined to it there goes unseen. A filled column NEW lacks altogether is named and left out rather than failing every row. `tier2` is not compared either: it is a stamp `restamp_tier2.py` can change, not a measurement.
+- **Only a changed or missing cell fails it.** A cell only NEW holds is listed and passes, so the same command works after the re-sweep's later parts have added cells. A folder with no databases, an OLD one holding no rows, a `--strategies` name in neither folder, or a database DuckDB cannot open exits 2, so a mistyped path or a locked file cannot pass or fail as a result.
+- **It opens both folders read-only**, which DuckDB refuses while a sweep is writing the file, so compare once the sweep has stopped or against a copy.
 
 ## Storing and re-running trade logs
 
