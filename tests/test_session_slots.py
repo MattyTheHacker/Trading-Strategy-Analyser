@@ -22,7 +22,15 @@ from nqbt.sim.types import DeadCatParams, EmaCrossoverParams, active_context_fil
 from nqbt.timeofday import ALL_SLOTS, SLOT_MINUTES, SessionPhase
 from tests.test_confluence_sizing import EVERY_CLASS, TRADING, bars, prepared
 from tools import campaign_sweep
-from tools.campaign_sweep import CASH_PHASES, EVERY_DIMENSION, SLOT, STRATUM_SETS, check_slot_request, strata
+from tools.campaign_sweep import (
+    CASH_PHASES,
+    EVERY_DIMENSION,
+    RESOLUTIONS,
+    SLOT,
+    STRATUM_SETS,
+    check_slot_request,
+    strata,
+)
 
 if TYPE_CHECKING:
     from nqbt.archetypes import ArchetypeParams
@@ -34,8 +42,6 @@ WINTER_OPEN = "2024-01-07 23:00"
 
 SUMMER_OPEN = "2024-03-10 22:00"
 """18:00 EDT, the first session after the spring transition, at UTC-4."""
-
-CAMPAIGN_BAR_SIZES = (1, 2, 5, 10, 15)
 
 EVERY_OTHER_SLOT = sum(timeofday.slot_bit(slot) for slot in range(0, timeofday.SLOTS_PER_SESSION, 2))
 """Half the session in alternate slots, so a filtered signal both keeps and drops bars."""
@@ -115,7 +121,7 @@ def test_a_phase_boundary_inside_a_slot_is_refused_rather_than_split(monkeypatch
 # -- the gate ----------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("bar_minutes", CAMPAIGN_BAR_SIZES)
+@pytest.mark.parametrize("bar_minutes", RESOLUTIONS)
 @pytest.mark.parametrize("open_utc", [WINTER_OPEN, SUMMER_OPEN])
 def test_every_phase_gate_is_the_slot_gate_over_that_phases_slots(open_utc: str, bar_minutes: int) -> None:
     """The phase labels are what the entry window reconciled against, so the slots inherit that."""
@@ -124,7 +130,7 @@ def test_every_phase_gate_is_the_slot_gate_over_that_phases_slots(open_utc: str,
         assert np.array_equal(clock.slot_gate(timeofday.phase_slots(phase.bit)), clock.gate(phase.bit)), phase
 
 
-@pytest.mark.parametrize("bar_minutes", CAMPAIGN_BAR_SIZES)
+@pytest.mark.parametrize("bar_minutes", RESOLUTIONS)
 def test_the_slots_partition_the_session(bar_minutes: int) -> None:
     clock = timeofday.classify(session_bars(WINTER_OPEN, bar_minutes), bar_minutes=bar_minutes)
     hits = sum(
@@ -135,7 +141,7 @@ def test_the_slots_partition_the_session(bar_minutes: int) -> None:
 
 @pytest.mark.parametrize(
     ("bar_minutes", "last_of_0930", "first_of_1000"),
-    [(1, "10:00", "10:01"), (5, "10:00", "10:05"), (15, "10:00", "10:15")],
+    [(1, "10:00", "10:01"), (5, "10:00", "10:05"), (15, "10:00", "10:15"), (30, "10:00", "10:30")],
 )
 def test_a_bar_belongs_to_the_slot_its_body_falls_in(
     bar_minutes: int, last_of_0930: str, first_of_1000: str
@@ -311,7 +317,7 @@ def test_the_sweep_refuses_a_straddling_slot_run_before_it_plans_anything(
 
 
 def test_a_slot_run_at_the_campaign_bar_sizes_and_other_strata_at_any_go_ahead() -> None:
-    check_slot_request(argparse.Namespace(strata=SLOT, resolutions=list(CAMPAIGN_BAR_SIZES)))
+    check_slot_request(argparse.Namespace(strata=SLOT, resolutions=list(RESOLUTIONS)))
     check_slot_request(argparse.Namespace(strata="phase", resolutions=[20, 60]))
 
 

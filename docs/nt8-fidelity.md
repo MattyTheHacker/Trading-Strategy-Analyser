@@ -1456,11 +1456,11 @@ None of the labels exists in NT8 (§M45), so a port of any of the three ports it
 
 **`slot_filter` narrows every archetype's entries to some of the session's 46 half-hour slots** (#439), counted from the 18:00 ET open, so slot 31 is 09:30–10:00 ET. It cuts the clock `phase_filter` cuts in seven, and is a bitmask like the phase's, so it is a sweep axis. **Off at `ALL_SLOTS`**, where the signal skips it entirely, so every NinjaScript as ported is unchanged, and a row using it is `TIER1_ONLY`. In EmaCrossover's confluence count it is one more active gate.
 
-**A bar belongs to the slot its body falls in**, by the minute it occupies rather than the minute it is stamped at, which is the phases' rule: the bar stamped 10:00 ET is the 09:30 slot's last. **Every phase boundary falls on a slot boundary**, so each phase is a run of whole slots and the phase gate is the slot gate over that run, at 1, 2, 5, 10 and 15 minutes and on both sides of a DST transition — `tests/test_session_slots.py` pins it.
+**A bar belongs to the slot its body falls in**, by the minute it occupies rather than the minute it is stamped at, which is the phases' rule: the bar stamped 10:00 ET is the 09:30 slot's last. **Every phase boundary falls on a slot boundary**, so each phase is a run of whole slots and the phase gate is the slot gate over that run, at every campaign bar size from 1 to 30 minutes and on both sides of a DST transition — `tests/test_session_slots.py` pins it.
 
 **A bar size that does not divide 30 minutes is refused**, because its bars straddle two slots and a slot would hold a span other than the one it is named for. Where every active gate has to pass, a slot mask with no slot inside the phases `phase_filter` admits is refused too, because it would trade nothing; under a confluence count the two are separate votes and either can admit a bar.
 
-**A port is the entry trading window InsideBarTrailing's NinjaScript already carries**, set to the slot's bounds in Eastern time — § "The entry trading window, and the zone it is measured in". Its start is exclusive and its end inclusive, which is the rule above; it reconciled leg for leg at 1 and 5 minutes, and its boundary agrees with the phase labels on every bar at all five campaign bar sizes. For `slot=0930`:
+**A port is the entry trading window InsideBarTrailing's NinjaScript already carries**, set to the slot's bounds in Eastern time — § "The entry trading window, and the zone it is measured in". Its start is exclusive and its end inclusive, which is the rule above; it reconciled leg for leg at 1 and 5 minutes, and its boundary agrees with the phase labels on every bar at 1, 2, 5, 10 and 15 minutes. For `slot=0930`:
 
 ```csharp
 EntryWindowStart = 93000;

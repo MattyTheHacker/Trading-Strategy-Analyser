@@ -2,7 +2,7 @@
 
 The commands that rebuild the nine campaign databases from scratch and then sweep everything else the code can run, in the order they run. A change that moves stored rows, such as a fill fix, leaves every stored control unable to reproduce itself, so every stored campaign is re-swept before a new one runs ([#439]).
 
-The script has four parts. **Part 1 is exactly what the databases held on 2026-10-16**, checked by a dry run of every command against them: every stored cell comes from a command, and no command makes a cell that was not stored. Its rows are the ones to compare with the old ones. Parts 2 to 4 add every sweep the stored campaigns never ran or no longer hold. Every command in them passes the tool's own checks. A campaign stored or pre-registered after that date needs its command added here.
+The script has four parts. **Part 1 is exactly what the databases held on 2026-10-16**, checked by a dry run of every command against them: every stored cell comes from a command, and no command makes a cell that was not stored. Its rows are the ones to compare with the old ones. Parts 2 to 4 add every sweep the stored campaigns never ran or no longer hold. Every command in them passes the tool's own checks. A campaign stored or pre-registered after that date needs its command added here. Thirty minutes became a campaign bar size afterwards, on 2026-10-19, and no command here runs it.
 
 | part  | what it sweeps                                                   | one F16as_v7           |
 | ----- | ---------------------------------------------------------------- | ---------------------- |
@@ -45,7 +45,7 @@ fit() {
 # ---- Part 1: what the databases held on 2026-10-16 ----
 
 # The campaign grids: the whole series, then both windows (§M44). Only the first runs 1 minute.
-sweep --strata core
+sweep --strata core --resolutions 1 2 5 10 15
 sweep --strata context --resolutions 2 5 10 15
 sweep --split --strata core --resolutions 2 5 10 15
 sweep --split --strata context --resolutions 2 5 10 15

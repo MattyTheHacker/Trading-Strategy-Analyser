@@ -32,7 +32,7 @@ from tools.campaign_sweep import (
     ELASTIC_RUNNER,
     EVERY_DIMENSION,
     NOISE_RESOLUTIONS,
-    RESOLUTIONS,
+    RESOLUTIONS_BELOW_THIRTY,
     STRATUM_SETS,
     decision_resolutions,
     grids_for,
@@ -578,9 +578,9 @@ def test_every_arm_builds_in_every_stratum() -> None:
             assert len(grid) == 12
 
 
-def test_a_bar_size_off_the_half_hour_is_skipped_and_every_campaign_one_kept() -> None:
+def test_a_bar_size_off_the_half_hour_is_skipped_and_every_one_below_thirty_kept() -> None:
     assert decision_resolutions((1, 2, 4, 5, 20, 30, 60)) == (1, 2, 5, 30)
-    assert NOISE_RESOLUTIONS == RESOLUTIONS
+    assert NOISE_RESOLUTIONS == RESOLUTIONS_BELOW_THIRTY
     for variant in variants_for(ELASTIC_NOISE)["ElasticBand"]("MNQ"):
         assert variant.resolutions == NOISE_RESOLUTIONS
 

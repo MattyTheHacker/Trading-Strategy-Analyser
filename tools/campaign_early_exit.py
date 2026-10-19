@@ -239,9 +239,15 @@ def stored_twins(name: str, stratum: str, arm_set: ArmSet = TIER_1) -> pd.DataFr
         variant for variant in exit_variants(name, arm_set) if variant.endswith(control_suffix)
     ]
     bases: list[str] = [variant.removesuffix(control_suffix) for variant in controls]
+    sizes: set[int] = {
+        minutes
+        for root in ROOTS
+        for variant in arm_set.variants[name](root)
+        for minutes in variant.resolutions
+    }
 
     return results.query(
-        ROWS_SQL + narrowing(["selection", "holdout"], controls + bases, strata=[stratum]),
+        ROWS_SQL + narrowing(["selection", "holdout"], controls + bases, sorted(sizes), strata=[stratum]),
         db_path(name),
     )
 
