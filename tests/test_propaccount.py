@@ -18,6 +18,8 @@ from nqbt import instruments, propaccount, stats
 from nqbt.propaccount import (
     AccountFees,
     AccountRules,
+    BookReplay,
+    BookSlot,
     Charge,
     DailyBreach,
     EquityBasis,
@@ -1705,3 +1707,178 @@ def test_a_start_after_the_log_ends_opens_no_account() -> None:
 
     assert result.runs == ()
     assert (result.attempts, result.trades_total, result.net) == (0, 0, 0.0)
+
+
+# -- a book of accounts ----------------------------------------------------------
+
+
+OPENING = dt.date(2024, 1, 2)
+"""The first trading day of every ``leg_log``."""
+
+
+def bookable(fee: float = 100.0) -> PropAccount:
+    """Build an account that passes at 3,000, withdraws above 1,000 of profit and costs ``fee`` to open."""
+    return PropAccount(name="Priced", rules=paying().rules, fees=AccountFees(evaluation_fee=fee))
+
+
+def earning(days: int = 5) -> pd.DataFrame:
+    """Build a log of ``days`` days of 1,000, which passes on its third and withdraws on every day after."""
+    return leg_log([(day, 1_000.0, 1.0) for day in range(days)])
+
+
+def book_figures(book: BookReplay) -> tuple[object, ...]:
+    """Return everything a book reports about itself, for comparing two books."""
+    return (
+        book.slots,
+        book.attempts,
+        book.breaches,
+        book.payout,
+        book.fees_paid,
+        book.net,
+        book.most_breached_in_a_day,
+        book.days_most_breached,
+        book.open_at_end,
+    )
+
+
+BAD_DAY = [(0, -1_500.0, 1.0), (1, -1_000.0, 1.0), (2, 100.0, 1.0)]
+"""A day that takes an account to within 500 of its 2,000 floor, then a day that finishes it."""
+
+
+def test_identical_slots_are_one_account_times_the_book_and_replayed_once() -> None:
+    """The issue's warning, pinned: a book of identical copies says nothing one account does not."""
+    log = earning()
+    one = propaccount.replay(log, bookable(), max_accounts=int(log["trade_id"].nunique()))
+    book = propaccount.replay_book({LOTS: log}, [BookSlot(bookable(), OPENING, LOTS)] * 3)
+
+    assert all(replayed is book.replays[0] for replayed in book.replays)
+    assert (book.attempts, book.payout, book.fees_paid, book.net) == pytest.approx(
+        (3 * one.attempts, 3 * one.payout, 3 * one.fees_paid, 3 * one.net)
+    )
+
+
+def test_a_staggered_slot_opens_on_the_first_trading_day_from_its_own() -> None:
+    log = leg_log([(0, 100.0, 1.0), (1, 100.0, 1.0), (6, 100.0, 1.0)])
+    slots = [BookSlot(account(), OPENING, LOTS), BookSlot(account(), dt.date(2024, 1, 4), LOTS)]
+    book = propaccount.replay_book({LOTS: log}, slots)
+
+    assert [replayed.runs[0].first_day for replayed in book.replays] == [OPENING, dt.date(2024, 1, 8)]
+
+
+def test_a_slot_opening_after_the_log_ends_is_left_out_of_the_book() -> None:
+    late = BookSlot(account(), dt.date(2024, 2, 1), LOTS)
+    book = propaccount.replay_book({LOTS: earning()}, [BookSlot(account(), OPENING, LOTS), late])
+
+    assert book.slots == (BookSlot(account(), OPENING, LOTS),)
+
+
+def test_the_book_s_cash_is_every_slot_s_fees_and_payouts_on_one_timeline() -> None:
+    slots = [BookSlot(bookable(), day, LOTS) for day in (OPENING, dt.date(2024, 1, 3), dt.date(2024, 1, 5))]
+    book = propaccount.replay_book({LOTS: earning()}, slots)
+    cash = propaccount.daily_cash(book.runs)
+
+    assert [day for day, _ in cash] == sorted({day for day, _ in cash})
+    assert sum(moved for _, moved in cash) == pytest.approx(book.net)
+    assert book.payout == pytest.approx(sum(replayed.payout for replayed in book.replays))
+    assert book.net == pytest.approx(book.payout - book.fees_paid)
+
+
+def test_a_smaller_book_is_the_first_slots_of_a_larger_one() -> None:
+    """What lets one replay at the largest size answer every smaller one."""
+    slots = [BookSlot(bookable(), OPENING + dt.timedelta(days=day), LOTS) for day in range(4)]
+    whole = propaccount.replay_book({LOTS: earning()}, slots)
+    alone = propaccount.replay_book({LOTS: earning()}, slots[:2])
+
+    assert book_figures(whole.first(2)) == book_figures(alone)
+
+
+def test_accounts_opened_together_breach_together() -> None:
+    book = propaccount.replay_book({LOTS: leg_log(BAD_DAY)}, [BookSlot(account(), OPENING, LOTS)] * 2)
+
+    assert book.most_breached_in_a_day == 2
+    assert book.days_most_breached == 1
+
+
+def test_a_staggered_account_is_further_from_its_floor_when_the_bad_day_comes() -> None:
+    """The second opens on the bad day itself, 2,000 from its floor rather than 500."""
+    slots = [BookSlot(account(), OPENING, LOTS), BookSlot(account(), dt.date(2024, 1, 3), LOTS)]
+    book = propaccount.replay_book({LOTS: leg_log(BAD_DAY)}, slots)
+
+    assert book.breaches == 1
+    assert book.most_breached_in_a_day == 1
+    assert book.days_most_breached == 0, "one of the two open that day is not most of the book"
+
+
+def test_a_book_that_replaces_ends_with_every_slot_open_and_one_that_shrinks_does_not() -> None:
+    slots = [BookSlot(account(), OPENING, LOTS)] * 2
+    replacing = propaccount.replay_book({LOTS: leg_log(BAD_DAY)}, slots)
+    shrinking = propaccount.replay_book({LOTS: leg_log(BAD_DAY)}, slots, max_accounts=1)
+
+    assert (replacing.attempts, replacing.open_at_end) == (4, 2)
+    assert (shrinking.attempts, shrinking.open_at_end) == (2, 0)
+
+
+def test_a_pass_on_the_log_s_last_day_leaves_its_funded_account_open() -> None:
+    book = propaccount.replay_book({LOTS: leg_log(PASS_THEN_TRADE[:3])}, [BookSlot(linked(), OPENING, LOTS)])
+
+    assert book.runs[-1].outcome is Outcome.PROMOTED
+    assert book.open_at_end == 1
+
+
+def test_each_slot_trades_the_log_at_its_own_size() -> None:
+    small, large = earning(), leg_log([(day, 2_000.0, 1.0) for day in range(5)])
+    slots = [BookSlot(bookable(), OPENING, 4), BookSlot(bookable(), OPENING, 8)]
+    book = propaccount.replay_book({4: small, 8: large}, slots)
+
+    assert [replayed.summary.net_pnl for replayed in book.replays] == pytest.approx(
+        [stats.summarise(small).net_pnl, stats.summarise(large).net_pnl]
+    )
+
+
+def test_a_slot_trading_a_size_the_book_holds_no_log_for_is_refused() -> None:
+    with pytest.raises(PropAccountError, match=r"no trade log at \[8\] contracts"):
+        propaccount.replay_book({LOTS: earning()}, [BookSlot(account(), OPENING, 8)])
+
+    with pytest.raises(PropAccountError, match=r"no trade log at \[8\] contracts"):
+        propaccount.replay_funded_book({LOTS: earning()}, [(account(), 8)], OPENING)
+
+
+def test_an_empty_book_reports_nothing_rather_than_failing() -> None:
+    book = propaccount.replay_book({LOTS: earning()}, [])
+
+    assert book_figures(book) == ((), 0, 0, 0.0, 0.0, 0.0, 0, 0, 0)
+
+
+def test_a_funded_book_opens_each_account_the_day_after_the_payouts_cover_it() -> None:
+    """Paid 2,000 on 4 January against the 100 the first cost, so the second opens on the 5th.
+
+    The third opens on the log's last day, and the fourth would open after it, so never does.
+    """
+    book = propaccount.replay_funded_book({LOTS: earning()}, [(bookable(), LOTS)] * 4, OPENING)
+
+    assert [slot.opens for slot in book.slots] == [OPENING, dt.date(2024, 1, 5), dt.date(2024, 1, 6)]
+
+
+@pytest.mark.parametrize(("fee", "opens"), [(1_000.0, dt.date(2024, 1, 5)), (1_000.01, dt.date(2024, 1, 6))])
+def test_payouts_exactly_covering_the_next_account_are_enough(fee: float, opens: dt.date) -> None:
+    """The 2,000 paid on 4 January leaves 1,000 once the first fee is out: enough, and a cent short."""
+    book = propaccount.replay_funded_book({LOTS: earning()}, [(bookable(fee), LOTS)] * 2, OPENING)
+
+    assert book.slots[1].opens == opens
+
+
+def test_a_funded_book_whose_payouts_never_cover_the_next_account_stays_at_one() -> None:
+    book = propaccount.replay_funded_book({LOTS: earning()}, [(bookable(10_000.0), LOTS)] * 3, OPENING)
+
+    assert len(book.slots) == 1
+
+
+def test_a_free_account_opens_the_day_after_the_newest_without_waiting_for_cash_to_move() -> None:
+    book = propaccount.replay_funded_book({LOTS: earning()}, [(bookable(0.0), LOTS)] * 3, OPENING)
+
+    assert [slot.opens for slot in book.slots] == [OPENING, dt.date(2024, 1, 3), dt.date(2024, 1, 4)]
+
+
+def test_a_book_log_missing_its_columns_is_refused_as_the_single_replay_refuses_it() -> None:
+    with pytest.raises(PropAccountError, match="missing required column"):
+        propaccount.replay_book({LOTS: pd.DataFrame()}, [BookSlot(account(), OPENING, LOTS)])

@@ -7,6 +7,8 @@ reaches the report.
 
 from __future__ import annotations
 
+import argparse
+import dataclasses
 import datetime as dt
 import math
 from typing import TYPE_CHECKING
@@ -23,11 +25,16 @@ from tools.campaign_propaccount import (
     CONTRACTS,
     DEFAULT_PRESETS,
     EVERY_PRESET,
+    FUNDED,
     QUANTITY,
     REPORTED,
+    Book,
     Window,
     at_quantity,
     best_presets,
+    book_verdict,
+    books_from,
+    build_parser,
     cash_flows,
     chosen,
     contracts_per_trade,
@@ -36,16 +43,22 @@ from tools.campaign_propaccount import (
     in_order,
     labelled,
     last_whole_months,
+    logs_as_stored,
+    logs_at_sizes,
     longest_run,
     main,
     monthly_net,
     out_of_pocket,
+    paid_back,
+    replay_books,
+    replay_one_book,
     replay_row,
     replay_rungs,
     replay_shortlist,
     rules_with,
     running_totals,
     spent_before_first_payout,
+    stagger,
     uncapped,
     verdict,
     with_own_profit_factor,
@@ -891,3 +904,244 @@ def test_an_empty_shortlist_fails_without_reading_the_calendar(
     monkeypatch.setattr(campaign_propaccount, "held_out_days", lambda *_: pytest.fail("read the calendar"))
 
     assert run_main(monkeypatch, pd.DataFrame(), stocked) == 1
+
+
+# -- a book of accounts ----------------------------------------------------------------------
+
+
+AUTUMN_DAYS = np.arange("2024-09-03", "2024-11-02", dtype="datetime64[D]")
+"""The sixty trading days ``leg_log(EARNER)`` trades on, standing in for the session calendar."""
+
+KEY = (SWEEP_ID, COMBO_ID)
+
+
+def other_payer() -> propaccount.PropAccount:
+    """Build :func:`quick_payer` under a second name, so a mix can tell its two presets apart."""
+    return dataclasses.replace(quick_payer(), name="Other")
+
+
+def test_a_fixed_stagger_opens_every_nth_trading_day_with_presets_and_sizes_in_turn() -> None:
+    book = Book((quick_payer(), other_payer()), (4, 8), 5, None)
+    result = replay_one_book(book, {4: leg_log(EARNER), 8: leg_log(EARNER)}, 3, AUTUMN_DAYS)
+
+    assert [slot.opens for slot in result.slots] == [
+        dt.date(2024, 9, 3),
+        dt.date(2024, 9, 8),
+        dt.date(2024, 9, 13),
+    ]
+    assert [slot.account.name for slot in result.slots] == ["Quick", "Other", "Quick"]
+    assert [slot.contracts for slot in result.slots] == [4, 8, 4]
+
+
+def test_a_stagger_past_the_window_s_end_leaves_the_later_accounts_unopened() -> None:
+    result = replay_one_book(Book((quick_payer(),), None, 100, None), {4: leg_log(EARNER)}, 3, AUTUMN_DAYS)
+
+    assert len(result.slots) == 1
+
+
+def test_a_funded_stagger_opens_the_next_account_once_the_payouts_cover_its_fee() -> None:
+    """Passed on 4 September and paid 1,200 against the 300 the first cost, so the second opens the 5th."""
+    result = replay_one_book(Book((quick_payer(),), None, None, None), {4: leg_log(EARNER)}, 2, AUTUMN_DAYS)
+
+    assert [slot.opens for slot in result.slots] == [dt.date(2024, 9, 3), dt.date(2024, 9, 5)]
+
+
+def test_a_book_of_one_is_the_single_account_replay() -> None:
+    """What makes the book of one the figure every larger book is read beside."""
+    rows = pd.DataFrame([stored_row(order_quantity=4)])
+    log = leg_log(EARNER)
+    single = replay_row(rows.iloc[0], log, quick_payer(), uncapped(log), autumn())
+    books = replay_books(rows, {KEY: {4: log}}, [Book((quick_payer(),), None, 5, None)], [3], autumn())
+    one = books.set_index("book_size").loc[1]
+
+    assert single is not None
+    for name in ("attempts", "payout", "fees_paid", "net", "days_to_profit", "out_of_pocket", "worst_month"):
+        assert one[name] == pytest.approx(single[name]), name
+
+
+def test_every_book_size_is_reported_beside_a_book_of_one() -> None:
+    rows = pd.DataFrame([stored_row(order_quantity=4)])
+    books = replay_books(
+        rows, {KEY: {4: leg_log(EARNER)}}, [Book((quick_payer(),), None, 5, None)], [5, 2], autumn()
+    )
+
+    assert list(books["book_size"]) == [1, 2, 5]
+    assert list(books["accounts"]) == [1, 2, 5]
+    assert set(books["sizes"]) == {"4"}
+    assert books["net"].is_monotonic_increasing
+
+
+def test_a_configuration_with_no_log_at_every_size_is_left_out_of_the_books() -> None:
+    rows = pd.DataFrame([stored_row(order_quantity=4)])
+
+    assert replay_books(rows, {}, [Book((quick_payer(),), None, 0, None)], [2], autumn()).empty
+
+
+def test_a_configuration_whose_stored_log_is_empty_is_left_out_of_the_books() -> None:
+    """The single-account table leaves it out too, so both verdicts count the same configurations."""
+    rows = pd.DataFrame([stored_row(order_quantity=4), stored_row(order_quantity=4, combo_id=COMBO_ID + 1)])
+    log = leg_log(EARNER)
+    stored = {KEY: log, (SWEEP_ID, COMBO_ID + 1): log.iloc[:0]}
+    books = replay_books(
+        rows, logs_as_stored(rows, stored), [Book((quick_payer(),), None, 5, None)], [2], autumn()
+    )
+
+    assert set(books["combo_id"]) == {COMBO_ID}
+
+
+def test_a_refusal_costs_only_its_own_book() -> None:
+    """A rule set reading open equity refuses a log with no excursions, and one reading balances does not."""
+    rows = pd.DataFrame([stored_row(order_quantity=4)])
+    logs = {KEY: {4: trade_log(excursions=False)}}
+    books = replay_books(
+        rows, logs, [Book((apex(),), None, 0, None), Book((quick_payer(),), None, 0, None)], [2], autumn()
+    )
+
+    assert set(books["book"]) == {"Quick"}
+
+
+def test_the_books_verdict_reports_medians_and_shares_per_book_and_size() -> None:
+    rows = pd.DataFrame([stored_row(order_quantity=4), stored_row(order_quantity=4, combo_id=COMBO_ID + 1)])
+    logs = {KEY: {4: leg_log(EARNER)}, (SWEEP_ID, COMBO_ID + 1): {4: leg_log([-100.0] * 10)}}
+    books = replay_books(rows, logs, [Book((quick_payer(),), None, 5, None)], [2], autumn())
+    summary = book_verdict(books).set_index("book_size")
+
+    assert list(summary.index) == [1, 2]
+    assert (summary["configurations"] == 2).all()
+    assert (summary["profitable_%"] == 50.0).all()
+    assert (summary["broke_even_%"] == 50.0).all()
+    assert book_verdict(pd.DataFrame()).empty
+
+
+def test_the_stored_log_is_keyed_by_the_size_it_was_stored_at() -> None:
+    rows = pd.DataFrame([stored_row(order_quantity=6), stored_row(order_quantity=4, combo_id=COMBO_ID + 1)])
+    log = trade_log()
+
+    assert logs_as_stored(rows, {KEY: log}) == {KEY: {6: log}}
+
+
+def test_each_book_size_is_re_run_once_and_a_configuration_refusing_any_is_left_out(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[int] = []
+    monkeypatch.setattr(campaign_propaccount, "logs_for", fake_rerun(calls))
+    rows = pd.DataFrame([stored_row(order_quantity=6)])
+
+    assert set(logs_at_sizes("InsideBarTrailing", rows, "MNQ", [3, 8, 3])[KEY]) == {3, 8}
+    assert calls == [3, 8]
+    assert logs_at_sizes("InsideBarTrailing", rows, "MNQ", [3, 2]) == {}, "two contracts is refused"
+    assert calls == [3, 8], "nothing is re-run for a configuration the book cannot use"
+
+
+@pytest.mark.parametrize(("given", "parsed"), [("0", 0), ("21", 21), (FUNDED, None), (" Funded ", None)])
+def test_the_stagger_is_trading_days_or_funded(given: str, parsed: int | None) -> None:
+    assert stagger(given) == parsed
+
+
+def test_a_negative_stagger_is_refused() -> None:
+    with pytest.raises(argparse.ArgumentTypeError, match="cannot be negative"):
+        stagger("-1")
+
+
+def test_no_replace_gives_each_account_one_attempt_and_a_mix_is_one_book() -> None:
+    accounts = [quick_payer(), other_payer()]
+    shrinking = build_parser().parse_args(["--strategy", "X", "--book-sizes", "2", "--no-replace"])
+    mixed = build_parser().parse_args(
+        ["--strategy", "X", "--book-sizes", "2", "--book-mix", "Apex 50K Intraday Evaluation", "all"],
+    )
+
+    assert [(book.name, book.max_accounts) for book in books_from(shrinking, accounts, None)] == [
+        ("Quick", 1),
+        ("Other", 1),
+    ]
+    (mix,) = books_from(mixed, accounts, propaccount.ExcursionOrder.TROUGH_FIRST)
+    assert len(mix.accounts) == 1 + len(EVERY_PRESET)
+    assert mix.max_accounts is None
+    assert {
+        rules.excursion_order
+        for account in mix.accounts
+        for rules in propaccount._rule_sets(account)  # noqa: SLF001 # every rule set the account trades under
+    } == {propaccount.ExcursionOrder.TROUGH_FIRST}
+
+
+def test_books_run_from_the_command_line_and_write_two_more_tables(
+    monkeypatch: pytest.MonkeyPatch,
+    stocked: Path,
+    tmp_path: Path,
+) -> None:
+    out = tmp_path / "prop"
+    rows = pd.DataFrame([stored_row(order_quantity=4)])
+    assert run_main(monkeypatch, rows, stocked, "--book-sizes", "2", "--stagger", "5", "--out", str(out)) == 0
+
+    books = pd.read_csv(out / "books.csv")
+    assert list(books["book_size"]) == [1, 2]
+    assert set(books["book"]) == {"Apex 50K Intraday Evaluation"}
+    assert list(pd.read_csv(out / "book_verdict.csv")["book_size"]) == [1, 2]
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        ["--stagger", "5"],
+        ["--no-replace"],
+        ["--book-mix", "Apex 50K Intraday Evaluation"],
+        ["--book-quantities", "4"],
+        ["--book-sizes", "2", "--quantities", "4"],
+        ["--book-sizes", "0"],
+        ["--book-sizes", "2", "--book-quantities", "0"],
+        ["--book-sizes", "2", "--book-mix", "No Such Preset"],
+    ],
+)
+def test_a_book_option_that_cannot_be_read_is_refused_before_anything_runs(
+    monkeypatch: pytest.MonkeyPatch,
+    stocked: Path,
+    extra: list[str],
+) -> None:
+    monkeypatch.setattr(
+        campaign_propaccount, "held_out", lambda *_, **__: pytest.fail("ranked the shortlist")
+    )
+    monkeypatch.setattr(campaign_propaccount, "db_path", lambda _: stocked)
+    with pytest.raises(SystemExit):
+        main(["campaign_propaccount.py", "--strategy", "OpeningRange", *extra])
+
+
+def test_a_book_s_days_to_profit_count_from_its_earliest_opening_whatever_the_slot_order() -> None:
+    """Passed on 4 September, the day after the earlier account opened, whichever slot is listed first."""
+    log = leg_log(EARNER)
+    early = propaccount.BookSlot(quick_payer(), dt.date(2024, 9, 3), 4)
+    late = propaccount.BookSlot(quick_payer(), dt.date(2024, 9, 13), 4)
+    forward = propaccount.replay_book({4: log}, [early, late])
+    backward = propaccount.replay_book({4: log}, [late, early])
+
+    assert (
+        paid_back(backward, autumn())["days_to_profit"]
+        == paid_back(forward, autumn())["days_to_profit"]
+        == 2.0
+    )
+
+
+def test_a_book_at_other_sizes_reads_its_profit_factor_off_the_first_size_s_log(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """The stored row's 1.236 belongs to trades the book never took; the first size is the book of one's."""
+    at_size = {8: leg_log([600.0, -300.0] * 20), 4: trade_log()}
+    monkeypatch.setattr(
+        campaign_propaccount,
+        "logs_for",
+        lambda _name, rows, root: (
+            {KEY: at_size[int(rows["order_quantity"].iloc[0])]},
+            pd.DataFrame([{"root": root, "resolution": 5, "rows": 1}]),
+        ),
+    )
+    stored = trade_log()
+    monkeypatch.setattr(campaign_propaccount, "stored_logs", lambda *_: {KEY: stored})
+    out = tmp_path / "prop"
+    rows = pd.DataFrame([stored_row(order_quantity=4)])
+    argv = ["--book-sizes", "2", "--book-quantities", "8", "4", "--out", str(out)]
+    assert run_main(monkeypatch, rows, tmp_path / "OpeningRange.duckdb", *argv) == 0
+
+    books = pd.read_csv(out / "books.csv")
+    assert books["held_pf"].tolist() == pytest.approx([stats.summarise(at_size[8]).profit_factor] * 2)
+    assert list(books["sizes"]) == ["8", "4/8"]
+    assert pd.read_csv(out / "replays.csv")["held_pf"].tolist() == pytest.approx([1.236])

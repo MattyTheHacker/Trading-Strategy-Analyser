@@ -1320,6 +1320,28 @@ Each is applied where bar data and the firm's wording leave a choice, and the ch
 - **Moving live ends the attempt and is not a breach.** The replay does not follow a live account, so the next attempt buys a new evaluation, the same as after a breach. Apex closes its Performance Account after the sixth payout rather than moving it live, and says a trader then qualifies through a new evaluation, which is the same end. `Outcome.MOVED_LIVE` names both.
 - **An evaluation that has not passed by its deadline ends as `Outcome.EXPIRED`**, not a breach, and the next opens on the day it could not trade. Apex's evaluations expire after 30 days.
 
+### A book of accounts
+
+`replay_book` replays several accounts on one strategy, a book, as a trade copier would run them, and totals them ([#446]). Each account is a slot: a preset or linked pair, the day it opens and the contract count of the log it trades. A slot is an ordinary `replay(..., start=...)`, so a book adds no account rule; what is new is putting every slot's dated fees and payouts on one timeline. Identical slots are replayed once.
+
+**Identical slots tell you nothing new.** A book whose accounts share a preset, a size and an opening day is one account times N. A book behaves differently only where its accounts differ: when each opens, which preset it runs and what size it trades.
+
+Decided on 2026-10-19:
+
+- **Openings.** Either a fixed gap in trading days, where 0 opens every account on the first day, or self-funded: `replay_funded_book` opens each next account on the day after the book's payouts less its fees first reach that account's opening fees, its entry fee and first month. The first account is paid for out of pocket and every later one by the book. That is a best case, as `days_to_profit` is, because a payout counts on the day it falls due.
+- **An account that ends.** By default its slot buys a new one the next trading day, as the single-account replay does. `--no-replace` gives each slot one attempt, so the book shrinks. That ends a slot however the account ended, by a breach, an expiry or moving live.
+- **Mix.** Presets and contract counts are each taken in turn from a list, so `A B` alternates and `A A B` runs two of A to each B.
+- **No limit on accounts per trader.** Firms cap how many accounts one trader may hold. Modelling that would add an account rule, so it is not modelled and nothing checks a book against it.
+
+**A smaller book is the first slots of a larger one**, under either opening rule, because no slot changes when a later one opens. So a book is replayed once at its largest size and every smaller size is read off it.
+
+Beside the single-account figures it reports three about accounts going together: `most_breached_in_a_day`, `days_most_breached` (days on which more than half the accounts open that day breached) and `open_at_end`.
+
+**Two guards travel with every book:**
+
+- **A book's net grows with its size and the strategy's edge does not.** A large figure at 20 accounts is not a better strategy; read it beside the profit factor and the book of one.
+- **Staggered accounts share almost every trade**, so they are not independent samples and their agreement is not confirmation.
+
 ### What is deliberately not modelled
 
 - **TakeProfitTrader's raised target when the consistency rule is missed**, and TopStep's, which works the same way. Failing it does not end the evaluation there; it lifts the target until the best day is back inside the ratio. The replay re-tests the pass every day and never records one until every condition holds at once, which reaches the same verdict by a different route — an account that would have had its target raised simply has not passed yet. Lucid's small cushion on its 50% rule is left out the same way, as the harsher reading.
@@ -1329,6 +1351,7 @@ Each is applied where bar data and the firm's wording leave a choice, and the ch
 - **Every option a firm sells beside the one a preset ships.** TopStep's Consistency payout path, its no-activation-fee Combine and its limited-time doubled caps for a daily loss limit bought at checkout; Apex's no-activation-fee evaluations; LucidDaily's intraday evaluation; and every optional daily loss limit, all of which ship switched off. Each is a `dataclasses.replace` away.
 - **What happens after an account moves live, and every reactivation.** TopStep's Back2Funded and a Lucid reset both reopen a failed account for less than a new one; the replay buys a new evaluation at its full price instead.
 - **A funded phase whose rules differ from the evaluation's, *within one preset*.** One `AccountRules` covers both phases. Where a firm changes its rules at the pass, it ships as two presets instead, and a linked pair chains them — see above.
+- **A firm's limit on how many accounts one trader may hold.** "A book of accounts" above.
 
 ______________________________________________________________________
 
@@ -1557,6 +1580,7 @@ ______________________________________________________________________
 [#439]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/439
 [#44]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/44
 [#440]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/440
+[#446]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/446
 [#45]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/45
 [#46]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/46
 [#47]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/47

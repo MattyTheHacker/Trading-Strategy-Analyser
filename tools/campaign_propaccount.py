@@ -5,6 +5,7 @@
     uv run tools/campaign_propaccount.py --strategy OpeningRange --preset all --last-months 12
     uv run tools/campaign_propaccount.py --strategy InsideBarTrailing \
         --stratum phase=MIDDAY --resolution 5 --quantities 3 4 6 8
+    uv run tools/campaign_propaccount.py --strategy OpeningRange --book-sizes 5 10 15 20 --stagger 5
 
 Nothing here is a ranking -- ``tools/README.md`` § "campaign_propaccount.py".
 """
@@ -89,12 +90,46 @@ trade count. Net is left out, because a row stored at one size is not reproduced
 BEST_COLUMNS = ["held_pf", "best_preset", "days_to_profit", "profitable_months", "fresh_ahead"]
 """What :func:`best_presets` reports beside each configuration's tags."""
 
+FUNDED = "funded"
+"""The ``--stagger`` value that opens each next account once the book's payouts less fees cover it."""
+
+BOOK_REPORTED = (
+    "attempts",
+    "breaches",
+    "payout",
+    "fees_paid",
+    "net",
+    "most_breached_in_a_day",
+    "days_most_breached",
+    "open_at_end",
+)
+"""Which of :class:`~nqbt.propaccount.BookReplay`'s figures reach a book's row."""
+
 
 class Window(NamedTuple):
     """The held-out trading days, and the whole months at their end the monthly figures read."""
 
     days: DateArray
     months: tuple[pd.Period, ...]
+
+
+class Book(NamedTuple):
+    """How a book is built: what its slots take in turn, and when each opens."""
+
+    accounts: tuple[propaccount.Account, ...]
+    sizes: tuple[int, ...] | None
+    """The contract counts slots take in turn; ``None`` trades the log at the size it was stored at."""
+
+    stagger: int | None
+    """Trading days between openings; ``None`` opens each once the book's payouts can pay for it."""
+
+    max_accounts: int | None
+    """Attempts per slot: 1 lets the book shrink, and ``None`` cannot bind."""
+
+    @property
+    def name(self) -> str:
+        """The presets the book's slots take in turn."""
+        return " + ".join(account.name for account in self.accounts)
 
 
 def uncapped(log: pd.DataFrame) -> int:
@@ -207,17 +242,9 @@ def first_trading_day(days: DateArray, month: pd.Period) -> dt.date:
     return pd.Timestamp(days[index]).date()
 
 
-def cash_flows(result: propaccount.PropReplay) -> list[tuple[dt.date, float]]:
+def cash_flows(result: propaccount.PropReplay | propaccount.BookReplay) -> list[tuple[dt.date, float]]:
     """Return what each day's fees and payouts came to, payouts positive, oldest day first."""
-    by_day: defaultdict[dt.date, float] = defaultdict(float)
-    for run in result.runs:
-        for charge in run.charges:
-            by_day[charge.day] -= charge.amount
-
-        for taken in run.withdrawals:
-            by_day[taken.day] += taken.payout
-
-    return sorted(by_day.items())
+    return propaccount.daily_cash(result.runs)
 
 
 def running_totals(cash: list[tuple[dt.date, float]]) -> list[tuple[dt.date, float]]:
@@ -231,11 +258,7 @@ def running_totals(cash: list[tuple[dt.date, float]]) -> list[tuple[dt.date, flo
     return totals
 
 
-def days_to_profit(
-    result: propaccount.PropReplay,
-    running: list[tuple[dt.date, float]],
-    days: DateArray,
-) -> float:
+def days_to_profit(opened: dt.date, running: list[tuple[dt.date, float]], days: DateArray) -> float:
     """Count trading days from the first account's opening to the first day payouts exceed fees.
 
     ``inf`` where they never do.
@@ -244,7 +267,7 @@ def days_to_profit(
     if broke_even is None:
         return float("inf")
 
-    return float(sessions_between(days, result.runs[0].first_day, broke_even))
+    return float(sessions_between(days, opened, broke_even))
 
 
 def out_of_pocket(running: list[tuple[dt.date, float]]) -> float:
@@ -317,6 +340,30 @@ def fresh_starts_ahead(
     return ahead
 
 
+def paid_back(
+    result: propaccount.PropReplay | propaccount.BookReplay,
+    window: Window,
+) -> dict[str, float | int | bool]:
+    """Measure when a replay's fees were paid back and how steady its months were."""
+    cash: list[tuple[dt.date, float]] = cash_flows(result)
+    running: list[tuple[dt.date, float]] = running_totals(cash)
+    months: list[float] = monthly_net(cash, window.months)
+    days: float = float("inf")
+    if result.runs:
+        days = days_to_profit(min(run.first_day for run in result.runs), running, window.days)
+
+    return {
+        "days_to_profit": days,
+        "broke_even": bool(np.isfinite(days)),
+        "months": len(window.months),
+        "profitable_months": sum(net > 0.0 for net in months),
+        "out_of_pocket": out_of_pocket(running),
+        "best_month": max(months),
+        "worst_month": min(months),
+        "losing_streak": longest_run(net < 0.0 for net in months),
+    }
+
+
 def timing(
     result: propaccount.PropReplay,
     account: propaccount.Account,
@@ -324,28 +371,17 @@ def timing(
     window: Window,
     max_accounts: int,
 ) -> dict[str, float | int | bool]:
-    """Measure when one replay's money came back and how steady its months were."""
-    cash: list[tuple[dt.date, float]] = cash_flows(result)
-    running: list[tuple[dt.date, float]] = running_totals(cash)
-    months: list[float] = monthly_net(cash, window.months)
+    """Measure when one replay's money came back, how steady its months were and how fresh starts fared."""
     evaluations, fees = spent_before_first_payout(result, account)
     payouts: list[float] = [taken.payout for run in result.runs for taken in run.withdrawals]
-    days: float = days_to_profit(result, running, window.days)
 
     return {
-        "days_to_profit": days,
-        "broke_even": bool(np.isfinite(days)),
-        "months": len(window.months),
-        "profitable_months": sum(net > 0.0 for net in months),
+        **paid_back(result, window),
         "fresh_ahead": fresh_starts_ahead(log, account, window, max_accounts),
-        "out_of_pocket": out_of_pocket(running),
         "evaluations_before_payout": evaluations,
         "fees_before_payout": fees,
         "payouts": len(payouts),
         "payout_median": statistics.median(payouts) if payouts else float("nan"),
-        "best_month": max(months),
-        "worst_month": min(months),
-        "losing_streak": longest_run(net < 0.0 for net in months),
     }
 
 
@@ -550,6 +586,167 @@ def best_presets(table: pd.DataFrame) -> pd.DataFrame:
     return picked
 
 
+def stagger(text: str) -> int | None:
+    """Parse ``--stagger``: trading days between openings, or :data:`FUNDED` for ``None``."""
+    if text.strip().casefold() == FUNDED:
+        return None
+
+    days: int = int(text)
+    if days < 0:
+        msg: str = f"a stagger is trading days and cannot be negative; got {days}"
+        raise argparse.ArgumentTypeError(msg)
+
+    return days
+
+
+def logs_as_stored(
+    rows: pd.DataFrame,
+    logs: Mapping[tuple[int, int], pd.DataFrame],
+) -> dict[tuple[int, int], dict[int, pd.DataFrame]]:
+    """Key each configuration's one log by the contract count it was stored at."""
+    return {
+        log_key(row): {int(row["order_quantity"]): logs[log_key(row)]}
+        for _, row in rows.iterrows()
+        if log_key(row) in logs
+    }
+
+
+def logs_at_sizes(
+    strategy: str,
+    rows: pd.DataFrame,
+    root: str,
+    quantities: Sequence[int],
+) -> dict[tuple[int, int], dict[int, pd.DataFrame]]:
+    """Re-run the shortlist at each contract count, leaving out a configuration that refuses any of them."""
+    archetype: archetypes.Archetype = archetypes.get(strategy)
+    distinct: list[int] = list(dict.fromkeys(quantities))
+    eligible: pd.DataFrame = rows
+    for quantity in distinct:
+        eligible = at_quantity(eligible, archetype, quantity)
+
+    if eligible.empty:
+        logger.warning("  no configuration here can take every one of %s contracts", distinct)
+
+        return {}
+
+    sized: dict[tuple[int, int], dict[int, pd.DataFrame]] = {}
+    for quantity in distinct:
+        logs: dict[tuple[int, int], pd.DataFrame]
+        rerun: pd.DataFrame
+        logs, rerun = logs_for(strategy, eligible.assign(order_quantity=quantity), root)
+        show(
+            f"{strategy} {root} at {quantity} contracts -- what the book's re-run ran on",
+            rerun.reindex(columns=RUNG_CHECK),
+        )
+        for key, log in logs.items():
+            sized.setdefault(key, {})[quantity] = log
+
+    return {key: by_size for key, by_size in sized.items() if len(by_size) == len(distinct)}
+
+
+def replay_one_book(
+    book: Book,
+    logs: Mapping[int, pd.DataFrame],
+    count: int,
+    days: DateArray,
+) -> propaccount.BookReplay:
+    """Replay a book of ``count`` slots over one configuration's logs, opening from the window's first day."""
+    sizes: tuple[int, ...] = book.sizes if book.sizes is not None else tuple(logs)
+    plan: list[tuple[propaccount.Account, int]] = [
+        (book.accounts[slot % len(book.accounts)], sizes[slot % len(sizes)]) for slot in range(count)
+    ]
+    if book.stagger is None:
+        start: dt.date = pd.Timestamp(days[0]).date()
+
+        return propaccount.replay_funded_book(logs, plan, start, max_accounts=book.max_accounts)
+
+    slots: list[propaccount.BookSlot] = [
+        propaccount.BookSlot(account, pd.Timestamp(days[slot * book.stagger]).date(), contracts)
+        for slot, (account, contracts) in enumerate(plan)
+        if slot * book.stagger < days.size
+    ]
+
+    return propaccount.replay_book(logs, slots, max_accounts=book.max_accounts)
+
+
+def book_row(  # type: ignore[explicit-any]  # duckdb's dtypes
+    row: pd.Series,
+    book: Book,
+    result: propaccount.BookReplay,
+    size: int,
+    window: Window,
+) -> dict[str, object]:
+    """Return one book's figures at one size, beside the configuration it replayed."""
+    lifetime: dict[str, object] = {name: getattr(result, name) for name in BOOK_REPORTED}
+
+    return {
+        **labelled(row),
+        "held_pf": float(row["profit_factor"]),
+        "book": book.name,
+        "book_size": size,
+        "accounts": len(result.slots),
+        "sizes": "/".join(str(contracts) for contracts in sorted({slot.contracts for slot in result.slots})),
+        **lifetime,
+        "profitable": result.net > 0.0,
+        **paid_back(result, window),
+    }
+
+
+def replay_books(
+    rows: pd.DataFrame,
+    logs: Mapping[tuple[int, int], Mapping[int, pd.DataFrame]],
+    books: Sequence[Book],
+    sizes: Sequence[int],
+    window: Window,
+) -> pd.DataFrame:
+    """Replay every configuration through every book at every size, a book of one beside them.
+
+    Each book is replayed once at its largest size; a smaller one is its first slots.
+    """
+    counts: list[int] = sorted({1, *sizes})
+    replayed: list[dict[str, object]] = []
+    for _, row in rows.iterrows():
+        sized: Mapping[int, pd.DataFrame] = logs.get(log_key(row), {})
+        if not sized or any(log.empty for log in sized.values()):
+            logger.warning("  sweep %-4d combo %-6d has no log at every size the book trades", *log_key(row))
+            continue
+
+        for book in books:
+            try:
+                whole: propaccount.BookReplay = replay_one_book(book, sized, counts[-1], window.days)
+            except propaccount.PropAccountError as refused:
+                logger.warning("  %-14s sweep %-4d combo %-6d refused: %s", book.name, *log_key(row), refused)
+                continue
+
+            replayed.extend(book_row(row, book, whole.first(count), count, window) for count in counts)
+
+    return pd.DataFrame(replayed)
+
+
+def book_verdict(table: pd.DataFrame) -> pd.DataFrame:
+    """Return each book's medians across the shortlist at each size, and the shares that are not medians."""
+    if table.empty:
+        return pd.DataFrame()
+
+    grouped = table.groupby(["book", "book_size"], sort=False)
+    columns = {
+        "configurations": grouped.size(),
+        "accounts_med": grouped["accounts"].median(),
+        "fees_med": grouped["fees_paid"].median(),
+        "net_med": grouped["net"].median(),
+        "profitable_%": 100.0 * grouped["profitable"].mean(),
+        "broke_even_%": 100.0 * grouped["broke_even"].mean(),
+        "days_to_profit_med": grouped["days_to_profit"].median(),
+        "out_of_pocket_med": grouped["out_of_pocket"].median(),
+        "profitable_months_med": grouped["profitable_months"].median(),
+        "most_breached_med": grouped["most_breached_in_a_day"].median(),
+        "days_most_breached_med": grouped["days_most_breached"].median(),
+        "open_at_end_med": grouped["open_at_end"].median(),
+    }
+
+    return pd.DataFrame(columns).reset_index()
+
+
 def show(title: str, frame: pd.DataFrame) -> None:
     """Print one table under a heading, or say that it is empty."""
     logger.info("")
@@ -582,19 +779,97 @@ def shortlist_logs(
     return logs
 
 
-def write(out: Path, table: pd.DataFrame) -> None:
-    """Write every replay row, the verdict and each configuration's best rule set under ``out``."""
+def write(out: Path, table: pd.DataFrame, books: pd.DataFrame | None = None) -> None:
+    """Write every replay row, the verdict and each configuration's best rule set under ``out``.
+
+    ``books`` adds every book row and the books' verdict.
+    """
     out.mkdir(parents=True, exist_ok=True)
     table.to_csv(out / "replays.csv", index=False)
     verdict(table).to_csv(out / "verdict.csv", index=False)
     best_presets(table).to_csv(out / "best.csv", index=False)
+    if books is not None:
+        books.to_csv(out / "books.csv", index=False)
+        book_verdict(books).to_csv(out / "book_verdict.csv", index=False)
+
     logger.info("wrote %s", out)
 
 
-def main(argv: list[str]) -> int:
-    """Replay the shortlist through the prop account rules and return the process exit code."""
-    logsetup.configure(__name__)
-    parser = argparse.ArgumentParser(description="Prop-account replay over a campaign shortlist.")
+def books_from(
+    args: argparse.Namespace,
+    accounts: Sequence[propaccount.Account],
+    order: propaccount.ExcursionOrder | None,
+) -> list[Book]:
+    """Return one book per rule set, or the one ``--book-mix`` names, under the command line's settings."""
+    max_accounts: int | None = 1 if args.no_replace else args.max_accounts
+    sizes: tuple[int, ...] | None = tuple(args.book_quantities) if args.book_quantities else None
+    if not args.book_mix:
+        return [Book((account,), sizes, args.stagger, max_accounts) for account in accounts]
+
+    mix: list[propaccount.Account] = [account for name in args.book_mix for account in chosen([name])]
+    if order is not None:
+        mix = [in_order(account, order) for account in mix]
+
+    return [Book(tuple(mix), sizes, args.stagger, max_accounts)]
+
+
+def check_book_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    """Refuse a book option given without ``--book-sizes``, sizes no book could take and an unknown mix."""
+    shapes_a_book: bool = (
+        args.stagger != 0 or args.no_replace or bool(args.book_mix) or bool(args.book_quantities)
+    )
+    if not args.book_sizes:
+        if shapes_a_book:
+            parser.error("--stagger, --no-replace, --book-mix and --book-quantities need --book-sizes")
+
+        return
+
+    if args.quantities:
+        parser.error("--book-sizes takes its contract counts from --book-quantities, not --quantities")
+
+    if min(args.book_sizes) < 1 or min(args.book_quantities or [1]) < 1:
+        parser.error("--book-sizes and --book-quantities must be at least 1")
+
+    try:
+        chosen(args.book_mix or [])
+    except propaccount.PropAccountError as refused:
+        parser.error(str(refused))
+
+
+def report_books(
+    args: argparse.Namespace,
+    rows: pd.DataFrame,
+    logs: Mapping[tuple[int, int], pd.DataFrame],
+    accounts: Sequence[propaccount.Account],
+    order: propaccount.ExcursionOrder | None,
+    window: Window,
+) -> pd.DataFrame:
+    """Replay and print every book ``args`` asks for, over ``logs`` or ``--book-quantities``' re-runs.
+
+    Under ``--book-quantities`` the profit factor is read off the first size's log.
+    """
+    sized: dict[tuple[int, int], dict[int, pd.DataFrame]]
+    if args.book_quantities:
+        sized = logs_at_sizes(args.strategy, rows, args.root, args.book_quantities)
+        first: int = args.book_quantities[0]
+        rows = with_own_profit_factor(rows, {key: by_size[first] for key, by_size in sized.items()})
+    else:
+        sized = logs_as_stored(rows, logs)
+
+    books: pd.DataFrame = replay_books(
+        rows, sized, books_from(args, accounts, order), args.book_sizes, window
+    )
+    show(f"{args.strategy} {args.root} -- every configuration through every book", books)
+    show("what each book was worth, across the shortlist", book_verdict(books))
+
+    return books
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Return the command line's parser."""
+    parser: argparse.ArgumentParser = argparse.ArgumentParser(
+        description="Prop-account replay over a campaign shortlist."
+    )
     parser.add_argument("--strategy", required=True)
     parser.add_argument("--root", default="MNQ")
     parser.add_argument("--by", default="profit_factor", help="the selection-window statistic that ranks")
@@ -639,12 +914,52 @@ def main(argv: list[str]) -> int:
         help="re-run and replay the shortlist once per contract count; implies --rerun",
     )
     parser.add_argument(
+        "--book-sizes",
+        nargs="+",
+        type=int,
+        default=None,
+        help="also replay a book of this many accounts on each configuration, beside a book of one",
+    )
+    parser.add_argument(
+        "--stagger",
+        type=stagger,
+        default=0,
+        help=f"trading days between a book's openings, or {FUNDED!r} to open each once its payouts cover it",
+    )
+    parser.add_argument(
+        "--no-replace",
+        action="store_true",
+        help="give each of a book's accounts one attempt, so it shrinks; overrides --max-accounts for books",
+    )
+    parser.add_argument(
+        "--book-mix",
+        nargs="+",
+        default=None,
+        help="replay one book whose accounts take these rule sets in turn, rather than a book per --preset",
+    )
+    parser.add_argument(
+        "--book-quantities",
+        nargs="+",
+        type=int,
+        default=None,
+        help="re-run the shortlist at these contract counts, which a book's accounts take in turn",
+    )
+    parser.add_argument(
         "--out",
         type=Path,
         default=None,
         help="write every replay row, the verdict and each configuration's best rule set here",
     )
+
+    return parser
+
+
+def main(argv: list[str]) -> int:
+    """Replay the shortlist through the prop account rules and return the process exit code."""
+    logsetup.configure(__name__)
+    parser: argparse.ArgumentParser = build_parser()
     args = parser.parse_args(argv[1:])
+    check_book_options(parser, args)
 
     rows: pd.DataFrame = held_out(
         args.strategy,
@@ -656,6 +971,7 @@ def main(argv: list[str]) -> int:
         args.variant,
     )
     accounts: list[propaccount.Account] = chosen(args.preset)
+    order: propaccount.ExcursionOrder | None = None
     if args.excursion_order is not None:
         order = propaccount.ExcursionOrder(args.excursion_order)
         accounts = [in_order(account, order) for account in accounts]
@@ -684,18 +1000,14 @@ def main(argv: list[str]) -> int:
     )
 
     table: pd.DataFrame
+    logs: Mapping[tuple[int, int], pd.DataFrame] = {}
     if args.quantities:
         table = replay_rungs(
             args.strategy, rows, args.root, args.quantities, accounts, args.max_accounts, window
         )
     else:
-        table = replay_shortlist(
-            rows,
-            shortlist_logs(args.strategy, rows, args.root, rerun=args.rerun),
-            accounts,
-            args.max_accounts,
-            window,
-        )
+        logs = shortlist_logs(args.strategy, rows, args.root, rerun=args.rerun)
+        table = replay_shortlist(rows, logs, accounts, args.max_accounts, window)
 
     if table.empty:
         logger.warning("no trade logs for this shortlist; nothing to replay")
@@ -705,6 +1017,10 @@ def main(argv: list[str]) -> int:
     show(f"{args.strategy} {args.root} -- every configuration through every rule set", table)
     show("what each rule set was worth, across the shortlist", verdict(table))
     show("each configuration's fastest rule set to profit", best_presets(table))
+    books: pd.DataFrame | None = None
+    if args.book_sizes:
+        books = report_books(args, rows, logs, accounts, order, window)
+
     logger.info("")
     logger.info(
         "net is payout minus fees and is not a ranking; read it beside %s and the pass rate",
@@ -714,8 +1030,15 @@ def main(argv: list[str]) -> int:
         "days to profit is a best case: every payout is taken at the close of the first day the "
         "firm's payout rules allow it, at the largest size they allow"
     )
+    if books is not None:
+        logger.info(
+            "a book's net grows with its size and the strategy's edge does not: read it beside held_pf "
+            "and the book of one. Its accounts share almost every trade, so they are not independent "
+            "samples, and no firm's limit on accounts per trader is checked"
+        )
+
     if args.out is not None:
-        write(args.out, table)
+        write(args.out, table, books)
 
     return 0
 

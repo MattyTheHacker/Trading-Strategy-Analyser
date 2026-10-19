@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import dataclasses
 import datetime as dt
+import functools
 import itertools
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, NamedTuple
@@ -22,7 +24,7 @@ import pandas as pd
 from nqbt import instruments, sessions, stats
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Mapping
+    from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 
     from nqbt.arrays import DateArray, FloatArray, IntArray
 
@@ -59,6 +61,8 @@ __all__ = [
     "AccountFees",
     "AccountRules",
     "AccountRun",
+    "BookReplay",
+    "BookSlot",
     "Charge",
     "DailyBreach",
     "EquityBasis",
@@ -74,9 +78,12 @@ __all__ = [
     "TrailLock",
     "Withdrawal",
     "account_named",
+    "daily_cash",
     "evaluation_of",
     "preset",
     "replay",
+    "replay_book",
+    "replay_funded_book",
 ]
 
 REQUIRED_COLUMNS = (
@@ -1376,6 +1383,201 @@ def _legs_taken(log: pd.DataFrame, table: _TradeTable, positions: list[int]) -> 
     wanted: IntArray = table.trade_id[np.asarray(positions, dtype=np.int64)]
 
     return log[log["trade_id"].isin(wanted)]
+
+
+def daily_cash(runs: Iterable[AccountRun]) -> list[tuple[dt.date, float]]:
+    """Return what each day's fees and payouts came to, payouts positive, oldest day first."""
+    by_day: defaultdict[dt.date, float] = defaultdict(float)
+    for run in runs:
+        for charge in run.charges:
+            by_day[charge.day] -= charge.amount
+
+        for taken in run.withdrawals:
+            by_day[taken.day] += taken.payout
+
+    return sorted(by_day.items())
+
+
+class BookSlot(NamedTuple):
+    """One account of a book: what it is, the day it may open and the log it trades."""
+
+    account: Account
+    opens: dt.date
+    """It opens on the log's first trading day from this one on."""
+
+    contracts: int
+    """The contract count of the log it trades, a key into the book's logs."""
+
+
+_STILL_OPEN = frozenset({Outcome.SURVIVED, Outcome.PROMOTED})
+"""The outcomes a slot's last account can end the log on and still be open.
+
+A pass on the log's last day promotes into a funded account the log has no day left to open.
+"""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class BookReplay:
+    """Several accounts on one strategy, each replayed in its own slot, and what the book did.
+
+    ``docs/roadmap.md`` § "A book of accounts".
+    """
+
+    slots: tuple[BookSlot, ...]
+    """The slots that opened, in the order given."""
+
+    replays: tuple[PropReplay, ...]
+    """Each slot's replay, in the same order; identical slots share one."""
+
+    attempts: int
+    breaches: int
+    payout: float
+    fees_paid: float
+    net: float
+    most_breached_in_a_day: int
+    """The most accounts that breached on one trading day."""
+
+    days_most_breached: int
+    """Trading days on which more than half the accounts open that day breached."""
+
+    open_at_end: int
+    """Slots whose last account was still open when the log ran out."""
+
+    @property
+    def runs(self) -> tuple[AccountRun, ...]:
+        """Every account any slot opened, slot by slot."""
+        return tuple(run for replayed in self.replays for run in replayed.runs)
+
+    def first(self, accounts: int) -> BookReplay:
+        """Return the book of its first ``accounts`` slots, which open exactly as they do here."""
+        return _book(self.slots[:accounts], self.replays[:accounts])
+
+
+def replay_book(
+    logs: Mapping[int, pd.DataFrame],
+    slots: Sequence[BookSlot],
+    *,
+    max_accounts: int | None = None,
+) -> BookReplay:
+    """Replay each slot from its opening day, identical slots once, and total the book.
+
+    ``logs`` holds each contract count's trade log. ``max_accounts`` caps each slot's attempts as
+    :func:`replay` does, and ``None`` cannot bind. A slot opening after its log's last trading day
+    never opens and is left out.
+    """
+    _require_logs(logs, [slot.contracts for slot in slots])
+    replay_slot: Callable[[BookSlot], PropReplay] = _slot_replayer(logs, max_accounts)
+    opened: list[tuple[BookSlot, PropReplay]] = [(slot, replay_slot(slot)) for slot in slots]
+    kept: list[tuple[BookSlot, PropReplay]] = [(slot, replayed) for slot, replayed in opened if replayed.runs]
+
+    return _book(tuple(slot for slot, _ in kept), tuple(replayed for _, replayed in kept))
+
+
+def replay_funded_book(
+    logs: Mapping[int, pd.DataFrame],
+    plan: Sequence[tuple[Account, int]],
+    start: dt.date,
+    *,
+    max_accounts: int | None = None,
+) -> BookReplay:
+    """Open ``plan``'s accounts in turn, each once the book's payouts less its fees cover its opening fees.
+
+    The first opens on ``start`` and each later one on the day after the book could first pay for
+    it; the book stops growing at the first it never can. ``plan`` pairs each account with the
+    contract count of the log it trades, and the rest is :func:`replay_book`'s.
+    """
+    _require_logs(logs, [contracts for _, contracts in plan])
+    replay_slot: Callable[[BookSlot], PropReplay] = _slot_replayer(logs, max_accounts)
+    slots: list[BookSlot] = []
+    replays: list[PropReplay] = []
+    for account, contracts in plan:
+        opens: dt.date | None = _paid_for(replays, _opening_cost(account)) if replays else start
+        if opens is None:
+            break
+
+        slot: BookSlot = BookSlot(account, opens, contracts)
+        replayed: PropReplay = replay_slot(slot)
+        if not replayed.runs:
+            break
+
+        slots.append(slot)
+        replays.append(replayed)
+
+    return _book(tuple(slots), tuple(replays))
+
+
+def _require_logs(logs: Mapping[int, pd.DataFrame], contracts: Iterable[int]) -> None:
+    """Refuse a book naming a contract count it holds no log for."""
+    missing: set[int] = set(contracts) - set(logs)
+    if missing:
+        msg: str = f"no trade log at {sorted(missing)} contracts; the book holds logs at {sorted(logs)}"
+        raise PropAccountError(msg)
+
+
+def _slot_replayer(
+    logs: Mapping[int, pd.DataFrame],
+    max_accounts: int | None,
+) -> Callable[[BookSlot], PropReplay]:
+    """Return a function replaying one slot, which replays each distinct slot once."""
+
+    @functools.cache
+    def replay_slot(slot: BookSlot) -> PropReplay:
+        log: pd.DataFrame = logs[slot.contracts]
+        cap: int = max_accounts if max_accounts is not None else max(1, len(log))
+
+        return replay(log, slot.account, max_accounts=cap, start=slot.opens)
+
+    return replay_slot
+
+
+def _opening_cost(account: Account) -> float:
+    """Return what opening ``account`` charges on its first day: the entry fee and the first month."""
+    fees: AccountFees = evaluation_of(account).fees
+
+    return fees.evaluation_fee + fees.monthly_fee
+
+
+def _paid_for(replays: Sequence[PropReplay], cost: float) -> dt.date | None:
+    """Return the day after the book's payouts less fees first reach ``cost``, from its newest opening on.
+
+    ``None`` where they never do.
+    """
+    since: dt.date = replays[-1].runs[0].first_day
+    by_day: dict[dt.date, float] = dict(daily_cash(run for replayed in replays for run in replayed.runs))
+    by_day.setdefault(since, 0.0)
+    running: float = 0.0
+    for day, moved in sorted(by_day.items()):
+        running += moved
+        if day >= since and round(running, 2) >= round(cost, 2):
+            return day + dt.timedelta(days=1)
+
+    return None
+
+
+def _book(slots: tuple[BookSlot, ...], replays: tuple[PropReplay, ...]) -> BookReplay:
+    """Total each slot's replay into the book's figures, an identical slot counting once per slot."""
+    runs: list[AccountRun] = [run for replayed in replays for run in replayed.runs]
+    breached_on: Counter[dt.date] = Counter(run.last_day for run in runs if run.outcome in _BREACHES)
+    payout: float = sum(replayed.payout for replayed in replays)
+    fees_paid: float = sum(replayed.fees_paid for replayed in replays)
+
+    return BookReplay(
+        slots=slots,
+        replays=replays,
+        attempts=sum(replayed.attempts for replayed in replays),
+        breaches=sum(replayed.breaches for replayed in replays),
+        payout=payout,
+        fees_paid=fees_paid,
+        net=payout - fees_paid,
+        most_breached_in_a_day=max(breached_on.values(), default=0),
+        days_most_breached=sum(2 * breached > _open_on(runs, day) for day, breached in breached_on.items()),
+        open_at_end=sum(replayed.runs[-1].outcome in _STILL_OPEN for replayed in replays),
+    )
+
+
+def _open_on(runs: Sequence[AccountRun], day: dt.date) -> int:
+    """Count the accounts open on ``day``."""
+    return sum(run.first_day <= day <= run.last_day for run in runs)
 
 
 def _trade_table(log: pd.DataFrame, *, needs_excursions: bool, needs_contracts: bool) -> _TradeTable:
