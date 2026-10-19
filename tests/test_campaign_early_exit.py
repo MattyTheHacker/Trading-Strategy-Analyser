@@ -400,6 +400,27 @@ def test_rows_with_no_arm_to_pair_say_so_rather_than_failing_to_stack(
         ladder("DeadCatBounce", ["holdout"], "profit_factor")
 
 
+@pytest.mark.parametrize(
+    ("arm_set", "thirty"), [(EARLY_EXIT, False), (EARLY_EXIT_3, False), (SQUEEZE_LATCH, True)]
+)
+def test_the_stored_twins_are_read_only_at_the_bar_sizes_the_arm_set_runs_at(
+    monkeypatch: pytest.MonkeyPatch, arm_set: str, *, thirty: bool
+) -> None:
+    """A campaign row at a size the set skips has no control to join, so it would read as unmatched."""
+    asked: list[str] = []
+
+    def query(sql: str, _path: object) -> pd.DataFrame:
+        asked.append(sql)
+
+        return pd.DataFrame()
+
+    monkeypatch.setattr("nqbt.results.query", query)
+    name = "SqueezeBreakout" if arm_set == SQUEEZE_LATCH else "InsideBar"
+    stored_twins(name, "unfiltered", ARM_SETS[arm_set])
+    assert "c.resolution IN (1, 2, 5, 10, 15" in asked[0]
+    assert ("15, 30)" in asked[0]) is thirty
+
+
 def test_a_stratum_name_holding_a_quote_is_refused_before_it_reaches_the_query() -> None:
     with pytest.raises(ValueError, match="cannot be read"):
         stored_twins("InsideBar", "regime='x")

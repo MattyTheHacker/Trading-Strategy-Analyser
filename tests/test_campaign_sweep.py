@@ -113,6 +113,7 @@ from tools.campaign_sweep import (
     ELASTIC_INVERT_AXES,
     ELASTIC_INVERT_VARIANTS,
     ELASTIC_LADDERS,
+    ELASTIC_NOISE,
     ELASTIC_RECOVERY,
     ELASTIC_RECOVERY_ARMS,
     ELASTIC_RECOVERY_TARGET,
@@ -133,6 +134,7 @@ from tools.campaign_sweep import (
     EMAPULLBACK_TRAIL_VARIANTS,
     GIVE_BACK_FROM_R,
     GIVE_BACKS,
+    HOLD,
     IBT_SIZING,
     IBT_SIZING_HIGH,
     IBT_SIZING_HIGH_VARIANTS,
@@ -179,6 +181,7 @@ from tools.campaign_sweep import (
     REGIME_LOOKBACKS,
     REGIME_QUANTILES,
     RESOLUTIONS,
+    RESOLUTIONS_BELOW_THIRTY,
     ROOTS,
     SELECTION_SHARE,
     SERIAL_BELOW_COMBINATION_BARS,
@@ -217,6 +220,7 @@ from tools.campaign_sweep import (
     SizingCut,
     Variant,
     VolumeCut,
+    below_thirty,
     calibrate,
     calibrate_volume,
     campaign_variant_names,
@@ -773,6 +777,59 @@ def test_the_anchor_constrains_the_resolutions_as_much_as_the_window_does() -> N
     assert orb_resolutions(7, 60) == (1,)
 
 
+# -- thirty minutes, which the sets whose arms coincide there leave out ---------------------
+
+SETS_BELOW_THIRTY = (
+    EARLY_EXIT,
+    EARLY_EXIT_2,
+    EARLY_EXIT_3,
+    HOLD,
+    IBT_STRUCTURE,
+    IBT_STRUCTURE_ENDS,
+    ELASTIC_NOISE,
+)
+"""The sets several of whose arms coincide at 30-minute bars -- ``docs/roadmap.md`` §M13."""
+
+FITTED_SETS = (NARROW, IBT_SIZING, IBT_SIZING_HIGH, CONFLUENCE_SIZING)
+"""The sets whose bar sizes come from a hand-read entry or a fitted cut rather than from the list."""
+
+
+def test_the_sizes_below_thirty_are_every_campaign_size_but_thirty() -> None:
+    assert tuple(minutes for minutes in RESOLUTIONS if minutes != 30) == RESOLUTIONS_BELOW_THIRTY
+    assert 30 in RESOLUTIONS
+
+
+def test_below_thirty_takes_thirty_away_and_keeps_a_variants_own_sizes() -> None:
+    """An opening range's window decides which sizes it has, so the wrapper only ever removes one."""
+    ranged = replace(VARIANTS["InsideBar"]("MNQ")[0], resolutions=(1, 5, 15, 30))
+    assert [variant.resolutions for variant in below_thirty(lambda _root: [ranged])("MNQ")] == [(1, 5, 15)]
+
+
+@pytest.mark.parametrize("variant_set", SETS_BELOW_THIRTY)
+def test_a_set_whose_arms_coincide_at_thirty_keeps_its_bases_other_sizes(variant_set: str) -> None:
+    """At 30 minutes ``exit=close15m`` is ``exit=off`` and ``hold=80`` is ``hold=0`` -- §M13."""
+    for archetype, build in variants_for(variant_set).items():
+        bases = {base.name: base.resolutions for base in VARIANTS[archetype]("MNQ")}
+        for variant in build("MNQ"):
+            named = [name for name in bases if variant.name.startswith(name)]
+            own = bases[max(named, key=len)] if named else RESOLUTIONS
+            assert variant.resolutions == tuple(minutes for minutes in own if minutes != 30), variant.name
+
+
+SETS_AT_THIRTY = sorted(set(VARIANT_SETS) - set(SETS_BELOW_THIRTY) - set(FITTED_SETS))
+
+
+@pytest.mark.parametrize("variant_set", SETS_AT_THIRTY)
+def test_every_other_set_runs_at_thirty_minutes_wherever_its_range_allows(variant_set: str) -> None:
+    """The latch is built as the early exits are and runs at 30, where none of its arms coincide."""
+    for build in variants_for(variant_set).values():
+        built = build("MNQ")
+        ranged = [variant for variant in built if variant.archetype is archetypes.OPENINGRANGE]
+        unranged = [variant for variant in built if variant.archetype is not archetypes.OPENINGRANGE]
+        assert all(variant.runs_at(30) for variant in unranged)
+        assert not ranged or any(variant.runs_at(30) for variant in ranged)
+
+
 def test_every_opening_range_variant_can_be_prepared_at_the_resolutions_it_claims() -> None:
     """The real guard: a claimed resolution whose range grid refuses to build fails here.
 
@@ -1164,8 +1221,8 @@ def test_each_narrow_variant_runs_at_exactly_one_resolution() -> None:
 
 
 def test_the_narrow_set_runs_at_every_resolution_the_campaign_split() -> None:
-    """One minute has no selection window to read an entry from -- §M44."""
-    assert set(NARROW_ENTRY) == set(RESOLUTIONS) - {1}
+    """One minute has no selection window to read an entry from -- §M44 -- and thirty no stored rows yet."""
+    assert set(NARROW_ENTRY) == set(RESOLUTIONS) - {1, 30}
 
 
 def test_the_narrow_entry_is_held_at_a_value_and_never_swept() -> None:

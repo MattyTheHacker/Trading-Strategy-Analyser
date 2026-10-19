@@ -125,7 +125,11 @@ COMMISSION: dict[str, float] = {
 
 SLIPPAGE_TICKS = 1.0
 
-RESOLUTIONS = (1, 2, 5, 10, 15)
+RESOLUTIONS = (1, 2, 5, 10, 15, 30)
+"""Bar sizes in minutes that a variant runs at unless it declares its own -- ``docs/roadmap.md`` §M13."""
+
+RESOLUTIONS_BELOW_THIRTY = (1, 2, 5, 10, 15)
+"""Bar sizes a set runs at when several of its arms coincide at 30 minutes -- ``docs/roadmap.md`` §M13."""
 
 SELECTION_SHARE = 0.6
 """Share of the series, by bar count, that ``--split`` selects on. The rest is held out."""
@@ -593,7 +597,7 @@ class Variant:
     base: ArchetypeParams
     axes: dict[str, list[AxisValue]] = field(default_factory=dict)
     resolutions: tuple[int, ...] = RESOLUTIONS
-    """Bar sizes this variant can be run at; a session-anchored range cannot run at all of them."""
+    """Bar sizes this variant runs at; a session-anchored range and a set below thirty run at fewer."""
 
     def sized(self) -> int:
         """Count how many combinations this variant's own axes make."""
@@ -606,6 +610,23 @@ class Variant:
     def runs_at(self, minutes: int) -> bool:
         """Return whether this variant is expressible at one resolution."""
         return minutes in self.resolutions
+
+
+def below_thirty(build: Callable[[str], list[Variant]]) -> Callable[[str], list[Variant]]:
+    """Wrap a variant builder so every variant it returns skips 30 minutes."""
+
+    def variants(root: str) -> list[Variant]:
+        return [
+            replace(
+                variant,
+                resolutions=tuple(
+                    minutes for minutes in variant.resolutions if minutes in RESOLUTIONS_BELOW_THIRTY
+                ),
+            )
+            for variant in build(root)
+        ]
+
+    return variants
 
 
 def _costed(params: ParamsT, root: str) -> ParamsT:
@@ -1789,8 +1810,8 @@ def decision_resolutions(resolutions: Sequence[int]) -> tuple[int, ...]:
     return tuple(minutes for minutes in resolutions if NOISE_CHECK_MINUTES % minutes == 0)
 
 
-NOISE_RESOLUTIONS = decision_resolutions(RESOLUTIONS)
-"""Every campaign bar size, since each divides the half hour."""
+NOISE_RESOLUTIONS = decision_resolutions(RESOLUTIONS_BELOW_THIRTY)
+"""Every bar size below 30 minutes, since each divides the half hour -- ``docs/roadmap.md`` §M13."""
 
 
 class NoiseArm(NamedTuple):
@@ -1885,7 +1906,7 @@ def _held(build: Callable[[str], list[Variant]]) -> Callable[[str], list[Variant
     return variants
 
 
-HOLD_VARIANTS: VariantBuilders = {name: _held(build) for name, build in VARIANTS.items()}
+HOLD_VARIANTS: VariantBuilders = {name: below_thirty(_held(build)) for name, build in VARIANTS.items()}
 """The [#292] run: every archetype's stored campaign grid, once per maximum hold time."""
 
 EARLY_EXIT_BARS = (3, 5, 10, 20)
@@ -1949,7 +1970,7 @@ def _exited(
 
 
 EARLY_EXIT_VARIANTS: VariantBuilders = {
-    name: _exited(build, early_exit_arms, EARLY_EXIT_MARKER) for name, build in VARIANTS.items()
+    name: below_thirty(_exited(build, early_exit_arms, EARLY_EXIT_MARKER)) for name, build in VARIANTS.items()
 }
 """The [#369] run: every archetype's stored campaign grid, once per early-exit arm."""
 
@@ -2047,7 +2068,7 @@ def _tier2_stop_moves() -> dict[str, dict[str, AxisValue | bool]]:
 
 
 EARLY_EXIT_2_VARIANTS: VariantBuilders = {
-    name: _exited(build, tier2_arms, EARLY_EXIT_2_MARKER) for name, build in VARIANTS.items()
+    name: below_thirty(_exited(build, tier2_arms, EARLY_EXIT_2_MARKER)) for name, build in VARIANTS.items()
 }
 """The second [#369] run: every archetype's stored campaign grid, once per tier-2 arm."""
 
@@ -2136,7 +2157,7 @@ def _tier3_counter_trend() -> dict[str, dict[str, AxisValue | bool]]:
 
 
 EARLY_EXIT_3_VARIANTS: VariantBuilders = {
-    name: _exited(build, tier3_arms, EARLY_EXIT_3_MARKER) for name, build in VARIANTS.items()
+    name: below_thirty(_exited(build, tier3_arms, EARLY_EXIT_3_MARKER)) for name, build in VARIANTS.items()
 }
 """The third [#369] run: every archetype's stored campaign grid, once per tier-3 arm."""
 
@@ -2566,7 +2587,9 @@ def insidebartrailing_structure_variants(root: str) -> list[Variant]:
     return structure_variants(root, "structure", structure_trail_arms())
 
 
-IBT_STRUCTURE_VARIANTS: VariantBuilders = {"InsideBarTrailing": insidebartrailing_structure_variants}
+IBT_STRUCTURE_VARIANTS: VariantBuilders = {
+    "InsideBarTrailing": below_thirty(insidebartrailing_structure_variants)
+}
 """The [#352] run: InsideBarTrailing's stored grid with the runner trailing the high-water mark and
 trailing to structure. Every name carries a ``structure=`` token no stored row has, so the run
 cannot collide with the campaign in one database."""
@@ -2590,7 +2613,9 @@ def insidebartrailing_structure_end_variants(root: str) -> list[Variant]:
     ]
 
 
-IBT_STRUCTURE_ENDS_VARIANTS: VariantBuilders = {"InsideBarTrailing": insidebartrailing_structure_end_variants}
+IBT_STRUCTURE_ENDS_VARIANTS: VariantBuilders = {
+    "InsideBarTrailing": below_thirty(insidebartrailing_structure_end_variants)
+}
 """§M49's variants, and the arms its ladders left out. Each new arm's name carries a
 ``structure_ends=`` token that neither the stored rows nor §M49's carry --
 ``docs/findings/m49-structure-trail-result.md`` § "What this does not settle"."""
@@ -3610,8 +3635,8 @@ def main(argv: list[str]) -> int:
             sized: dict[int, Cuts] = confluence_cuts(name, root) if args.variants == CONFLUENCE_SIZING else {}
             for window, source in windows(bars, split=args.split):
                 for minutes in args.resolutions:
-                    # A variant the resolution cannot express is skipped rather than raising:
-                    # the opening range is the only one this can drop -- see Variant.resolutions.
+                    # A variant that does not run at this resolution is skipped rather than raising:
+                    # an opening range's window, or a set below thirty -- see Variant.resolutions.
                     at_resolution: list[Variant] = [v for v in variants if v.runs_at(minutes)]
                     if not at_resolution:
                         continue
