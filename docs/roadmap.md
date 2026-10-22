@@ -744,7 +744,7 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 ### M53 — EmaPullback's stop trailed on an average of its own ([#439])
 
-**Pre-registered, not yet run: EmaCrossover's moving-average trail on the trend archetype, three arms over §M35's grid — the fixed stop, §M37's slow-average trail and a third average over EmaCrossover's trail grid — in all 23 strata at 2, 5, 10 and 15 minutes, read with §M37's paired bar over a family of 8.** Pre-registered in [`docs/findings/m53-ema-pullback-ma-trail-preregistration.md`](findings/m53-ema-pullback-ma-trail-preregistration.md); the rules are [`nt8-fidelity.md`](nt8-fidelity.md), "The build spec's three loose ends: the trail, the round number and the count" and §M34.
+**Pre-registered and run, every prediction holding: the controls reproduce exactly, and paired over identical grids the third average costs against the fixed stop on the selection window at every bar size and gains held out from 5 minutes up, so it clears §M37's bar against neither arm at any resolution; its own axes barely matter, and gate 3 clears in none of its 18 cells.** Moved to [`docs/findings/m53-ema-pullback-ma-trail-result.md`](findings/m53-ema-pullback-ma-trail-result.md), pre-registered in [`docs/findings/m53-ema-pullback-ma-trail-preregistration.md`](findings/m53-ema-pullback-ma-trail-preregistration.md); the rules are [`nt8-fidelity.md`](nt8-fidelity.md), "The build spec's three loose ends: the trail, the round number and the count" and §M34.
 
 ### M54 — a family-wise null over the consistent cells ([#439])
 
