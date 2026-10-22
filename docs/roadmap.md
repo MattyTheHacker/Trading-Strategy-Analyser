@@ -756,7 +756,7 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 ### M56 — every archetype in half-hour slots of the cash session ([#439])
 
-**Pre-registered, not yet run: every archetype's campaign variants in the 13 half-hour slots from 09:30 to 16:00 ET, a stratum each, at 2, 5, 10 and 15 minutes; gates 1 and 2 per slot, and gate 3 on every slot clearing gate 2 on both roots, read family-wise with one family per archetype.** Pre-registered in [`docs/findings/m56-session-slots-preregistration.md`](findings/m56-session-slots-preregistration.md); the filter and its NinjaScript are [`nt8-fidelity.md`](nt8-fidelity.md), "Entries in one half-hour slot of the session".
+**Pre-registered and run: 36 of 117 slot cells clear gate 2 on both roots and one clears gate 3 family-wise, against a prediction of none — OpeningRange's 12:30 slot, long breaks of the 30-minute range under a 2-ATR stop, on 10 of 10 MNQ and 8 of 10 NQ configurations, five distinct ones, on about 75 held-out trades; beyond the pre-registration it passes the walk-forward and fails gate 4's exclusion read on both roots.** Moved to [`docs/findings/m56-session-slots-result.md`](findings/m56-session-slots-result.md), pre-registered in [`docs/findings/m56-session-slots-preregistration.md`](findings/m56-session-slots-preregistration.md); the filter and its NinjaScript are [`nt8-fidelity.md`](nt8-fidelity.md), "Entries in one half-hour slot of the session".
 
 ### M57 — the noise area, followed, against its pieces and its fade ([#439])
 
