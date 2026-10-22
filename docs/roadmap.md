@@ -748,7 +748,7 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 ### M54 — a family-wise null over the consistent cells ([#439])
 
-**Pre-registered, not yet run: gate 3's matched null read family-wise — each test's standardised profit-factor excess against the best of every draw across its family — over §M44's consistent cells, named on the re-swept rows, and §M28.16's ten, each family on its own and both from the campaign's own variants; a cell clears where a configuration reaches a family-wise p below 0.05 on both roots.** Pre-registered in [`docs/findings/m54-family-wise-null-preregistration.md`](findings/m54-family-wise-null-preregistration.md).
+**Pre-registered and run: no cell clears family-wise on both roots in either family. §M28.16's ten cells reproduce §M44's per-test counts and their best test reaches a family-wise p of 0.229; §M44's consistent cells, named on the re-swept rows, are 99, and EmaPullback's few-trade cells take the best of 384 of their 400 draws, so that family's answer of 0.187 says nothing about any other archetype.** Moved to [`docs/findings/m54-family-wise-null-result.md`](findings/m54-family-wise-null-result.md), pre-registered in [`docs/findings/m54-family-wise-null-preregistration.md`](findings/m54-family-wise-null-preregistration.md).
 
 ### M55 — EmaCrossover's confluence count over filters that point the trade's way ([#439])
 
