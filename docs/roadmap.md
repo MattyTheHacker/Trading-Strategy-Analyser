@@ -760,7 +760,7 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 ### M57 — the noise area, followed, against its pieces and its fade ([#439])
 
-**Pre-registered, not yet run: ElasticBand on the noise area in four arms — the paper's rule, decided on the half hour and trailed on the band's edge or the VWAP; the same decided on every bar; the same without the trail; and its fade — over one grid in all 23 strata at five bar sizes, read with §M37's paired bar over a family of 15 and the rule through gate 3 family-wise.** Pre-registered in [`docs/findings/m57-noise-area-preregistration.md`](findings/m57-noise-area-preregistration.md); the band and its rules are [`nt8-fidelity.md`](nt8-fidelity.md), "The noise area".
+**Pre-registered and run at 2 to 15 minutes, 1 minute not yet run: the rule passes gate 2 unfiltered on both roots and in 11 of 18 strata, and clears gate 3 in no cell, at a smallest family-wise p of 0.115 over 216 tests; no arm clears §M37's paired bar against it — the fade costs everywhere, deciding on every bar costs, and dropping the trail raises profit factor in all 16 cells but misses the sign test on NQ's selection window.** Moved to [`docs/findings/m57-noise-area-result.md`](findings/m57-noise-area-result.md), pre-registered in [`docs/findings/m57-noise-area-preregistration.md`](findings/m57-noise-area-preregistration.md); the band and its rules are [`nt8-fidelity.md`](nt8-fidelity.md), "The noise area".
 
 ### M58 — the latched squeeze ([#439])
 
