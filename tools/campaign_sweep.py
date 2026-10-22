@@ -745,6 +745,7 @@ NARROW_ENTRY: dict[int, dict[str, AxisValue]] = {
     5: {"ema_kind": "hma", "ema_period": 22, "error_margin": 0.1, "atr_length": 14, "slow_sma_period": 200},
     10: {"ema_kind": "hma", "ema_period": 11, "error_margin": 0.1, "atr_length": 3, "slow_sma_period": 100},
     15: {"ema_kind": "ema", "error_margin": 0.01, "atr_length": 3, "slow_sma_period": 200},
+    30: {"ema_kind": "hma", "ema_period": 22, "error_margin": 0.01, "atr_length": 14, "slow_sma_period": 200},
 }
 """InsideBar's entry per resolution: each value more than half of the stored campaign's DIRECTIONAL
 top twenty share. A field left out has no majority and stays at its default -- ``tools/README.md``
