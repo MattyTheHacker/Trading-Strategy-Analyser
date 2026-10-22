@@ -752,7 +752,7 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 ### M55 — EmaCrossover's confluence count over filters that point the trade's way ([#439])
 
-**Pre-registered, not yet run: the confluence count over the cash-open and midday phases and the trend, higher-timeframe and VWAP sides relative to the trade, in nine arms per stop — the control, each gate alone and at least one to all four — unfiltered at five bar sizes, read with §M37's paired bar over a family of 80 and gate 3 family-wise.** Pre-registered in [`docs/findings/m55-side-count-preregistration.md`](findings/m55-side-count-preregistration.md); the filters and their NinjaScript are [`nt8-fidelity.md`](nt8-fidelity.md), "Filters relative to the trade's side".
+**Pre-registered and run at 2 to 15 minutes, 1 minute not yet run: 14 of 64 cells clear §M37's paired bar against the ungated control, against a prediction of none — the phase gate at all four sizes under the swing stop and at 2 and 5 under the ATR stop — and none clears gate 3 family-wise, at a smallest p of 0.41 over 140 tests.** Moved to [`docs/findings/m55-side-count-result.md`](findings/m55-side-count-result.md), pre-registered in [`docs/findings/m55-side-count-preregistration.md`](findings/m55-side-count-preregistration.md); the filters and their NinjaScript are [`nt8-fidelity.md`](nt8-fidelity.md), "Filters relative to the trade's side".
 
 ### M56 — every archetype in half-hour slots of the cash session ([#439])
 
