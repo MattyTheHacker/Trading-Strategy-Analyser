@@ -384,6 +384,97 @@ Its two cells taken to a null are in §M54's family A. **OpeningRange's `phase=M
 
 **Its answer holds: the cell's gate-3 result belongs to the opposite-extreme stop.** Under the ATR stop the entry still beats its null on 10 and 9 of 10 configurations and clears on one. Within the opposite stop three arms hold rather than four, the 15-minute window falling to the direction only, and the 5-minute window is still the strongest arm, at 10 of 10 on both roots on the most held-out trades.
 
+## InsideBarTrailing
+
+The fixes barely reach it: its stops sit on bar extremes, so only [#453]'s gapped targets moved it, in 3.9% of its cells. And every campaign here from §M45 on ran on §M44's bars. **So its campaigns are the cleanest test of the re-sweep itself, and they reproduce almost to the digit.**
+
+### §M42 — gate 4 on the midday cell
+
+([`m42-insidebartrailing-gate-4.md`](m42-insidebartrailing-gate-4.md).) `phase=MIDDAY` at 5 minutes, the held-out shortlist, from gate 4's reads over the twenty the selection window ranks first, where §M42 read ten:
+
+| read                                              | §M42, MNQ / NQ                | re-swept, MNQ / NQ            |
+| ------------------------------------------------- | ----------------------------- | ----------------------------- |
+| median PF, whole → without the session-close legs | 1.482 → 0.975 / 1.316 → 0.939 | 1.358 → 0.747 / 1.363 → 0.585 |
+| profitable without those legs                     | **5 of 10 / 4 of 10**         | **4 of 20 / 1 of 20**         |
+| both gate-4 thresholds without them               | 2 of 10 / 3 of 10             | 0 of 20 / 0 of 20             |
+| bootstrap 5th percentile of PF above 1.0          | **10 of 10** / 4 of 10        | **17 of 20 / 13 of 20**       |
+| walk-forward, pooled test PF                      | 1.439 / 1.451, passes         | 1.342 / 1.308, passes         |
+
+**The exclusion reading that made §M42 the first cell to survive it does not reproduce, and the bootstrap reading does, on both roots now.** §M44 had already found the first half: nine of twenty survivors fell to one on its rows. The fills changed little more: five of forty configurations are profitable without their forced flat. The bootstrap is the stronger result than before: 30 of the 40 put a 5th percentile above a profit factor of 1.0 and above zero net, against 14 of 20.
+
+### §M45 — sizing the midday cell
+
+([`m45-ibt-sizing-result.md`](m45-ibt-sizing-result.md).) **It reproduces exactly.** Every tier's paired difference against the half split and against its own inverse matches §M45's table to the third decimal and the pair: `first-breakout` −0.083 and −0.052 with no pair improved, `sma-extension` −0.035 with 26 and −0.022 with 90, `trend-age` −0.065 with none and −0.045 with 29. The confluence size beats its own sizes shuffled on 20 of 20 MNQ configurations and 17 of 20 NQ ones, against the 4 required, and raises held-out profit factor over the half split by a median 0.071 and 0.058, improving 398 and 395 pairs of 432. Its account replay is in the prop section.
+
+### §M47 and §M47.1 — the confluence size everywhere
+
+([`m47-confluence-sizing-10-15.md`](m47-confluence-sizing-10-15.md), [`m47-1-confluence-sizing-5.md`](m47-1-confluence-sizing-5.md).) Family F1, the all-labels and symmetric arms unfiltered, read by its pre-registered rule: a cell clears where at least 6 of its 20 held-out configurations beat their own sizes shuffled at p ≤ 0.05 on both roots.
+
+| bar size | cells | §M47, clearing                          | re-swept, clearing                         |
+| -------: | ----: | --------------------------------------- | ------------------------------------------ |
+|       15 |    35 | 9, all OpeningRange                     | **5**, all OpeningRange                    |
+|       10 |    29 | 4: EmaCrossover 1, OpeningRange 3       | **2**: EmaCrossover 1, OpeningRange 1      |
+|        5 |    41 | 10: OpeningRange 8, InsideBarTrailing 2 | **4**: OpeningRange 2, InsideBarTrailing 2 |
+
+**The answer per archetype does not change**: yes on OpeningRange, EmaCrossover and InsideBarTrailing, no on the other six. InsideBarTrailing's two cells reproduce exactly, at 13 and 18 and at 15 and 20 of 20, and so does EmaCrossover's swing stop at 10 minutes, at 9 and 7. **OpeningRange clears 8 of its 36 cells rather than 20**, losing most of its ATR-stop arms, which is the stop entry the fills moved. In §M45's midday cell, family F0, every label reads exactly as before: the symmetric arm and `volume` clear, at 20 and 13 and at 11 and 7 of 20, and `regime`, `htf` and `trend` do not.
+
+### §M49 — the structure trail
+
+([`m49-structure-trail-result.md`](m49-structure-trail-result.md).) Its held-out half reproduces exactly: arms significantly up and down against `structure=off`, unfiltered.
+
+| bar size | §M49, MNQ / NQ | re-swept, MNQ / NQ | held-out range of the median change, re-swept |
+| -------: | -------------- | ------------------ | --------------------------------------------- |
+|       15 | 24 / 0, 24 / 0 | 24 / 0, 24 / 0     | +0.009 to +0.120, +0.012 to +0.157            |
+|       10 | 1 / 18, 9 / 6  | 1 / 19, 9 / 6      | −0.062 to +0.007, −0.039 to +0.029            |
+|        5 | 19 / 1, 20 / 1 | 19 / 1, 20 / 1     | −0.006 to +0.058, −0.016 to +0.077            |
+|        2 | not run        | 18 / 0, 23 / 0     | +0.004 to +0.030, +0.007 to +0.056            |
+
+The selection-window half of §M49's bar was not re-read. In the midday cell at 5 minutes the trail still costs: 20 of 24 arms significantly down on both roots, none up on NQ. **At 2 minutes, the bar size §M49 dropped, every arm gains held out on both roots** and 18 and 23 of 24 significantly.
+
+## The exits
+
+### §M29 — the maximum hold
+
+([`m29-maximum-hold-time.md`](m29-maximum-hold-time.md).) Median within-cell change in profit factor against the uncapped arm, at 2 to 15 minutes where §M29 read 1 to 15, now with EmaPullback and SqueezeBreakout beside the seven:
+
+| archetype         | selection, 5 / 10 / 20 / 40 / 80 bars      | held out, 5 / 10 / 20 / 40 / 80 bars           |
+| ----------------- | ------------------------------------------ | ---------------------------------------------- |
+| DeadCatBounce     | −0.004 / +0.001 / 0 / 0 / 0                | +0.000 / 0 / 0 / 0 / 0                         |
+| PullBackAndGo     | −0.005 / −0.002 / 0 / 0 / 0                | +0.003 / −0.002 / 0 / 0 / 0                    |
+| InsideBar         | −0.058 / −0.052 / −0.015 / −0.002 / −0.000 | −0.046 / −0.017 / +0.004 / −0.013 / +0.008     |
+| InsideBarTrailing | −0.052 / −0.023 / −0.000 / −0.004 / +0.001 | −0.039 / −0.016 / −0.014 / −0.005 / +0.002     |
+| EmaCrossover      | −0.063 / −0.047 / −0.023 / −0.010 / −0.001 | −0.049 / −0.025 / −0.013 / −0.008 / −0.003     |
+| ElasticBand       | −0.083 / −0.053 / −0.030 / −0.017 / −0.009 | −0.028 / −0.017 / −0.015 / −0.022 / −0.017     |
+| OpeningRange      | −0.131 / −0.103 / −0.083 / −0.029 / −0.001 | −0.063 / −0.026 / +0.006 / −0.005 / 0          |
+| EmaPullback       | −0.084 / −0.058 / −0.036 / −0.021 / −0.009 | **+0.003 / +0.006 / +0.019 / +0.023 / +0.027** |
+| SqueezeBreakout   | −0.059 / −0.048 / −0.037 / −0.019 / −0.010 | −0.075 / −0.046 / −0.020 / −0.007 / −0.004     |
+
+**On the selection window the cap is still a cost on every archetype that holds long enough to reach it, and the cost still shrinks as it loosens**, but for a step of 0.004 on InsideBarTrailing between 20 and 40 bars. Held out, two of §M29's seven picks now pay where none did: the selection window's best binding rung on InsideBar and InsideBarTrailing is the loosest, 80 bars, and it returns +0.008 and +0.002, on both roots at two of four bar sizes. **EmaPullback, read here for the first time, gains held out at every rung while costing on the selection window at every rung** — the window's sign again, as §M37 found for its trail.
+
+### §M48 — the conditional early exit
+
+([`m48-early-exit-result.md`](m48-early-exit-result.md).) The selection window's pick per archetype × resolution cell, read held out, paying on both roots at p < 0.05: **11 of the 44 cells clear, against 13.** The two that no longer clear are OpeningRange at 10 minutes and SqueezeBreakout at 10, the two stop entries at a level. Every other clearing cell is the one §M48 had, mostly with the same pick and to the third decimal:
+
+| cell                             | §M48, held out MNQ / NQ | re-swept              |
+| -------------------------------- | ----------------------- | --------------------- |
+| DeadCatBounce 2m                 | +0.0002 / +0.0027       | +0.0002 / +0.0027     |
+| DeadCatBounce 5m                 | +0.0053 / +0.0147       | +0.0053 / +0.0148     |
+| DeadCatBounce 10m                | +0.0582 / +0.0206       | +0.0581 / +0.0209     |
+| EmaPullback 5m                   | +0.0025 / +0.0036       | +0.0026 / +0.0036     |
+| EmaPullback 10m                  | +0.0156 / +0.0093       | +0.0158 / +0.0092     |
+| InsideBar 5m                     | +0.0034 / +0.0219       | +0.0034 / +0.0219     |
+| **InsideBarTrailing midday 10m** | **+0.0705 / +0.0838**   | **+0.0719 / +0.0838** |
+| PullBackAndGo 10m                | +0.0160 / +0.1042       | +0.0205 / +0.1064     |
+| PullBackAndGo 15m                | +0.0165 / +0.0480       | +0.0174 / +0.0494     |
+| SqueezeBreakout 2m               | +0.0004 / +0.0013       | +0.0010 / +0.0016     |
+| SqueezeBreakout 5m               | +0.0007 / +0.0015       | +0.0011 / +0.0020     |
+
+Five of the eleven clear by less than 0.005 on a root, against seven of thirteen. **The one sizeable gain is still the trend exit in InsideBarTrailing's midday cell at 10 minutes, and at 5 minutes, where the cell is traded, the pick still costs**: −0.187 and −0.148 held out.
+
+### §M50 — the exit's second tier, now with 5 minutes
+
+([`m50-early-exit-tier-2-result.md`](m50-early-exit-tier-2-result.md).) At 15 and 10 minutes **1 of the 22 cells still clears, the same one**: EmaPullback at 10 minutes with the breakeven stop at 1 R, +0.0037 and +0.0042 held out against §M50's +0.004 on each root. Its 5-minute pass, which §M50 had not run, was swept in the re-sweep and read by the same rule. **3 of its 11 cells clear**: DeadCatBounce, with an excursion exit at 1 R, by +0.0036 and +0.0140; EmaPullback, with the same breakeven stop, by +0.0021 and +0.0020; and InsideBar, with a stepped stop, by +0.0126 and +0.0569. InsideBar is the archetype §M50 predicted the late stop would help and found it cost in 34 of 36 held-out cells at 10 and 15 minutes; at 5 minutes the selection window picks a different arm, and it pays. Neither midday cell clears at 5 minutes.
+
 [#439]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/439
 [#451]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/pull/451
 [#453]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/pull/453
