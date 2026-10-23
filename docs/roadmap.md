@@ -532,7 +532,7 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 ### M26.7 — the inverted signal: the fade's bars traded the other way ([#279])
 
-**Pre-registered, not yet run: five arms, the fade and the inversion on the same signal bars, on R targets and each on its own stretch ladder, in all 23 strata at five bar sizes, read with §M37's paired bar and gate 3.** Pre-registered in [`docs/findings/m26-7-inverted-signal-preregistration.md`](findings/m26-7-inverted-signal-preregistration.md); the rules and their NinjaScript are [`nt8-fidelity.md`](nt8-fidelity.md) §M26.7.
+**Pre-registered and run at 2 to 15 minutes, 1 minute not yet run: paired on the same signal bars, every inverted arm beats its fade twin on the selection window and loses to it held out at every bar size, so no pair clears §M37's bar; the inversion fails gate 2 unfiltered on both roots where the fades pass, and gate 3 finds nothing on both roots.** Moved to [`docs/findings/m26-7-inverted-signal-result.md`](findings/m26-7-inverted-signal-result.md), pre-registered in [`docs/findings/m26-7-inverted-signal-preregistration.md`](findings/m26-7-inverted-signal-preregistration.md); the rules and their NinjaScript are [`nt8-fidelity.md`](nt8-fidelity.md) §M26.7.
 
 ### M26.8 — the stop on the band itself: the level §M26 specified and never built ([#280])
 
