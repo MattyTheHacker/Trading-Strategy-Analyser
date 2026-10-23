@@ -774,6 +774,10 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 **Pre-registered and run, every prediction holding: all 60 shortlisted configurations beat a random bracket of their session's own width on sign, by +0.10 to +0.17 of held-out profit factor, and none reaches a family-wise p below 0.05, so no bar size clears; beside it §M28.2's level null is cleared on both roots at 15 minutes alone, NQ at 0.0499.** Moved to [`docs/findings/m60-level-kind-null-result.md`](findings/m60-level-kind-null-result.md), pre-registered in [`docs/findings/m60-level-kind-null-preregistration.md`](findings/m60-level-kind-null-preregistration.md).
 
+### M61 — every older campaign re-read after the fill fixes ([#439])
+
+**Every campaign that ran before the October 2026 re-sweep, re-read on its rows against the figures it published; written in sections.** Moved to [`docs/findings/m61-registry-resweep-fill-fixes.md`](findings/m61-registry-resweep-fill-fixes.md).
+
 ### Do the shortlists travel? ([#330])
 
 **Most of what a shortlist loses is selection rather than instrument — the drop from selection window to own holdout is two to five times the further drop to a market never seen — and the two inside-bar archetypes travel with almost no additional cost, while nothing clears a profit factor of 1.1 anywhere.** Moved to [`docs/findings/cross-root-transfer.md`](findings/cross-root-transfer.md).
