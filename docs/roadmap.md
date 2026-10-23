@@ -740,7 +740,7 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 ### M52 — the conditional early exit's third tier ([#369])
 
-**Pre-registered, not yet run: 36 arms of #369's third tier over every archetype's stored grid, at 5, 10 and 15 minutes, read with §M48's and §M50's bar over a family of 33 cells.** Pre-registered in [`docs/findings/m52-early-exit-tier-3-preregistration.md`](findings/m52-early-exit-tier-3-preregistration.md); the rules and the NinjaScript each would be written as are [`nt8-fidelity.md`](nt8-fidelity.md), "The conditional early exit".
+**Pre-registered and run: 5 of 33 cells clear, three of them EmaPullback's, where giving back half of a 1 R excursion gains about a hundredth of held-out profit factor at every bar size with the median configuration still losing, and the others InsideBarTrailing unfiltered at 15 minutes and SqueezeBreakout at 5; neither midday cell clears, and every exit that can close a winner costs held out in a majority of its cells.** Moved to [`docs/findings/m52-early-exit-tier-3-result.md`](findings/m52-early-exit-tier-3-result.md), pre-registered in [`docs/findings/m52-early-exit-tier-3-preregistration.md`](findings/m52-early-exit-tier-3-preregistration.md); the rules and the NinjaScript each would be written as are [`nt8-fidelity.md`](nt8-fidelity.md), "The conditional early exit".
 
 ### M53 — EmaPullback's stop trailed on an average of its own ([#439])
 
