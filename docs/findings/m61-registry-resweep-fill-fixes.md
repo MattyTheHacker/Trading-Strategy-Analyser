@@ -660,6 +660,71 @@ A cost on the selection window in all eight cells now, against seven, and a gain
 
 **It is a candidate for a pre-registered test, not a strategy.** The paired gain held out is one to five hundredths of profit factor, on an archetype whose median configuration loses held out, and no gate-4 read has been run on it.
 
+## EmaCrossover's loose ends, the other markets and the context re-cuts
+
+### The build spec's three loose ends
+
+([`build-spec-loose-ends-measured.md`](build-spec-loose-ends-measured.md).) **All three verdicts hold.** The trail on the moving average costs held out in all 16 stop × root × resolution cells, against 19 of 20, and on the selection window in 14 of 16. The round-number rule moves median profit factor by 0.001 or less in every cell, while several sign tests still reach p = 0.05, which is the multiple-comparisons pattern the file named. The confluence count is no longer even a gradient: held out, requiring all three conditions gives a median profit factor of 0.956 on 62 trades, two of three 1.034, and any one 0.986, where the file had them ordered 1.063, 1.024 and 0.987. Its matched null over counts was not re-run, because the null tool cannot shortlist by count; [§M59](m59-confluence-not-read-result.md) re-asked the question over conditions that read no moving average and found no edge either ([`confluence-count-per-trade.md`](confluence-count-per-trade.md) is the earlier read).
+
+### The gold strata
+
+([`gold-strata-result.md`](gold-strata-result.md).) Re-picked on the re-swept rows by the pre-registration's own rule — gate-2 passes at 5, 10 and 15 minutes with a held-out `session_close_share` at or below 0.30, held on both roots of a pair — the stratified layer is **112 pairs and 4,480 tests**, against 68 and 2,720. The rule's verdict is the same:
+
+|        | prediction                              | required                                   | §M61                               |          |
+| ------ | --------------------------------------- | ------------------------------------------ | ---------------------------------- | -------- |
+| **P1** | EmaCrossover's gold pairs clear         | ≥ 4 of its pairs, and gold rate > S&P rate | **1 of 18** (0.056), S&P 0.375     | **FAIL** |
+| **P2** | the advantage is gold-specific          | S&P clears at a lower rate                 | **S&P clears about 7× as often**   | **FAIL** |
+| **P3** | the family is not noise                 | > 1.5× the chance count                    | 509 of 4,480 against 224 by chance | pass     |
+| **P4** | InsideBar clears fewer gold pairs       | fewer than EmaCrossover                    | 0 of 5 against 1 of 18             | pass     |
+| **P5** | SqueezeBreakout clears fewer gold pairs | fewer than EmaCrossover                    | 0 of 13 against 1 of 18            | pass     |
+
+**EmaCrossover-on-gold is still one lucky cell rather than an edge.** Its one clearing gold pair is now `volume=HEAVY` at 10 minutes, the unfiltered cell being outside the stratified layer; its S&P pairs clear three of eight, `htf=BELOW` at 20 and 19 of 20 configurations. Every other clearing pair in the family is S&P: EmaCrossover's three at 5 minutes, and InsideBar's and InsideBarTrailing's two each at 10 and 15.
+
+### Cross-root transfer
+
+([`cross-root-transfer.md`](cross-root-transfer.md).) The re-sweep stored the campaign grids on ES, MES, GC and MGC, so the transfer is read from stored rows rather than re-run: the top 200 per archetype on the source root's selection window, at 500 trades or more and an `ambiguous_share` within `disambiguate`'s floor, looked up on the target roots' whole series. Unlike the original, the pool is each archetype's campaign variants in the raw strata at 2 to 15 minutes. From NQ:
+
+| archetype         | selection | own holdout | ES    | GC    | instrument cost, §M61 | the file's |
+| ----------------- | --------- | ----------- | ----- | ----- | --------------------- | ---------- |
+| InsideBar         | 1.332     | 1.032       | 1.060 | 0.964 | −0.020                | −0.006     |
+| InsideBarTrailing | 1.349     | 1.012       | 0.980 | 1.044 | +0.000                | +0.162     |
+| EmaCrossover      | 1.308     | 0.995       | 0.974 | 1.004 | −0.006                | −0.031     |
+| SqueezeBreakout   | 1.375     | 0.989       | 0.911 | 0.988 | −0.040                | −0.079     |
+| EmaPullback       | 1.374     | 1.050       | 0.982 | 0.984 | −0.067                | −0.092     |
+| OpeningRange      | 1.266     | 1.128       | 1.039 | 1.062 | −0.077                | −0.191     |
+| PullBackAndGo     | 0.915     | 0.844       | 0.622 | 0.788 | −0.139                | −0.292     |
+| ElasticBand       | 1.324     | 1.010       | 0.847 | 0.827 | −0.173                | −0.213     |
+| DeadCatBounce     | 0.877     | 0.960       | 0.540 | 0.728 | −0.326                | −0.070     |
+
+**From NQ the finding holds**: most of what a shortlist loses is the selection, and the inside-bar pair and EmaCrossover travel at almost no further cost. **From MNQ it no longer does for the inside-bar pair**, which loses 0.18 more on the micros, against the file's +0.020 and −0.042. Nothing reaches a median profit factor of 1.1 on any new root, as before; the best are OpeningRange on GC at 1.062 and InsideBar on ES at 1.060. The cross-instrument preference the file named, the inside-bar pair for gold and EmaPullback for the S&P, does not reproduce: InsideBar now does better on ES, and EmaPullback is level between the two. **OpeningRange's clock is now on all four roots**, with 0.45 to 0.55 of its legs closed by the flatten, where the file had it on the micros alone. The full-size roots still beat their micros, on all nine archetypes on the S&P and eight on gold.
+
+### §M30 and §M32 — the context re-cuts
+
+([`m30-volume-regime-recut.md`](m30-volume-regime-recut.md), [`m32-volume-windows.md`](m32-volume-windows.md).) Re-scored by §M54 on the re-swept rows over eight root × resolution cells rather than ten, so a score now runs to ±8. The labels are properties of the bars, which have not changed since §M44, so what is re-read is the scores and the held-out profit factors beside them.
+
+| cell                                                 | §M30 or §M32: score, held-out PF | §M61: score of 8, held-out PF |
+| ---------------------------------------------------- | -------------------------------- | ----------------------------- |
+| ElasticBand `HEAVY@rolling_30_20 q=0.20/0.80`        | +10, 0.972                       | +7, 0.985                     |
+| ElasticBand `HEAVY@rolling_30_20 q=0.33/0.67`        | +10, 1.001                       | +6, 0.978                     |
+| ElasticBand `HEAVY@session_to_date_20 q=0.10/0.90`   | +10, 0.981                       | +7, 0.981                     |
+| EmaCrossover `NORMAL@rolling_30_20 q=0.20/0.80`      | +9, 0.990                        | **+1**, 0.958                 |
+| EmaCrossover `NORMAL@rolling_30_20 q=0.33/0.67`      | +8, 0.974                        | **+2**, 0.946                 |
+| OpeningRange `THIN@per_bar_20 q=0.20/0.80`           | +9, 1.036                        | +6, 1.078                     |
+| OpeningRange `NORMAL@per_bar_20 q=0.20/0.80`         | +8, 0.949                        | +4, 0.973                     |
+| OpeningRange `NORMAL@session_to_date_20 q=0.33/0.67` | −9                               | −4, 0.838                     |
+| InsideBar `NORMAL@rolling_10_20 q=0.20/0.80`         | +8, **1.051**                    | **+8, 1.091**                 |
+| EmaCrossover `NORMAL@rolling_10_20 q=0.10/0.90`      | +10, 0.988                       | +7, 0.992                     |
+
+**ElasticBand's `HEAVY` re-cut still holds and still loses money; EmaCrossover's `NORMAL` cells no longer score as consistent; and InsideBar's ten-bar rolling cell, the one §M32 named, holds**, at the maximum score and a held-out profit factor of 1.091. OpeningRange's fitted `DIRECTIONAL` cells still score at or near the maximum at every lookback. §M32's reading that a new rung is consistent at about the default's rate also holds: of 1,215 fitted volume cells across the nine archetypes, 14 of 243 at the default windows reach ±8 and 66 of 972 at the other rungs.
+
+### §M41 — when the flatten happens
+
+([`m41-flatten-timing.md`](m41-flatten-timing.md).) **It reproduces exactly where it matters.** At 5 minutes, the bar size the two candidate cells trade at, the live 180-second cutoff selects the same bars as the backtested 30 seconds: no configuration of either midday cell moves on either root. A whole 5-minute bar earlier moves the median held-out profit factor by at most 0.002 on InsideBarTrailing and 0.011 on OpeningRange, and a whole 15-minute bar earlier by at most 0.019 at any bar size.
+
+### What there is nothing to re-read in
+
+The four labels' calibrations, §M10.1 to §M10.4, and the regime threshold of §M27.5 are properties of the bars; the specifications, §M19.2, §M28, §M28.6 and §M34, and the tooling, §M7b, §M27.6, §M28.3 and §M28.4, hold no measurement the fills could move. Each stands as written.
+
 [#439]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/439
 [#451]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/pull/451
 [#453]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/pull/453
