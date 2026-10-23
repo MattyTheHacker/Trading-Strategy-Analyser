@@ -721,11 +721,46 @@ A cost on the selection window in all eight cells now, against seven, and a gain
 
 ([`m41-flatten-timing.md`](m41-flatten-timing.md).) **It reproduces exactly where it matters.** At 5 minutes, the bar size the two candidate cells trade at, the live 180-second cutoff selects the same bars as the backtested 30 seconds: no configuration of either midday cell moves on either root. A whole 5-minute bar earlier moves the median held-out profit factor by at most 0.002 on InsideBarTrailing and 0.011 on OpeningRange, and a whole 15-minute bar earlier by at most 0.019 at any bar size.
 
+## The prop accounts
+
+The re-sweep's prop reads replay each firm's 2026 evaluation linked to its funded account ([#440]), as §M51 did. §M40 and §M43 read the evaluations alone, on presets that have since been replaced, so their re-reads below are on different accounts and compare in direction rather than in dollars.
+
+### §M40 — ranking by what a prop trader wants
+
+([`m40-prop-objectives.md`](m40-prop-objectives.md).) Every objective's top 20 against the profit-factor top 20, held out, over the eleven unfiltered and midday cells on both roots and 30 account presets:
+
+| objective        | better at its own objective, held out | net better / worse | change in the share ever funded |
+| ---------------- | ------------------------------------- | ------------------ | ------------------------------- |
+| `pass_rate`      | 129 to 50, p 3e-9                     | 101 / 133          | +7.5 points                     |
+| `fees_per_pass`  | 142 to 43, p 2e-13                    | 119 / 125          | +12.0                           |
+| `days_to_payout` | 124 to 31, p 2e-14                    | **149 / 97**       | +15.7                           |
+| `funded_days`    | 157 to 52, p 2e-13                    | 73 / 91            | −3.9                            |
+
+**It reproduces: every objective's ordering transfers, and only `days_to_payout` also pays**, now at p = 0.001 on net. The level still does not transfer: a funded account the selection window expected to last a median 898 trading days lasts 68 held out on MNQ.
+
+### §M43 — the two midday candidates ranked
+
+([`m43-midday-candidates-ranked.md`](m43-midday-candidates-ranked.md).) InsideBarTrailing's `phase=MIDDAY` against OpeningRange's, each objective's top 20, across the fifteen 2026 accounts:
+
+| ranked by        | root | the objective itself, IBT – OR | net held out | profit factor | session-close share lower |
+| ---------------- | ---- | ------------------------------ | ------------ | ------------- | ------------------------- |
+| `days_to_payout` | MNQ  | **13 – 1** (4 – 3 in §M43)     | 13 – 2       | 11 – 4        | 15 – 0                    |
+| `days_to_payout` | NQ   | **13 – 0**                     | 10 – 5       | 13 – 2        | 15 – 0                    |
+| `fees_per_pass`  | MNQ  | **9 – 5** (3 – 4 in §M43)      | 10 – 5       | 13 – 2        | 15 – 0                    |
+| `fees_per_pass`  | NQ   | **12 – 1**                     | 6 – 9        | 13 – 2        | 15 – 0                    |
+
+**The choice holds, and the objectives now agree with what they are read beside.** §M43's MNQ objectives split evenly between the two cells; on the re-swept rows InsideBarTrailing wins both, and its session-close share is still well below OpeningRange's, 0.23 to 0.37 against 0.61 to 0.64. **The configuration §M43 named does not survive.** Its rule took the configurations that pass the exclusion read on both of gate 4's thresholds, and none of the re-swept held-out twenty does (§M42 above), so the rule names nothing; the stored configuration numbers also changed with the re-sweep.
+
+### §M51 — when each account pays back
+
+([`m51-prop-payback-timing.md`](m51-prop-payback-timing.md).) **InsideBarTrailing's midday cell reproduces to the dollar on its account**: TopStep 50K pays back on every configuration, at a median +$13,378 in 36 trading days, and LucidFlex 50K is second at +$8,956, both exactly §M51's. **OpeningRange's midday cell pays back less**: TopStep 50K at +$1,179 in 235 days on 90% of configurations, against +$6,806, and LucidFlex 50K at +$2,472 against +$6,580. The stop entry is again the archetype the fills moved. Apex still pays only on its 50K end-of-day account, and every 150K account is still weak.
+
 ### What there is nothing to re-read in
 
 The four labels' calibrations, §M10.1 to §M10.4, and the regime threshold of §M27.5 are properties of the bars; the specifications, §M19.2, §M28, §M28.6 and §M34, and the tooling, §M7b, §M27.6, §M28.3 and §M28.4, hold no measurement the fills could move. Each stands as written.
 
 [#439]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/439
+[#440]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/440
 [#451]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/pull/451
 [#453]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/pull/453
 [#454]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/454
