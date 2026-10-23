@@ -768,7 +768,7 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 ### M59 — EmaCrossover's confluence count over conditions it does not read ([#439])
 
-**Pre-registered, not yet run: each EmaCrossover trade at its defaults counted over five conditions that read no moving average — the VWAP side, the signal bar's body, a new high or low, the Bollinger midline side and a break of the cash opening range — at its signal bar, against 200 matched random entries at 5 minutes on both roots; read as edge only where the top count beats its null on both roots in both windows.** Pre-registered in [`docs/findings/m59-confluence-not-read-preregistration.md`](findings/m59-confluence-not-read-preregistration.md).
+**Pre-registered and run: counted over five conditions that read no moving average, at the signal bar, EmaCrossover's top count does not beat 200 matched random entries on either root in either window, so the count is not edge; nor does its profit factor rise with the count, whose best bin in the full window is one condition.** Moved to [`docs/findings/m59-confluence-not-read-result.md`](findings/m59-confluence-not-read-result.md), pre-registered in [`docs/findings/m59-confluence-not-read-preregistration.md`](findings/m59-confluence-not-read-preregistration.md).
 
 ### M60 — a null over the level's kind ([#439])
 
