@@ -567,6 +567,99 @@ Still monotone in depth against every control but for one step against the ATR s
 
 **`NORMAL`'s sign is still the channel's**, on both roots under both shapes: a gain on the VWAP band and a cost on Bollinger. **`HEAVY`'s flip is now partial**: on Bollinger it is still a gain under `shape=any`, at 7 of 9 cuts on each root, but under `shape=reversal` it is level or a cost. The finding that a context result belongs to a configuration rather than to the archetype holds; that both states flip with the channel does not.
 
+## The gate-3 families named by a rule, and the bar sizes they are named at
+
+§M19.3, §M35, §M36, §M37 and §M39 each named its gate-3 family by a rule over gate 2 — the strata clearing on both roots, at most so many, by mean held-out profit factor. On the re-swept rows the rule was first applied over 2 to 30 minutes, which let 30-minute configurations into both the naming and the shortlists. **Here every family is re-named and re-run at 2 to 15 minutes, as each campaign first ran, and all five name different strata than they did at 2 to 30.** That is a measure of how much a family named by a rule depends on what it is named over.
+
+## SqueezeBreakout
+
+### §M19.3 — the squeeze swept
+
+([`m19-3-squeeze-breakout-swept.md`](m19-3-squeeze-breakout-swept.md).) **Gate 1 reproduces closely, gate 2 names different strata, and gate 3 turns its unfiltered "no" into "worse than random".**
+
+| claim                                                     | §M19.3                                                                          | re-swept                                                                                   |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| pooled, cells majority-profitable on the selection window | 0 of 8                                                                          | 0 of 8, best 46.3%                                                                         |
+| opposite-extreme stop                                     | 3 cells: MNQ 15m, NQ 10m and 15m                                                | the same 3, at 59.5%, 55.4% and 61.9%                                                      |
+| long side                                                 | every cell at 10 and 15 minutes                                                 | the same, 55.0% to 77.1%                                                                   |
+| short side                                                | below 30% everywhere                                                            | below 30% everywhere                                                                       |
+| rank correlation across the split, pooled                 | +0.732, highest at 2 minutes                                                    | +0.674, highest at 2 minutes (0.823, 0.763)                                                |
+| axes whose ordering holds across the split                | 8 of 10; not the squeeze's window or form                                       | 6 of 10; not the squeeze's form, window or depth, nor `tp_multiplier`                      |
+| strata clearing gate 2 on both roots                      | 6: `PRE_OPEN`, `compression=NORMAL`, `THIN`, `trend=UP`, `HEAVY`, `DIRECTIONAL` | 7: `htf=BELOW`, `LONDON`, `MIDDAY`, `PRE_OPEN`, `DIRECTIONAL`, `trend=DOWN`, `trend=MIXED` |
+
+Gate 3, the family named at 2 to 15 minutes — unfiltered plus the seven — best five per cell, 200 draws: **1 of 80 tests clears p = 0.05 in the better direction, NQ's `MIDDAY`, and 10 clear in the worse direction, nine of them unfiltered.** §M19.3's unfiltered answer was that nothing beat a random entry; now no unfiltered configuration beats its null on either root, and four on MNQ and five on NQ are significantly worse than one, at a median p of 0.010 and 0.030, on a median of 124 and 119 held-out trades. `trend=UP`, the one short entry that cleared §M19.3's bar on both roots, is no longer in the family, since it no longer clears gate 2 on both roots. The squeeze adds nothing measurable, as before, and its unfiltered break of a compressed window is now worse than a random entry at the same minute.
+
+## EmaPullback
+
+Its stop on the slow average moved onto the tick grid with [#471], and its confirmation entry, a stop order, is read along the fill bar's path with [#472]. §M35 ran on a series from 2024 only; §M37 and §M39 on the archive §M38 describes; all of them before §M44.
+
+### §M35 — the pullback swept
+
+([`m35-ema-pullback-swept.md`](m35-ema-pullback-swept.md).) **Gate 1 reproduces exactly in count; gate 3 still fails.** Five of eight root × resolution cells are majority-profitable on the selection window, the same five — MNQ at 10 and 15 minutes and NQ at 5, 10 and 15 — and every cell but MNQ at 2 minutes loses profitable share across the split, the coarse ones most. The rank correlation across the split is −0.069, negative in four of eight cells against seven, still most negative at 15 minutes on both roots, where gate 1 likes it best. Five strata clear gate 2 on both roots, as before: `CASH_OPEN`, `LONDON` and `MIDDAY` again, now with `CLOSE` and `volume=THIN` where §M35 had `compression=NORMAL` and `trend=MIXED`. `phase=CASH_OPEN` returns its own drawdown on both roots now, and `LONDON` too, where §M35 had MNQ's `CASH_OPEN` alone.
+
+**The two axes the archetype invented still hold their ordering across the split**, `touch_mode` and `min_bars_extended`. The slow average's two axes still invert — `slow_period` again the largest, monotone the other way in each window — but the fast average's kind and period now keep their order, at 0.8 and 0.4. `require_turn`, which §M35 called a coin flip at 3.3 points of held-out profitable share on a balanced panel, is now worth 15 points on the unfiltered rows held out: 30.9% against 15.9%.
+
+Gate 3 on the family named at 2 to 15 minutes, best five per cell, 400 draws: **0 of 50 tests clear p = 0.05 in the better direction and 3 in the worse**, all NQ's `volume=THIN`. 35 of the 50 hold fewer than 30 held-out trades, median 21.
+
+### §M36 — volume re-cut
+
+([`m36-ema-pullback-volume-recut.md`](m36-ema-pullback-volume-recut.md).) Scored over the same eight root × resolution cells §M36 used:
+
+| cut                              | `THIN`, score and held-out PF | `NORMAL`      | `HEAVY`       |
+| -------------------------------- | ----------------------------- | ------------- | ------------- |
+| raw 0.7/1.5                      | +8 → +7, 1.01                 | +8 → +8, 0.99 | −6 → −6, 0.91 |
+| `per_bar_20 q=0.10/0.90`         | +6 → +6, 1.01                 | +8 → +8, 0.98 | −8 → −8, 0.89 |
+| `per_bar_20 q=0.20/0.80`         | +8 → +7, 1.02                 | +8 → +8, 0.99 | −7 → −8, 0.90 |
+| `per_bar_20 q=0.33/0.67`         | +8 → +8, 1.01                 | +8 → +8, 1.01 | −6 → −6, 0.92 |
+| `rolling_30_20 q=0.10/0.90`      | +6 → +3, 0.91                 | +8 → +8, 1.01 | −8 → −8, 0.78 |
+| `rolling_30_20 q=0.20/0.80`      | +8 → +6, 0.98                 | +7 → +8, 1.03 | −8 → −8, 0.83 |
+| `rolling_30_20 q=0.33/0.67`      | +8 → +6, 0.99                 | +4 → +6, 1.06 | −7 → −7, 0.87 |
+| `session_to_date_20 q=0.10/0.90` | +5 → +6, 0.99                 | +7 → +8, 1.00 | −8 → −7, 0.85 |
+| `session_to_date_20 q=0.20/0.80` | +8 → +4, 0.95                 | +7 → +8, 1.01 | −8 → −6, 0.88 |
+| `session_to_date_20 q=0.33/0.67` | +8 → +8, 1.00                 | +4 → +5, 0.98 | −7 → −7, 0.90 |
+
+**`HEAVY` is still negative at every cut**, which §M36 called the one statement no choice of form or tail could move, and it still is. **`THIN` is no longer the state that reaches the maximum**: +8 at two fitted cuts rather than six, while `NORMAL` now reaches it at seven. The held-out profit factors beside the scores run 0.91 to 1.06 for `THIN` and `NORMAL` and 0.78 to 0.92 for `HEAVY`. Gate 2 reproduces in count: six fitted cells clear on both roots and 19 on at least one, as before; one raw cell now clears on both, where none did. Gate 3 on the 11 cells named at 2 to 15 minutes: **2 of 110 tests clear in the better direction and 6 in the worse**, on a median of 28 held-out trades with 62 of the 110 under 30. It fails, as before.
+
+### §M37 — trailing the stop on the slow average
+
+([`m37-ema-pullback-trail-on-slow.md`](m37-ema-pullback-trail-on-slow.md).) **It reproduces: the trail's effect takes the window's sign.** Paired against the fixed stop, unfiltered:
+
+| root | resolution | §M37, selection Δ / holdout Δ | re-swept            |
+| ---- | ---------: | ----------------------------- | ------------------- |
+| MNQ  |          2 | −0.021 / −0.007               | −0.033 / −0.004     |
+| MNQ  |          5 | −0.028 / **+0.036**           | −0.035 / **+0.036** |
+| MNQ  |         10 | −0.017 / **+0.036**           | −0.015 / **+0.030** |
+| MNQ  |         15 | −0.014 / **+0.014**           | −0.018 / **+0.020** |
+| NQ   |          2 | +0.003 / −0.003               | −0.015 / +0.003     |
+| NQ   |          5 | −0.011 / **+0.028**           | −0.025 / **+0.033** |
+| NQ   |         10 | −0.008 / **+0.030**           | −0.008 / **+0.029** |
+| NQ   |         15 | −0.010 / **+0.016**           | −0.012 / **+0.023** |
+
+A cost on the selection window in all eight cells now, against seven, and a gain held out in seven, six of them significant, so it still clears §M37's bar in none. The trail still clears gate 2 in more strata than the fixed stop, nine on both roots against five. Gate 3 on the six strata named at 2 to 15 minutes: **0 of 60 tests clear in either direction under either arm**, against one each; the trail beats its null in 46 of 60 and the fixed stop in 44.
+
+**§M37's own deferral, the trail inside §M36's fitted volume cells, is read here for the first time**, over §M36's 11 cells named at 2 to 15 minutes, best five per cell, 400 draws. The trailed arm clears in the better direction on 6 of 110 tests and the fixed stop on 2, against 3 and 6 in the worse; the cells hold a median of 28 held-out trades under both. Neither is evidence of anything.
+
+### §M39 — the confirmation entry, and the verdict reverses
+
+([`m39-ema-pullback-confirmation-entry.md`](m39-ema-pullback-confirmation-entry.md).) **This is the second-largest change the fills made to a finding.** §M39's pre-registered bar: the one-bar confirmation against the market entry, unfiltered, paired per root × resolution, counts as an improvement only where its median difference is positive and the sign test reaches p < 0.05 in both windows.
+
+| root | resolution | §M39, selection Δ (p) / holdout Δ (p) | re-swept                            | clears  |
+| ---- | ---------: | ------------------------------------- | ----------------------------------- | :-----: |
+| MNQ  |          2 | +0.030 (\<0.001) / −0.014 (0.002)     | +0.022 (\<0.001) / +0.001 (0.95)    |   no    |
+| MNQ  |          5 | +0.031 (\<0.001) / −0.016 (0.002)     | +0.014 (0.001) / −0.005 (0.14)      |   no    |
+| MNQ  |         10 | +0.055 (\<0.001) / +0.014 (0.079)     | +0.044 (\<0.001) / +0.018 (\<0.001) | **yes** |
+| MNQ  |         15 | +0.041 (\<0.001) / +0.018 (0.103)     | +0.014 (0.007) / +0.051 (\<0.001)   | **yes** |
+| NQ   |          2 | +0.029 (\<0.001) / −0.002 (0.75)      | +0.024 (\<0.001) / +0.012 (0.012)   | **yes** |
+| NQ   |          5 | +0.029 (\<0.001) / −0.016 (\<0.001)   | +0.014 (0.001) / −0.005 (0.40)      |   no    |
+| NQ   |         10 | +0.057 (\<0.001) / +0.009 (0.171)     | +0.052 (\<0.001) / +0.037 (\<0.001) | **yes** |
+| NQ   |         15 | +0.055 (\<0.001) / +0.005 (0.845)     | +0.022 (\<0.001) / +0.039 (\<0.001) | **yes** |
+
+**The one-bar confirmation now clears its bar in five of eight cells, at 10 and 15 minutes on both roots and at 2 minutes on NQ, where §M39 had it clearing none.** Its held-out gains at 10 and 15 minutes, which §M39 found no sign test could separate from zero, now improve 64% to 80% of pairs. At 5 minutes it still costs held out, now insignificantly. The confirmation is a stop order beyond the signal bar, which [#472] reads along the fill bar's path, and the market entry is not, so the fix moved one arm of the pair and not the other.
+
+**Gate 3 changes with it.** On the six strata the rule names at 2 to 15 minutes, best five per cell, 400 draws, the market entry now clears p = 0.05 in the better direction on both roots in `phase=LONDON`, at two configurations on MNQ and one on NQ, and the one-bar confirmation in `phase=CLOSE`, at two and one. §M39's verdict was that no arm cleared any stratum on both roots. Two cautions travel with it: three tests of sixty at that level are what chance gives, and `CLOSE` is the hour the forced flat closes. Resting the order three bars is still worse than one on the selection window, now significantly in five of eight cells against eight, and still mostly level held out.
+
+**It is a candidate for a pre-registered test, not a strategy.** The paired gain held out is one to five hundredths of profit factor, on an archetype whose median configuration loses held out, and no gate-4 read has been run on it.
+
 [#439]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/439
 [#451]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/pull/451
 [#453]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/pull/453
