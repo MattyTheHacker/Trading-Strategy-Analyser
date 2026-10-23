@@ -386,7 +386,7 @@ Re-run through each firm's 2026 evaluation linked to its funded account (#440), 
 
 **[M53 — EmaPullback's stop trailed on a third average takes the window's sign, as §M37's slow trail did, and gate 3 fails for every arm](m53-ema-pullback-ma-trail-result.md)**
 
-Pre-registered and run on the October 2026 re-sweep, and every prediction held: the controls reproduce exactly, on 529,920 rows where the third average is the slow one and 1,059,840 rows per arm against §M37's; paired over identical grids the third average costs against the fixed stop on the selection window at every bar size and gains held out from 5 minutes up, so it clears §M37's bar against neither arm at any resolution; it shortens holds, raises the trade count and moves exits off the forced flat in all sixteen cells, its own three axes barely matter, and gate 3 clears in none of its 18 cells.
+Pre-registered and run on the October 2026 re-sweep, and every prediction held: the controls reproduce exactly, on 529,920 rows where the third average is the slow one and 1,059,840 rows per arm against §M37's; paired over identical grids the third average costs against the fixed stop on the selection window at every bar size and gains held out from 5 minutes up, so it clears §M37's bar against neither arm at any resolution; it shortens holds, raises the trade count and moves exits off the forced flat in all sixteen cells, its own three axes barely matter, and gate 3 clears in none of its 18 cells, over the pre-registered 2-to-15-minute family or one chosen at 2 to 30.
 
 **[M54 — the family-wise null: no cell clears in either family, and family A is decided by EmaPullback's few-trade cells](m54-family-wise-null-result.md)**
 

@@ -6,7 +6,7 @@ issues: [74, 439]
 gates: [1, 2, 3]
 outcome: negative
 verdict: >-
-  Pre-registered and run on the October 2026 re-sweep, and every prediction held: the controls reproduce exactly, on 529,920 rows where the third average is the slow one and 1,059,840 rows per arm against §M37's; paired over identical grids the third average costs against the fixed stop on the selection window at every bar size and gains held out from 5 minutes up, so it clears §M37's bar against neither arm at any resolution; it shortens holds, raises the trade count and moves exits off the forced flat in all sixteen cells, its own three axes barely matter, and gate 3 clears in none of its 18 cells.
+  Pre-registered and run on the October 2026 re-sweep, and every prediction held: the controls reproduce exactly, on 529,920 rows where the third average is the slow one and 1,059,840 rows per arm against §M37's; paired over identical grids the third average costs against the fixed stop on the selection window at every bar size and gains held out from 5 minutes up, so it clears §M37's bar against neither arm at any resolution; it shortens holds, raises the trade count and moves exits off the forced flat in all sixteen cells, its own three axes barely matter, and gate 3 clears in none of its 18 cells, over the pre-registered 2-to-15-minute family or one chosen at 2 to 30.
 ---
 
 # M53 — EmaPullback's stop trailed on a third average takes the window's sign, as §M37's slow trail did, and gate 3 fails for every arm ([#439])
@@ -82,15 +82,25 @@ The loose ends' reading on EmaCrossover — trailing at all is the cost, and whe
 
 **Gate 1 follows the paired read.** Against the fixed stop, the third average has the larger profitable share held out from 5 minutes up — 0.36 and 0.47 at 10 minutes against 0.16 and 0.23 — and the smaller one on the selection window at every size, 0.43 and 0.63 at 10 minutes against 0.67 and 0.80.
 
-**Gate 2 fails unfiltered on MNQ for every arm**, and passes on NQ for the fixed stop and the third average, at 2 to 15 minutes and at 2 to 30 alike. In the strata, at 2 to 30 minutes the third average clears on both roots in 10, the slow trail in 7 and the fixed stop in 6. As the pre-registration says, these counts are not compared: the third arm's shortlist is drawn from twelve times the combinations.
+**Gate 2 fails unfiltered on MNQ for every arm**, and passes on NQ for the fixed stop and the third average, at 2 to 15 minutes and at 2 to 30 alike. In the strata, at 2 to 15 minutes the third average clears on both roots in 6, the slow trail in 9 and the fixed stop in 5; at 2 to 30, in 10, 7 and 6. As the pre-registration says, these counts are not compared: the third arm's shortlist is drawn from twelve times the combinations.
 
 ## Gate 3: none of 18 cells clears
 
-**The family is the six strata where the third average clears gate 2 on both roots with the highest mean held-out shortlist profit factor**: `trend=DOWN`, `regime=UNCLASSIFIABLE`, `htf=BELOW`, `volume=THIN`, `phase=PRE_OPEN` and `phase=CLOSE`. All three arms were measured over them — both roots, the best five configurations by selection-window profit factor, tested on the holdout, 400 draws over bars — 180 tests, one refused: a fixed-stop configuration with no losing trade, whose infinite profit factor no null can be compared against.
+**The family is the strata where the third average clears gate 2 on both roots at the pre-registered 2 to 15 minutes**, exactly six: `trend=DOWN`, `htf=BELOW`, `phase=PRE_OPEN`, `phase=CLOSE`, `volume=HEAVY` and `trend=UP`. All three arms were measured over them: both roots, the best five configurations at 2 to 15 minutes by selection-window profit factor, tested on the holdout, 400 draws over bars. That is 180 tests. Two were refused, a fixed-stop and a slow-trail configuration on NQ in `htf=BELOW` at 15 minutes. Each has no losing trade, and no null can be compared against its infinite profit factor.
 
-**A cell clears where, on both roots, a configuration beats its null at p ≤ 0.05. None does, in any arm.** The closest is the third average in `phase=PRE_OPEN`, four of five NQ configurations below 0.05 and MNQ's best at 0.055. The shortlists are small: a median of 17 to 41 held-out trades per arm, stratum and root.
+**A cell clears where, on both roots, a configuration beats its null at p ≤ 0.05. None does, in any arm.** Seven tests beat their null at that level, each cell on one root only:
 
-**30 minutes chose this family.** Gate 2 and the gate-3 shortlist include the 30-minute rows, decided after the pre-registration because 30 minutes became a default bar size ([#479]). At the pre-registered 2 to 15 minutes the family would have swapped two strata, taking `volume=HEAVY` and `trend=UP` for `regime=UNCLASSIFIABLE` and `volume=THIN`; those two were not run through gate 3.
+- the third average on NQ, four of five in `phase=PRE_OPEN` and one in `htf=BELOW`;
+- the slow trail on MNQ in `trend=DOWN` and on NQ in `htf=BELOW`.
+
+The fixed stop's one test below 0.05, on NQ in `trend=UP`, is worse than its null. The shortlists are small: a median of 12 to 41 held-out trades per arm, stratum and root.
+
+**Adding 30 minutes changes nothing.** The family was first run with gate 2 and the shortlists over 2 to 30 minutes, by a choice made after the pre-registration because 30 minutes became a default bar size ([#479]).
+
+- That family took `regime=UNCLASSIFIABLE` and `volume=THIN` in place of `volume=HEAVY` and `trend=UP`.
+- 30-minute configurations entered six of the twelve arm and stratum shortlists the two families share.
+- It also clears in no cell, with one fixed-stop configuration refused. Its closest is the third average in `phase=PRE_OPEN`: four of five NQ configurations below 0.05, and MNQ's best at 0.055.
+- Where a shortlist held no 30-minute configuration, the two runs agree test for test.
 
 ## The predictions
 
@@ -113,7 +123,7 @@ The loose ends' reading on EmaCrossover — trailing at all is the cost, and whe
 - **Paired read.** `campaign_paired`'s `paired` and `verdict` on profit factor and beside it on `session_close_share`, win rate, trades, average bars held and mean R, unfiltered and in each stratum, each window on its own.
 - **η².** One-way, each trail axis on profit factor inside the third arm, unfiltered, per root and window.
 - **Gates 1 and 2.** The share of each arm's configurations above a profit factor of 1.0, and `campaign_holdout`'s `pair_windows` and `verdict` run once per arm.
-- **Gate 3.** `campaign_null.py --strategy EmaPullback --variant <arm> --stratum <the six> --root MNQ NQ --window selection --test-window holdout --top 5 --iterations 400`, once per arm.
+- **Gate 3.** `campaign_null.py --strategy EmaPullback --variant <arm> --stratum <the six> --root MNQ NQ --window selection --test-window holdout --top 5 --iterations 400`, once per arm on the stored rows narrowed to 2 to 15 minutes, and once per arm over 2 to 30 with the 2-to-30 family.
 
 [#439]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/439
 [#453]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/453
