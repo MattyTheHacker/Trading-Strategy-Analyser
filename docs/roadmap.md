@@ -772,7 +772,7 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 ### M60 — a null over the level's kind ([#439])
 
-**Pre-registered, not yet run: OpeningRange's unfiltered shortlist against a null that keeps each session's own range width and price and places the bracket at random around that price, beside §M28.2's null over which session's range is traded, at 5, 10 and 15 minutes on both roots; a bar size clears where a configuration reaches a family-wise p below 0.05 on both roots.** Pre-registered in [`docs/findings/m60-level-kind-null-preregistration.md`](findings/m60-level-kind-null-preregistration.md).
+**Pre-registered and run, every prediction holding: all 60 shortlisted configurations beat a random bracket of their session's own width on sign, by +0.10 to +0.17 of held-out profit factor, and none reaches a family-wise p below 0.05, so no bar size clears; beside it §M28.2's level null is cleared on both roots at 15 minutes alone, NQ at 0.0499.** Moved to [`docs/findings/m60-level-kind-null-result.md`](findings/m60-level-kind-null-result.md), pre-registered in [`docs/findings/m60-level-kind-null-preregistration.md`](findings/m60-level-kind-null-preregistration.md).
 
 ### Do the shortlists travel? ([#330])
 
