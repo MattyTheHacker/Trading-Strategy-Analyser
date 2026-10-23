@@ -759,6 +759,28 @@ The re-sweep's prop reads replay each firm's 2026 evaluation linked to its funde
 
 The four labels' calibrations, §M10.1 to §M10.4, and the regime threshold of §M27.5 are properties of the bars; the specifications, §M19.2, §M28, §M28.6 and §M34, and the tooling, §M7b, §M27.6, §M28.3 and §M28.4, hold no measurement the fills could move. Each stands as written.
 
+## Thirty minutes
+
+Every campaign grid was swept at 30 minutes, and no campaign above reads it, because each one's protocol fixed its own bar sizes. What it adds, read here as a description and tested nowhere:
+
+- **More of the registry clears gate 1 at 30 minutes than at any other bar size.** Over the whole series, 81% and 88% of EmaCrossover's configurations are profitable there, 83% and 84% of InsideBar's, 71% and 65% of InsideBarTrailing's and 72% of PullBackAndGo's on NQ (§M27's table above), where no other bar size has more than two archetypes over half. On the selection window seven of the nine archetypes have a campaign variant majority-profitable at 30 minutes on at least one root; only DeadCatBounce and ElasticBand do not.
+- **The inside-bar pair's bar-size curve is not single-peaked once 30 minutes is in it.** Both collapse at 10 and 15 minutes after peaking at 5 and recover at 30, so §M27's "peak at 5 and fall away by 15" is true of the range it measured and not beyond it.
+- **A 30-minute configuration enters a shortlist easily.** The result files of §M53, §M58 and §M26.7 carry 2–30 runs beside their pre-registered families for that reason, and here every family named by a rule named different strata over 2–30 minutes than over 2–15.
+
+A campaign that wants 30 minutes should name it before it runs, which those three could not.
+
+## What this does not settle
+
+- **One minute is still running.** §M28.8, §M28.10, §M28.11 and §M28.9's table by year read 1-minute bars and are not re-read. Every other campaign that ran 1 minute is read here at 2 to 15, which is all the split windows hold until the last part of the re-sweep finishes.
+- **Two reads cannot be re-run, because the null tool cannot shortlist the way they did**: §M26.4's, by band source, and the loose ends' null over the confluence count, by count.
+- **Reads that need trade logs or contracts were not re-run**: the per-contract tallies of §M27 and §M27.3, the clock and volume screens over the survivor's own trades in §M27.7 and §M27.8, §M28.1's long-and-short null, §M28.15's fold-by-fold profit factors, and §M28.9's diversification.
+- **Three passes were not re-swept**: §M19.1's crossing of the two compression forms, §M31.1's hold ladder inside the fitted `DIRECTIONAL` cell, and the higher-timeframe file's one-off DeadCatBounce run.
+- **A difference against a campaign before §M44 has two causes**, the repaired archive and the fills, and this file separates them only where §M44 had already re-read the campaign or where the part-one table speaks for the whole archetype.
+- **The two results the fills created are gate-2 results, not candidates.** OpeningRange's tight-stop fade (§M28.5) and EmaPullback's one-bar confirmation (§M39) both turn on what a stop entry's own bar does after its fill, which NinjaTrader's backtest walks one way and a live market need not. The minute bars could check both before either is pre-registered, as §M28.4 checked the retest.
+- **Every family named by a rule was named on the re-swept rows**, so a stratum that cleared in the original and is absent here was not tested here: §M19.3's `trend=UP` is the instance that mattered.
+- **The gold strata were re-picked, at 112 pairs against 68**, by the pre-registration's own rule; the pairs are not the same pairs.
+- **The prop replays use the 2026 presets** wherever the stored gate reads made them, and the original campaigns used presets since replaced.
+
 [#439]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/439
 [#440]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/440
 [#451]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/pull/451
