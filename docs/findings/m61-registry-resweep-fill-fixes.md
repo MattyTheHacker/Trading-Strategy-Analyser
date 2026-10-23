@@ -475,6 +475,98 @@ Five of the eleven clear by less than 0.005 on a root, against seven of thirteen
 
 ([`m50-early-exit-tier-2-result.md`](m50-early-exit-tier-2-result.md).) At 15 and 10 minutes **1 of the 22 cells still clears, the same one**: EmaPullback at 10 minutes with the breakeven stop at 1 R, +0.0037 and +0.0042 held out against §M50's +0.004 on each root. Its 5-minute pass, which §M50 had not run, was swept in the re-sweep and read by the same rule. **3 of its 11 cells clear**: DeadCatBounce, with an excursion exit at 1 R, by +0.0036 and +0.0140; EmaPullback, with the same breakeven stop, by +0.0021 and +0.0020; and InsideBar, with a stepped stop, by +0.0126 and +0.0569. InsideBar is the archetype §M50 predicted the late stop would help and found it cost in 34 of 36 held-out cells at 10 and 15 minutes; at 5 minutes the selection window picks a different arm, and it pays. Neither midday cell clears at 5 minutes.
 
+## ElasticBand
+
+Its stops moved onto the tick grid with [#471], and its passed targets with [#451] and then [#453]. Its campaigns since §M26.5 ran at 1 to 15 minutes; everything here is read at 2 to 15. §M26.4 is not re-run: its comparison of the two band sources needs a shortlist chosen by source, which the null tool cannot take.
+
+### §M26 — the band built
+
+([`m26-elastic-band.md`](m26-elastic-band.md).) §M26's measurements were a per-contract sweep that the campaign grid does not repeat, so only its shape can be re-read here, from the campaign grid's four target ladders on MNQ over the whole series. **The ordering holds: the more patient the target, the higher the median profit factor, at every bar size from 1 to 15 minutes**, and the win rate falls as the target recedes, from 36.2% at −0.5σ to 33.9% at +2.0σ at 15 minutes. No ladder's median reaches 1.0 at any bar size; the best is +2.0σ at 10 minutes, at 0.946. Its gate-2 and gate-3 verdicts are §M27's, above.
+
+### §M26.5 — the signal bar's shape
+
+([`m26-5-signal-bar-shape.md`](m26-5-signal-bar-shape.md).) **The paired reading reproduces: the shape's sign is the window's.** Each shape against `shape=any`, target 0.0σ, median paired difference in profit factor:
+
+| window    | root | reversal            | reclaim         | rejection@0.4   | rejection@0.6   |
+| --------- | ---- | ------------------- | --------------- | --------------- | --------------- |
+| selection | MNQ  | +0.028 → +0.042     | +0.010 → −0.010 | +0.000 → +0.010 | −0.035 → −0.032 |
+| selection | NQ   | −0.029 → −0.057     | −0.069 → −0.086 | −0.061 → −0.070 | −0.059 → −0.067 |
+| holdout   | MNQ  | +0.131 → **+0.162** | +0.124 → +0.110 | +0.059 → +0.087 | +0.120 → +0.148 |
+| holdout   | NQ   | +0.094 → **+0.102** | +0.123 → +0.113 | +0.079 → +0.090 | +0.094 → +0.104 |
+
+**The drawdown reading weakens.** Across the two ladders and two roots, `reversal`'s held-out shortlist returns its own drawdown in two of four cells rather than four, both on NQ, at net-to-drawdown 2.73 and 3.81; on MNQ it reaches 0.54 and 0.64. `shape=any` now clears one of four, NQ at the 0.0σ ladder, where §M26.5 had it clearing none.
+
+| root | arm      | §M26.5: PF / null / excess, p < 0.05 PF / expectancy, trades | re-swept                               |
+| ---- | -------- | ------------------------------------------------------------ | -------------------------------------- |
+| MNQ  | any      | 1.034 / 0.908 / +0.073, 3 / 5, 98                            | 1.012 / 0.937 / +0.123, 3 / 6, 88      |
+| MNQ  | reversal | 1.526 / 0.902 / +0.645, 4 / 6, 34                            | 1.285 / **0.736** / +0.540, 4 / 10, 68 |
+| NQ   | any      | 1.136 / 0.948 / +0.248, 5 / 5, 189                           | 1.243 / 0.953 / +0.284, 2 / 2, 53      |
+| NQ   | reversal | 2.301 / 0.931 / +1.355, **12 / 16**, 56                      | 2.545 / 1.015 / +1.469, 8 / 14, **21** |
+
+**It is still not a pass, and the reading that made it worth quoting no longer holds.** §M26.5's case was that requiring a turn left the matched null where it was and moved only the observation, so the excess measured the entry. Now the reversal's null sits 0.20 below the control's on MNQ and 0.06 above it on NQ. And NQ's strongest counts rest on a median of 21 held-out trades.
+
+### §M26.6 — the recovery entry
+
+([`m26-6-recovery-entry.md`](m26-6-recovery-entry.md).) **It reproduces: the recovery entry wins the selection window and gives it back held out.** Median paired difference against each control:
+
+| window    | control  | root | recovery@1.0    | recovery@0.9    | recovery@0.75   |
+| --------- | -------- | ---- | --------------- | --------------- | --------------- |
+| selection | any      | MNQ  | +0.040 → +0.051 | +0.120 → +0.112 | +0.245 → +0.199 |
+| selection | any      | NQ   | +0.059 → +0.071 | +0.131 → +0.131 | +0.156 → +0.141 |
+| selection | reversal | MNQ  | +0.018 → +0.029 | +0.077 → +0.076 | +0.219 → +0.190 |
+| selection | reversal | NQ   | +0.071 → +0.093 | +0.163 → +0.164 | +0.211 → +0.186 |
+| holdout   | any      | MNQ  | −0.001 → −0.013 | −0.012 → +0.003 | −0.025 → +0.024 |
+| holdout   | any      | NQ   | +0.007 → +0.003 | +0.007 → +0.017 | −0.016 → +0.001 |
+| holdout   | reversal | MNQ  | −0.143 → −0.183 | −0.142 → −0.188 | −0.215 → −0.245 |
+| holdout   | reversal | NQ   | −0.085 → −0.091 | −0.094 → −0.102 | −0.117 → −0.109 |
+
+Against the reversal control the held-out cost still deepens with depth, and on the selection window the gain still does. Against `shape=any` the held-out rows no longer worsen with depth: they sit within 0.025 of zero either way. Held out, the deepest arm still fails gate 2 on NQ, and on MNQ it now returns its own drawdown, at 1.06, where §M26.6 had no recovery arm doing so. Under the null the recovery arms are still the worst result with the best-matched trade counts: 0 to 5 of 20 configurations below p = 0.05 on profit factor against the two controls' 8 to 10, each recovery shortlist within 4% of its null's trade count.
+
+### §M26.8 — the stop on the band
+
+([`m26-8-stop-on-band.md`](m26-8-stop-on-band.md).) **It reproduces.** Held out, sorting the seven stop arms by median hold sorts their median profit factor exactly under `shape=any`, as before, and at a rank correlation of 0.71 under `shape=reversal`, against 0.86. The band stop against each other stop, held out, median of the two roots:
+
+| entry    | against     | @0.5σ           | @1.0σ           | @1.5σ           | @2.0σ           |
+| -------- | ----------- | --------------- | --------------- | --------------- | --------------- |
+| any      | swing       | +0.005 → −0.029 | +0.038 → +0.032 | +0.072 → +0.058 | +0.069 → +0.075 |
+| any      | atr         | −0.061 → −0.074 | −0.006 → −0.017 | +0.004 → −0.000 | +0.005 → +0.005 |
+| any      | catastrophe | −0.076 → −0.103 | −0.026 → −0.041 | +0.002 → −0.018 | −0.004 → −0.011 |
+| reversal | swing       | −0.001 → −0.016 | +0.049 → −0.006 | +0.093 → +0.035 | +0.087 → +0.058 |
+| reversal | atr         | −0.092 → −0.128 | −0.072 → −0.096 | −0.023 → −0.021 | +0.004 → −0.026 |
+| reversal | catastrophe | −0.090 → −0.131 | −0.048 → −0.080 | −0.013 → −0.024 | +0.002 → −0.006 |
+
+Still monotone in depth against every control but for one step against the ATR stop under `shape=reversal`, still a gain over the tightest stop from 1.0σ or 1.5σ, and **now a cost against the widest at every depth on both entries**, where §M26.8 had it level at 2.0σ. The drawdown check still rises toward the wide stops: of four root × entry cells, `catastrophe` clears three, `band@2.0σ` and `band@1.5σ` two each, and `swing` none. Every arm still beats its null on most of its shortlist — 15 to 20 configurations of 20, median 18 — and the width order still does not order the excess, at a rank correlation of 0.062 against 0.038.
+
+### §M26.9 — the volume requirement
+
+([`m26-9-volume-requirement.md`](m26-9-volume-requirement.md).) Each volume state against its own unfiltered twin under `shape=reversal`, held out, over the nine fitted cuts:
+
+| state  | root | §M26.9: median ΔPF, cuts favourable | re-swept           |
+| ------ | ---- | ----------------------------------- | ------------------ |
+| HEAVY  | MNQ  | −0.056, 0 of 9                      | −0.025, **5 of 9** |
+| HEAVY  | NQ   | −0.081, 1 of 9                      | −0.067, 1 of 9     |
+| NORMAL | MNQ  | +0.071, 9 of 9                      | +0.085, 9 of 9     |
+| NORMAL | NQ   | +0.043, 8 of 9                      | +0.047, 8 of 9     |
+
+**`NORMAL` is still a gain on 17 of 18 cuts; `HEAVY` is a cost on 12 of 18 rather than 17**, the MNQ half now a coin flip. The selection window still cannot see either. `NORMAL` still returns its own drawdown held out in 15 of its 18 cells, against 16, and `HEAVY` in one, as before. Under the null, `NORMAL` still carries MNQ's strongest count and almost nothing on NQ, 13 and 3 of 20 against 14 and 5; `HEAVY` still fails below the unfiltered baseline on both roots, at 1 and 4 of 20 against 6 and 9.
+
+### §M33 — the channel against the shape
+
+([`m33-channel-volume.md`](m33-channel-volume.md).) The same pairing on both channels, held out:
+
+| shape    | state  | channel   | §M33, MNQ / NQ: median ΔPF, cuts favourable | re-swept              |
+| -------- | ------ | --------- | ------------------------------------------- | --------------------- |
+| any      | HEAVY  | bollinger | +0.044, 9 / +0.041, 9                       | +0.021, 7 / +0.031, 7 |
+| any      | HEAVY  | vwap      | −0.013, 4 / +0.003, 5                       | −0.013, 6 / +0.005, 5 |
+| any      | NORMAL | bollinger | −0.019, 1 / −0.025, 1                       | −0.005, 2 / −0.011, 2 |
+| any      | NORMAL | vwap      | +0.023, 6 / +0.007, 5                       | +0.043, 7 / +0.025, 7 |
+| reversal | HEAVY  | bollinger | +0.015, 7 / +0.023, 5                       | −0.019, 3 / +0.000, 5 |
+| reversal | HEAVY  | vwap      | −0.056, 0 / −0.081, 1                       | −0.025, 5 / −0.067, 1 |
+| reversal | NORMAL | bollinger | −0.036, 2 / −0.027, 2                       | −0.025, 3 / −0.020, 4 |
+| reversal | NORMAL | vwap      | +0.071, 9 / +0.043, 8                       | +0.085, 9 / +0.047, 8 |
+
+**`NORMAL`'s sign is still the channel's**, on both roots under both shapes: a gain on the VWAP band and a cost on Bollinger. **`HEAVY`'s flip is now partial**: on Bollinger it is still a gain under `shape=any`, at 7 of 9 cuts on each root, but under `shape=reversal` it is level or a cost. The finding that a context result belongs to a configuration rather than to the archetype holds; that both states flip with the channel does not.
+
 [#439]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/439
 [#451]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/pull/451
 [#453]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/pull/453
