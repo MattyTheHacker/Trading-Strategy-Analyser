@@ -212,6 +212,178 @@ DeadCatBounce at its defaults on MNQ's 1-minute bars from 2024, $1.24 commission
 
 **The entry is still better than random and still loses money**, and less clearly so: the null's median rose and the observation fell, so profit factor and expectancy sit at p = 0.040 rather than 0.012 and 0.008. Win rate, which §M7a called the more informative of the three, holds at 0.012. The arms still match on signals and diverge on fills, 3,766 trades against the null's median of 2,419.
 
+## OpeningRange
+
+The archetype the fills moved most: its breakout and fade are stop entries, which [#472] reads along the fill bar's path, and its retest and rejection are limit entries, which [#453] and [#455] reach. Three of its campaigns, §M28.8, §M28.10 and §M28.11, and §M28.9's table by year read 1-minute bars and wait for the last part of the re-sweep. §M28.3, §M28.4 and §M28.6 are tooling and a specification, with nothing to re-read.
+
+### §M28.1 — OpeningRange swept
+
+([`m28-1-openingrange-swept.md`](m28-1-openingrange-swept.md).) **Gate 1 reproduces exactly, gate 2 weakens, and gate 3 holds in one of its two strata.**
+
+| claim                                                                  | §M28.1                                          | re-swept                                        |
+| ---------------------------------------------------------------------- | ----------------------------------------------- | ----------------------------------------------- |
+| gate 1, opposite-extreme stop: cells with a majority profitable        | **10 of 10**, 50.7%–97.9%, PF 1.004–1.103       | **10 of 10**, 59.4%–100%, PF 1.024–1.103        |
+| gate 1, ATR stop                                                       | **0 of 10**, 1.0%–10.4%, PF 0.660–0.805         | **0 of 10**, 5.6%–22.9%, PF 0.764–0.885         |
+| η² within the opposite stop                                            | direction 0.381, window 0.272, resolution 0.138 | direction 0.472, window 0.313, resolution 0.076 |
+| η² within the ATR stop                                                 | ATR multiple 0.776                              | ATR multiple 0.683                              |
+| gate 2: root × stratum cells passing                                   | 51 of 62                                        | **42 of 62**                                    |
+| the shortlist above its stratum's holdout median                       | 91.9% of cells                                  | 71.0%                                           |
+| mean decay, mean rank correlation                                      | 0.221, **0.69**                                 | 0.231, **0.35**                                 |
+| `session_close_share` of the unfiltered shortlist, selection / holdout | 0.40 / 0.45                                     | 0.47 / 0.52                                     |
+
+The stop mode is still a partition rather than an axis, and within the half that works the bar size is still only the third-largest axis. At 30 minutes the opposite stop is profitable in exactly half its configurations on both roots, so the new bar size adds no gate-1 cell. **What weakens is the held-out ranking**: the rank correlation across the split halves, to the top of the range §M27.4's re-read gives the six earlier archetypes rather than well above it, though the decay stays below theirs.
+
+**`phase=CASH_OPEN` now passes gate 2 on both roots**, with 20 and 19 of 20 profitable, where §M28.1 had it failing on both with none of 20 profitable and called it the cell worth staring at. The other four strata §M28.1 had failing on both roots still do — `AFTERNOON`, `CLOSE`, `htf=BELOW` and the raw `regime=UNCLASSIFIABLE` — and three fitted regime cells join them. The raw `regime=DIRECTIONAL` now misses on NQ, by 0.016 of the stratum's own median.
+
+Gate 3, the configuration the selection window ranks first on each root, 200 draws over bars as §M28.1 drew:
+
+| stratum                     | §M28.1, MNQ / NQ                 | re-swept MNQ                   | re-swept NQ                            |
+| --------------------------- | -------------------------------- | ------------------------------ | -------------------------------------- |
+| `regime=DIRECTIONAL@n=50`   | **better, p 0.010** / **0.010**  | **+1.104, p 0.010**, 50 trades | **+1.056, p 0.010**, 52 trades         |
+| `trend=UP`                  | **better, p 0.010** / **0.010**  | +0.005, p 0.985                | −0.294, **worse than random**, p 0.010 |
+| `regime=CONSOLIDATING@n=50` | indistinguishable, 0.109 / 0.070 | −0.276, p 0.080                | −0.334, **worse than random**, p 0.030 |
+| `volume=THIN`               | indistinguishable, 0.965 / 0.587 | +0.090, p 0.517                | −0.114, p 0.418                        |
+
+**The archetype's own thesis, the fitted `DIRECTIONAL` cell, still beats a random entry on both roots; `trend=UP` no longer does on either.** So OpeningRange now passes gate 3 in one of §M28.1's strata rather than two, and the roots agree on two of the four rather than all four. The long-and-short null that settled §M28.1's drift question was not re-run.
+
+### §M28.2 — the deferral list built
+
+([`m28-2-deferral-list.md`](m28-2-deferral-list.md).) Profitable share, unfiltered, whole series, MNQ / NQ, at 2 to 15 minutes where §M28.2 read 1 to 15:
+
+| entry    | stop fraction 0.25            | 0.50                          | 0.75                          | 1.00                              |
+| -------- | ----------------------------- | ----------------------------- | ----------------------------- | --------------------------------- |
+| breakout | 0.000 / 0.006 → 0.011 / 0.011 | 0.135 / 0.146 → 0.103 / 0.139 | 0.383 / 0.438 → 0.378 / 0.428 | **0.615 / 0.633 → 0.522 / 0.589** |
+| fade     | 0.036 / 0.054 → 0.044 / 0.058 | 0.073 / 0.143 → 0.008 / 0.057 | 0.139 / 0.185 → 0.092 / 0.140 | 0.190 / 0.246 → 0.142 / 0.197     |
+| retest   | 0.611 / 0.709 → 0.637 / 0.756 | 0.542 / 0.609 → 0.592 / 0.637 | 0.546 / 0.603 → 0.574 / 0.642 | 0.619 / 0.654 → 0.626 / 0.665     |
+
+**All three verdicts hold.** The breakout clears gate 1 only at the opposite-extreme stop and degrades smoothly as the stop tightens. The fade fails gate 1 at every fraction on both roots. And the retest's gate-2 pass is still the ambiguity assumption: it passes 16 of 16 cells at held-out profit factors of 2.00 to 3.85, against 2.15 to 3.87, and its unfiltered shortlist is again all at the tightest fraction, with a held-out `ambiguous_share` of 0.357 and 0.365 against its population's 0.029. The breakout passes 15 of 16 cells rather than 16, and the fade 3 of 16 rather than none. Its level null, re-run beside §M60, now clears on both roots at 15 minutes, where §M28.2 had one cell of six clearing: [§M60](m60-level-kind-null-result.md).
+
+### §M28.5 — the fade's tight stops, and the verdict reverses
+
+([`m28-5-fade-bracket.md`](m28-5-fade-bracket.md).) **This is the largest change the fills made to any finding in the registry.** §M28.5 swept the fade's stop down to 2% of the range width and found nothing: not one of its combinations below the shared endpoint profitable, on either root. Read on the selection window, as its rows are stored:
+
+| target      | 0.02                              | 0.05                          | 0.10                          | 0.25                          |
+| ----------- | --------------------------------- | ----------------------------- | ----------------------------- | ----------------------------- |
+| `R`         | 0.000 / 0.000 → 0.000 / 0.000     | 0.000 / 0.000 → 0.000 / 0.000 | 0.000 / 0.000 → 0.000 / 0.000 | 0.028 / 0.052 → 0.026 / 0.028 |
+| `width`     | 0.000 / 0.000 → **0.221 / 0.415** | 0.000 / 0.000 → 0.031 / 0.054 | 0.000 / 0.000 → 0.015 / 0.008 | 0.052 / 0.069 → 0.067 / 0.074 |
+| `width+mid` | 0.000 / 0.000 → **0.223 / 0.404** | 0.000 / 0.000 → 0.031 / 0.048 | 0.000 / 0.000 → 0.013 / 0.008 | 0.041 / 0.064 → 0.067 / 0.073 |
+
+706 of the 11,520 combinations below the endpoint are now profitable. The best profit factor at the three tight fractions is 1.530, 1.194 and 1.114, against 0.545, 0.641 and 0.922, and the median no longer rises with the fraction. Held out, the twenty the selection window ranks first at each fraction:
+
+| fraction | §M28.5, held-out PF MNQ / NQ, profitable of 20 | re-swept                   |
+| -------- | ---------------------------------------------- | -------------------------- |
+| 0.02     | 0.210 / 0.274, 0 / 0                           | **1.774 / 1.744, 20 / 20** |
+| 0.05     | 0.477 / 0.512, 0 / 0                           | 1.113 / 1.045, 11 / 12     |
+| 0.10     | 0.811 / 0.789, 0 / 0                           | 0.664 / 0.622, 0 / 0       |
+| 0.25     | 1.006 / 1.037, 10 / 14                         | 1.004 / 1.013, 12 / 12     |
+
+**At a stop 2% of the range beyond the extreme, every one of the forty held-out configurations makes money and returns its own drawdown**, at profit factors of 1.30 to 2.09 on MNQ and 1.31 to 2.39 on NQ and net-to-drawdown of 1.2 to 18. They are not thin: 261 to 871 held-out trades on MNQ, a median of 292, and 344 to 1,998 on NQ. They win 13% and 7% of the time against a target one range width away, and all but four of the forty are 15-minute configurations.
+
+**The mechanism is [#472], and it retires §M28.5's own.** The fade is a stop entry that fills as price comes back through the level, so on its fill bar the extreme on the stop's side can come before the fill. §M28.5 measured the whole entry bar's adverse excursion against the stop, found it exceeded a 2% stop 84.7% of the time, and concluded that the stop sat inside the bar the order fills on. NinjaTrader reads the bar along its path and lets the stop see only what came after the fill, and the simulation now does the same (`docs/nt8-fidelity.md`, "A stop on its entry bar is read along the bar's path"), so an extreme that came before the fill no longer stops the trade. `ambiguous_share` at the tightest fraction falls from 0.287 to 0.087 for the same reason: a leg is flagged only where its own part of the path reached both levels.
+
+**It is a gate-2 result, not a candidate.** No gate-3 or gate-4 read has been run on it. The stop is narrower than a typical bar, so whether a trade survives its fill bar is decided by a walk from the open to the nearer extreme, which is NinjaTrader's model of a bar and not a record of one. The second tier would agree with it; the minute bars could test it on these 15-minute rows, as §M28.4 did for the retest, and that has not been done. §M28.5's verdict does not hold under the fill rule now in force: the stop axis is not monotone, and its tightest end is the fade's best. The rejection, §M28.7, is the test of the same question from a limit entry, and it is unchanged.
+
+### §M28.7 — the rejection
+
+([`m28-7-rejection-swept.md`](m28-7-rejection-swept.md).) **It reproduces: profitability still tracks the fill assumption.** Unfiltered, selection window:
+
+| `ambiguous_share` | median PF, MNQ / NQ              | profitable, MNQ / NQ              |
+| ----------------- | -------------------------------- | --------------------------------- |
+| below 0.05        | 0.846 / 0.897 → 0.868 / 0.915    | 0.177 / 0.272 → 0.157 / 0.256     |
+| 0.05 – 0.15       | 1.053 / 1.132 → 1.007 / 1.081    | 0.582 / 0.730 → 0.520 / 0.714     |
+| 0.15 – 0.30       | 1.457 / 1.589 → 1.307 / 1.453    | 0.931 / 0.953 → 0.849 / 0.944     |
+| 0.30 – 0.50       | 2.537 / 2.866 → 2.431 / 2.792    | **1.000 / 1.000 → 1.000 / 1.000** |
+| 0.50 and above    | 10.395 / 11.987 → 8.281 / 10.684 | **1.000 / 1.000 → 1.000 / 1.000** |
+
+Every configuration whose assumption decides three legs in ten is still profitable, and the readable rows still lose: on MNQ their median profit factor runs 0.843 to 0.906 across 2 to 15 minutes, nearly flat, while the share profitable climbs from 0.385 to 0.802 with the mean `ambiguous_share`. On the holdout at 15 minutes 78.1% and 81.7% of configurations are profitable, against 79.9% and 84.4%. The rejection is a limit entry, which the path rule does not reach, and its verdict stands. **What no longer holds is the mirror §M28.7 drew between it and the fade**: the fade's median profit factor on MNQ now runs 0.57, 0.51, 0.57 and 0.70 across the four fractions, rather than falling with its ambiguity as the rejection's rises.
+
+### §M28.9 — the survivor's drawdown
+
+([`m28-9-survivor-tradeability.md`](m28-9-survivor-tradeability.md).) **One cell in thirteen returned its own drawdown held out; now none of fourteen does.** The unfiltered shortlist, pooled over each archetype's campaign variants:
+
+| archetype         | §M28.9, MNQ / NQ  | re-swept        |
+| ----------------- | ----------------- | --------------- |
+| InsideBar         | 0.468 / **1.022** | 0.919 / 0.924   |
+| InsideBarTrailing | 0.328 / 0.196     | 0.687 / −0.080  |
+| EmaCrossover      | 0.059 / −0.414    | 0.179 / 0.924   |
+| DeadCatBounce     | −0.292 / −0.259   | −0.841 / −0.870 |
+| PullBackAndGo     | −0.572 / −0.527   | −0.787 / −0.449 |
+| ElasticBand       | −0.583 / −0.633   | −0.606 / −0.494 |
+| OpeningRange      | unusable          | 0.834 / 0.711   |
+
+OpeningRange's row is readable now because the shortlist ranks its campaign variants alone rather than every set in its database. The verdict holds: the binding constraint is net-to-drawdown rather than profit factor. Its table by year, and so its finding that the edge is absent from 2026, is 1-minute and waits for the last part.
+
+### §M28.12 — the bracket against the flatten
+
+([`m28-12-bracket-decomposition.md`](m28-12-bracket-decomposition.md).) **It reproduces.** Read from gate 4's exclusion pass over every campaign variant's held-out shortlist at 2 to 15 minutes, the bracket's net is what each configuration made less what its session-close legs made:
+
+| archetype         | bracket negative, MNQ / NQ | median bracket net, MNQ / NQ | median flatten net, MNQ / NQ |
+| ----------------- | -------------------------- | ---------------------------- | ---------------------------- |
+| **InsideBar**     | **5.0% / 8.8%**            | **+103,799 / +1,054,205**    | −96,192 / −1,013,082         |
+| InsideBarTrailing | 96.2% / 95.0%              | −125,147 / −1,182,396        | +98,320 / +938,196           |
+| EmaCrossover      | 100% / 100%                | −140,373 / −1,367,071        | +150,970 / +1,425,156        |
+| ElasticBand       | 100% / 100%                | −84,538 / −628,279           | +68,920 / +616,443           |
+| OpeningRange      | 100% / 100%                | −101,699 / −1,007,282        | +96,208 / +952,157           |
+| DeadCatBounce     | 71.2% / 83.8%              | −1,953 / −19,968             | +118 / +1,815                |
+| PullBackAndGo     | 91.2% / 76.2%              | −4,811 / −22,112             | +27 / +386                   |
+
+**InsideBar is still the only archetype whose bracket pays for itself held out**, and its flatten still loses on every configuration. At 5 minutes, the bar size §M28.12 read it at, the flatten hands back 0.89 of what the bracket earns on MNQ and 0.92 on NQ, against 0.92 and 0.89. EmaPullback and SqueezeBreakout, read the same way, carry their results on the flatten too, with the bracket negative on 99% to 100% of their configurations. These are shortlists per variant and bar size, where §M28.12 pooled each archetype's into one.
+
+### §M28.14 — the stratum cross-read
+
+([`m28-14-stratum-cross-read.md`](m28-14-stratum-cross-read.md).) Re-scored by §M54 on the re-swept rows, over eight root × resolution cells where §M28.14 had ten, so a score now runs from −8 to +8. **The structure holds.** EmaCrossover and ElasticBand are still mirror images by phase: the cash open and midday at +7 and +8 for the first, −6 and −7 for the second, and the pre-open at −6 against +8. Midday is still the best phase for the breakout family — +8 for OpeningRange, +7 for InsideBarTrailing, +8 for EmaCrossover. OpeningRange still scores +7 above the hourly average and −6 below it, volume is still close to inert outside OpeningRange's `THIN` (+7) and ElasticBand (+7 `HEAVY`, −8 `NORMAL`), and `regime=UNCLASSIFIABLE` is still the best regime cell for InsideBar, InsideBarTrailing and ElasticBand, and level with `DIRECTIONAL` for OpeningRange. `CLOSE` is no longer negative for every archetype: PullBackAndGo scores +1 there.
+
+Its two cells taken to a null are in §M54's family A. **OpeningRange's `phase=MIDDAY` still clears**: 10 of 10 configurations below p = 0.05 on MNQ and 7 of 10 on NQ, one test at a time, against 9 and 10. ElasticBand's `phase=PRE_OPEN` still beats its null on most configurations and clears on none.
+
+### §M28.15 and §M31.1 — gate 4 on the two OpeningRange candidates
+
+([`m28-15-midday-cell.md`](m28-15-midday-cell.md), [`m31-1-survivor-gate-4.md`](m31-1-survivor-gate-4.md).) Both are `window=30m stop=opposite target=R` at 5 minutes, the held-out top twenty: §M28.15's `phase=MIDDAY` and §M31.1's `regime=DIRECTIONAL@n=20 q=0.20/0.80`.
+
+| read                                       | §M28.15               | re-swept              | §M31.1                | re-swept              |
+| ------------------------------------------ | --------------------- | --------------------- | --------------------- | --------------------- |
+| walk-forward, pooled test PF, MNQ / NQ     | 1.279 / 1.302, passes | 1.243 / 1.273, passes | 1.439 / 1.459, passes | 1.450 / 1.437, passes |
+| permutation p of the drawdown              | 0.41–0.90             | 0.29–0.87             | —                     | 0.34–0.98             |
+| bootstrap 5th percentile of PF above 1.0   | 0 of 40               | 0 of 40               | 1 of 20               | 0 of 40               |
+| resamples that lose money, median MNQ / NQ | 0.139 / 0.113         | 0.138 / 0.132         | —                     | 0.120 / 0.106         |
+| profitable without the session-close legs  | 0 of 40               | **0 of 40**           | 0 of 20               | **0 of 40**           |
+| median PF whole → without them, MNQ        | 1.216 → 0.371         | 1.181 → 0.311         | 1.430 → 0.238         | 1.312 → 0.234         |
+
+**Both reproduce.** The walk-forward still passes, the drawdown is still not the trades' ordering, the bootstrap still cannot exclude a loss, and neither cell has a configuration profitable without its forced flat. The prop accounts are not comparable: the gate reads replay the 2026 presets, an evaluation linked to its funded account, where both campaigns replayed the evaluations alone; §M46's re-run below uses the old presets for that reason. §M31.1's hold ladder inside the stratum was not re-swept and is not re-read.
+
+### §M28.16 — the consistent cells
+
+([`m28-16-consistent-cells.md`](m28-16-consistent-cells.md).) Re-run as §M54's family B, which reproduces §M44's per-test counts almost exactly: four cells put a configuration below p = 0.05 on both roots, as §M28.16's did, and none clears family-wise ([§M54](m54-family-wise-null-result.md)).
+
+### §M31 — the calibrated cells under the null
+
+([`m31-calibrated-cells-null.md`](m31-calibrated-cells-null.md).) Re-run as phase 2b ran it: the nine cells, both roots, 5 minutes, top ten, 400 draws, OpeningRange under the level draw. **Two cells cleared on both roots; one still does.**
+
+| cell                                                 | §M31, p < 0.05 MNQ / NQ | re-swept   | excess, re-swept | held-out trades |
+| ---------------------------------------------------- | ----------------------- | ---------- | ---------------- | --------------- |
+| OpeningRange `regime=DIRECTIONAL@n=20 q=0.20/0.80`   | **10 / 10**             | **9 / 10** | +0.357 – +0.451  | 152–158         |
+| OpeningRange `regime=DIRECTIONAL@n=10 q=0.20/0.80`   | **9 / 8**               | 0 / 0      | +0.164 – +0.274  | 209–225         |
+| OpeningRange `regime=DIRECTIONAL@n=5 q=0.20/0.80`    | 0 / 0                   | 0 / 0      | +0.139 – +0.275  | 241–256         |
+| OpeningRange `regime=DIRECTIONAL@n=30 q=0.20/0.80`   | 0 / 0                   | 0 / 0      | +0.084 – +0.250  | 125–131         |
+| OpeningRange `regime=DIRECTIONAL@n=50 q=0.20/0.80`   | 0 / 0                   | 0 / 1      | +0.031 – +0.442  | 80–109          |
+| ElasticBand `volume=HEAVY@rolling_30_20 q=0.20/0.80` | 3 / 0                   | 3 / 0      | −0.217 – +0.603  | 25–382          |
+| ElasticBand, the other three cells                   | 0 / 0                   | 0 / 0      | −0.401 – +0.255  | 45–1,461        |
+
+**The 20-bar lookback is still the strongest gate-3 cell OpeningRange has**, now at a median p of 0.042 and 0.025 rather than 0.010, on more trades. The 10-bar lookback no longer clears anywhere: every configuration still beats its null, by less. ElasticBand's mirror still carries nothing — its two `UNCLASSIFIABLE` cells beat their null on 2, 4, 7 and 4 of 10 configurations.
+
+### §M38 — the cell across configurations
+
+([`m38-openingrange-cell-across-configurations.md`](m38-openingrange-cell-across-configurations.md).) §M31's cell, each arm ranked within itself, 400 draws, the level draw, read by §M38's own rule: an arm holds where six of ten configurations reach p < 0.05 on both roots, and keeps the direction only where six of ten beat their null on both.
+
+| arm                     | §M38, p < 0.05 MNQ / NQ | verdict        | re-swept  | verdict            |
+| ----------------------- | ----------------------- | -------------- | --------- | ------------------ |
+| control, 30m opposite R | 9 / 10                  | holds          | 9 / 10    | holds              |
+| stop, ATR               | 0 / 0                   | direction only | 1 / 0     | direction only     |
+| window, 15m             | 8 / 8                   | holds          | **2 / 4** | **direction only** |
+| window, 5m              | 10 / 10                 | holds          | 10 / 10   | holds              |
+| target, width           | 8 / 8                   | holds          | 8 / 8     | holds              |
+
+**Its answer holds: the cell's gate-3 result belongs to the opposite-extreme stop.** Under the ATR stop the entry still beats its null on 10 and 9 of 10 configurations and clears on one. Within the opposite stop three arms hold rather than four, the 15-minute window falling to the direction only, and the 5-minute window is still the strongest arm, at 10 of 10 on both roots on the most held-out trades.
+
 [#439]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/439
 [#451]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/pull/451
 [#453]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/pull/453
