@@ -1,15 +1,15 @@
 ---
 id: M61
-title: "M61 — every older campaign re-read on the October 2026 re-sweep, after the fill fixes"
+title: "M61 — every older campaign re-read on the October 2026 re-sweep: most findings hold, and they move where the fill fixes reached a stop entry"
 archetypes: [DeadCatBounce, ElasticBand, EmaCrossover, EmaPullback, InsideBar, InsideBarTrailing, OpeningRange, PullBackAndGo, SqueezeBreakout]
 issues: [439]
 gates: [1, 2, 3, 4]
 outcome: mixed
 verdict: >-
-  Written in sections; the verdict is set once every section is in.
+  Re-read on the October 2026 re-sweep, most of the registry's findings hold and InsideBarTrailing's reproduce to the third decimal; what moved is where the fill fixes reached a stop entry. Read along its fill bar's path, OpeningRange's fade at its tightest stop now holds out profitably on all forty shortlisted configurations, and EmaPullback's confirmation entry now clears its pre-registered paired bar in five of eight cells; OpeningRange's trend=UP and its 10-bar regime cell no longer clear gate 3, and SqueezeBreakout's unfiltered entry is now worse than a random one.
 ---
 
-# M61 — every older campaign re-read on the October 2026 re-sweep, after the fill fixes ([#439])
+# M61 — every older campaign re-read on the October 2026 re-sweep: most findings hold, and they move where the fill fixes reached a stop entry ([#439])
 
 The second re-sweep of every stored campaign. §M44 re-swept the registry onto a repaired archive; since then four fixes to how orders fill have changed rows in every archetype, so no stored control could reproduce itself and [#439] re-swept them all again before any new campaign ran. The campaigns pre-registered before the run have result files of their own. This file re-reads the headline of every campaign that ran before it, on the new rows, against the figures each one published.
 
@@ -20,6 +20,8 @@ In October 2026 four mistakes in how the backtester fills orders were fixed, eac
 The fixes moved most results by very little: the typical setting's profit factor changed by less than 0.01 on seven of the nine strategies. The two that moved more are the two that enter on a stop order at a level, OpeningRange and SqueezeBreakout, and both moved up.
 
 The question this file answers is whether anything the project concluded before the re-run still holds. Each older campaign's main claim is re-measured the way it was first measured and set beside its original figure.
+
+**Most of it does.** Which strategies rank where, which settings matter, the held-out tests and most of the comparisons against random entries came back close to what they were; InsideBarTrailing's came back to the third decimal. **What changed is where the fixes reached.** A strategy that enters with a stop order now has its entry bar read the way NinjaTrader reads it, and two results that had been negative are now open questions: OpeningRange fading a broken range with a very tight stop, and EmaPullback waiting for a confirming break before entering. Neither is a strategy yet. A few positive results weakened the same way: OpeningRange in an uptrend no longer beats random entries, and one of its two calibrated trend cells no longer does so convincingly.
 
 ## What changed since §M44
 

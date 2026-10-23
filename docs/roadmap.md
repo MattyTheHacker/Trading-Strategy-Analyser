@@ -776,7 +776,7 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 ### M61 — every older campaign re-read after the fill fixes ([#439])
 
-**Every campaign that ran before the October 2026 re-sweep, re-read on its rows against the figures it published; written in sections.** Moved to [`docs/findings/m61-registry-resweep-fill-fixes.md`](findings/m61-registry-resweep-fill-fixes.md).
+**Most of the registry's findings hold on the October 2026 re-sweep, and they move where the fill fixes reached a stop entry: OpeningRange's tight-stop fade now holds out profitably and EmaPullback's confirmation entry clears its paired bar in five of eight cells, while OpeningRange's trend=UP and 10-bar regime cell no longer clear gate 3.** Moved to [`docs/findings/m61-registry-resweep-fill-fixes.md`](findings/m61-registry-resweep-fill-fixes.md).
 
 ### Do the shortlists travel? ([#330])
 
