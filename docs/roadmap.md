@@ -764,7 +764,7 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 ### M58 — the latched squeeze ([#439])
 
-**Pre-registered, not yet run: SqueezeBreakout traded only once its squeeze ends, from the window frozen at the last squeezed bar, for 3, 6 or 12 bar closes beside the unlatched control, over §M19.3's grid in all 23 strata at 2, 5, 10 and 15 minutes, read with §M37's paired bar over a family of 12 and through gate 3 per arm.** Pre-registered in [`docs/findings/m58-squeeze-latch-preregistration.md`](findings/m58-squeeze-latch-preregistration.md); the rules and the NinjaScript a port would use are [`nt8-fidelity.md`](nt8-fidelity.md), "The latched squeeze".
+**Pre-registered and run: 5 of 12 latch and bar-size cells clear §M37's paired bar against a prediction of none, every length at 2 minutes and 3 and 12 closes at 5, with the median configuration still losing; no latched arm beats its null unfiltered, and two thin cells pass §M19.3's gate-3 bar on both roots, 6 closes in `trend=MIXED` and 12 in `compression=EXPANDED`, neither family-wise on both.** Moved to [`docs/findings/m58-squeeze-latch-result.md`](findings/m58-squeeze-latch-result.md), pre-registered in [`docs/findings/m58-squeeze-latch-preregistration.md`](findings/m58-squeeze-latch-preregistration.md); the rules and the NinjaScript a port would use are [`nt8-fidelity.md`](nt8-fidelity.md), "The latched squeeze".
 
 ### M59 — EmaCrossover's confluence count over conditions it does not read ([#439])
 
