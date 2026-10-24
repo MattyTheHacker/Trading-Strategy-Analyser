@@ -18,6 +18,8 @@ import pytest
 from nqbt import archetypes, context, disambiguate, resample, sessions, stats, sweep
 from nqbt.disambiguate import (
     ENTRY_UNLOCATED,
+    FILL_BAR_SCORED,
+    HELD,
     MIN_AMBIGUOUS_SHARE,
     MISALIGNED,
     STILL_AMBIGUOUS,
@@ -27,7 +29,11 @@ from nqbt.disambiguate import (
     DisambiguationError,
     accuracy,
     aligned,
+    check_fill_bars,
+    enters_on_stop,
     entry_minute,
+    fill_bar_accuracy,
+    fill_minute,
     first_level_reached,
     first_target,
     guessed,
@@ -35,13 +41,29 @@ from nqbt.disambiguate import (
     rebuilds,
     resolve,
     resolved_log,
+    simulated_outcome,
     stop_is_the_one_it_opened_with,
     sub_bars,
     worth_resolving,
 )
 from nqbt.instruments import get_instrument
 from nqbt.sim.bracket import AMBIGUITY_BEST_CASE, AMBIGUITY_NEAREST_TO_OPEN, AMBIGUITY_WORST_CASE
-from nqbt.sim.types import DeadCatParams, InsideBarParams
+from nqbt.sim.types import (
+    ORB_ENTRY_BREAKOUT,
+    ORB_ENTRY_FADE,
+    ORB_ENTRY_REJECTION,
+    ORB_ENTRY_RETEST,
+    ORB_STOP_FRACTION,
+    DeadCatParams,
+    ElasticBandParams,
+    EmaCrossoverParams,
+    EmaPullbackParams,
+    InsideBarParams,
+    InsideBarTrailingParams,
+    OpeningRangeParams,
+    PullBackAndGoParams,
+    SqueezeBreakoutParams,
+)
 from tests.rows import number
 
 LONG = 1.0
@@ -533,3 +555,255 @@ def test_a_window_that_cannot_be_lined_up_is_refused_through_the_whole_pass() ->
     )
 
     assert set(table["resolved"]) == {MISALIGNED}
+
+
+# -- a stop entry's own bar --------------------------------------------------------------------
+
+
+def a_bar(*ranges: tuple[float, float]) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Build minute bars and the one coarse bar they aggregate into, stamped at its last minute."""
+    fine = minutes(*ranges)
+    coarse = pd.DataFrame(
+        {
+            "open": [fine["open"].iloc[0]],
+            "high": [fine["high"].max()],
+            "low": [fine["low"].min()],
+            "close": [fine["close"].iloc[-1]],
+        },
+        index=fine.index[-1:],
+    )
+
+    return fine, coarse
+
+
+def a_leg(
+    exit_bar: int = 1, exit_reason: str = "target", net: float = 50.0, leg: int = 1
+) -> dict[str, object]:
+    """Return one leg of a long stop entry triggered at 100 and filled a quarter-point worse.
+
+    Its stop is at 99.5 and its target at 110.
+    """
+    return {
+        "trade_id": 1,
+        "leg": leg,
+        "entry_bar": 0,
+        "exit_bar": exit_bar,
+        "entry_price": 100.25,
+        "initial_stop": 99.5,
+        "target_price": 110.0,
+        "direction": LONG,
+        "exit_reason": exit_reason,
+        "net_pnl": net,
+    }
+
+
+def read(fine: pd.DataFrame, coarse: pd.DataFrame, *legs: dict[str, object]) -> pd.DataFrame:
+    """Read hand-built legs' fill bar at a quarter-point of slippage."""
+    return check_fill_bars(pd.DataFrame(list(legs)), fine, coarse, slippage=0.25, fill_limit_on_touch=False)
+
+
+SPARED = ((99.6, 100.2), (99.0, 99.8), (99.6, 101.0))
+"""A bar whose low is nearer its open than its high, so the path reaches the low before the high
+the entry fills on, while its minutes reach the low after the fill."""
+
+
+def test_a_stop_entry_fills_in_the_first_minute_that_trades_through_its_trigger() -> None:
+    fine, coarse = a_bar((99.0, 99.5), (99.2, 100.1), (100.0, 100.5))
+    assert fill_minute(fine, coarse.iloc[0], 100.25, 0.25, LONG) == 1
+
+
+def test_a_stop_entry_whose_bar_opened_past_its_trigger_held_the_whole_bar() -> None:
+    """A gap fills at the open, so the whole bar was the trade's -- :func:`entry_minute`'s ``-1``."""
+    fine, coarse = a_bar((101.0, 101.5), (100.5, 102.0))
+    assert fill_minute(fine, coarse.iloc[0], 101.25, 0.25, LONG) == -1
+
+
+def test_a_short_stop_entry_fills_where_a_low_trades_through_its_trigger() -> None:
+    fine, coarse = a_bar((100.5, 101.0), (99.5, 100.5))
+    assert fill_minute(fine, coarse.iloc[0], 99.75, 0.25, SHORT) == 1
+
+
+def test_a_trigger_no_minute_traded_through_runs_off_the_end() -> None:
+    fine, coarse = a_bar((99.0, 99.5), (99.2, 99.6))
+    assert fill_minute(fine, coarse.iloc[0], 100.25, 0.25, LONG) == len(fine)
+
+
+def test_a_walk_reaching_neither_level_returns_what_its_caller_names() -> None:
+    """On an ambiguous bar that means a window off its bar; on a fill bar it is a leg held through."""
+    window = minutes((99.0, 101.0), (98.0, 102.0))
+    assert walk(window) == MISALIGNED
+    assert walk(window, if_neither=HELD) == HELD
+
+
+def test_the_paths_reading_comes_from_where_and_why_each_leg_left() -> None:
+    assert simulated_outcome(3, 3, "stop") == STOP_FIRST
+    assert simulated_outcome(3, 3, "target") == TARGET_FIRST
+    assert simulated_outcome(3, 3, "session_close") == HELD
+    assert simulated_outcome(4, 3, "stop") == HELD
+
+
+def test_a_leg_the_path_held_that_the_minutes_stop_after_the_fill_is_spared() -> None:
+    """The case the check exists for.
+
+    The path puts the stop's extreme before the fill, while the minute bars put it after.
+    """
+    fine, coarse = a_bar(*SPARED)
+    table = read(fine, coarse, a_leg())
+    assert table[["simulated", "minute"]].iloc[0].tolist() == [HELD, STOP_FIRST]
+    assert not bool(table["agrees"].iloc[0])
+    assert fill_bar_accuracy(table)["path_spared"] == 1
+
+
+def test_a_leg_both_readings_stop_on_its_fill_bar_agrees() -> None:
+    fine, coarse = a_bar(*SPARED)
+    table = read(fine, coarse, a_leg(exit_bar=0, exit_reason="stop", net=-20.0))
+    assert table[["simulated", "minute"]].iloc[0].tolist() == [STOP_FIRST, STOP_FIRST]
+    assert bool(table["agrees"].iloc[0])
+
+
+def test_a_leg_the_minutes_take_to_its_target_after_the_fill_reads_target_first() -> None:
+    fine, coarse = a_bar((99.6, 100.2), (100.0, 111.0), (99.0, 100.0))
+    table = read(fine, coarse, a_leg(exit_bar=0, exit_reason="target"))
+    assert table[["simulated", "minute"]].iloc[0].tolist() == [TARGET_FIRST, TARGET_FIRST]
+
+
+def test_a_leg_reaching_neither_level_on_its_fill_bar_is_held_by_both_readings() -> None:
+    fine, coarse = a_bar((99.6, 100.2), (99.8, 101.0))
+    table = read(fine, coarse, a_leg())
+    assert table[["simulated", "minute"]].iloc[0].tolist() == [HELD, HELD]
+    assert bool(table["agrees"].iloc[0])
+
+
+def test_a_stop_inside_the_fill_minute_cannot_be_ordered_against_the_fill() -> None:
+    """A minute is the finest the data goes, so this is counted rather than scored."""
+    fine, coarse = a_bar((99.4, 100.2), (99.8, 101.0))
+    table = read(fine, coarse, a_leg())
+    assert table["minute"].iloc[0] == STILL_AMBIGUOUS
+    assert pd.isna(table["agrees"].iloc[0])
+
+
+def test_a_fill_bar_whose_minutes_do_not_rebuild_it_is_refused_for_every_leg() -> None:
+    fine, coarse = a_bar(*SPARED)
+    shifted = coarse.assign(high=coarse["high"] + 5.0)
+    table = read(fine, shifted, a_leg(), a_leg(leg=2))
+    assert set(table["minute"]) == {MISALIGNED}
+    assert fill_bar_accuracy(table)["refused"] == len(table)
+
+
+def test_a_fill_no_minute_traded_through_is_refused_rather_than_walked() -> None:
+    fine, coarse = a_bar((99.6, 99.9), (99.7, 99.95))
+    assert read(fine, coarse, a_leg())["minute"].iloc[0] == ENTRY_UNLOCATED
+
+
+def test_fill_bar_accuracy_scores_only_the_legs_both_readings_decided() -> None:
+    """A leg a minute could not settle is not one the path got wrong."""
+    spared_fine, spared_coarse = a_bar(*SPARED)
+    open_fine, open_coarse = a_bar((99.4, 100.2), (99.8, 101.0))
+    table = pd.concat(
+        [
+            read(spared_fine, spared_coarse, a_leg(net=50.0)),
+            read(spared_fine, spared_coarse, a_leg(exit_bar=0, exit_reason="stop", net=-20.0)),
+            read(open_fine, open_coarse, a_leg(net=30.0)),
+        ],
+        ignore_index=True,
+    )
+    counts = fill_bar_accuracy(table)
+    assert counts["fill_bar_legs"] == 3
+    assert counts["scored"] == 2
+    assert counts["path_correct"] == 1
+    assert counts["path_accuracy"] == pytest.approx(0.5)
+    assert counts["path_spared"] == 1
+    assert counts["spared_net"] == pytest.approx(50.0)
+    assert counts["spared_share"] == pytest.approx(50.0 / 60.0)
+    assert counts["path_stopped"] == 0
+    assert counts["still_ambiguous"] == 1
+    assert counts["refused"] == 0
+
+
+def test_the_path_stopping_a_leg_the_minutes_hold_is_counted_the_other_way() -> None:
+    fine, coarse = a_bar((99.6, 100.2), (99.8, 101.0))
+    counts = fill_bar_accuracy(read(fine, coarse, a_leg(exit_bar=0, exit_reason="stop", net=-20.0)))
+    assert counts["path_stopped"] == 1
+    assert counts["path_spared"] == 0
+
+
+def test_the_spared_share_is_undefined_where_the_legs_made_nothing() -> None:
+    """A share of a loss reads as the opposite claim, so it is left undefined."""
+    fine, coarse = a_bar(*SPARED)
+    counts = fill_bar_accuracy(read(fine, coarse, a_leg(net=-50.0)))
+    assert counts["path_spared"] == 1
+    assert np.isnan(number(counts, "spared_share"))
+
+
+def test_a_run_with_no_trade_reads_no_fill_bar_rather_than_raising() -> None:
+    fine, coarse = a_bar(*SPARED)
+    table = check_fill_bars(
+        pd.DataFrame(columns=list(a_leg())), fine, coarse, slippage=0.25, fill_limit_on_touch=False
+    )
+    assert table.empty
+    assert "agrees" in table.columns
+    counts = fill_bar_accuracy(table)
+    assert counts["fill_bar_legs"] == 0
+    assert np.isnan(number(counts, "path_accuracy"))
+
+
+def test_the_stop_entries_are_the_ones_the_simulation_walks_a_path_for() -> None:
+    """Each archetype's ``OpenTrade.stop_entry``, case by case."""
+    assert enters_on_stop(OpeningRangeParams(entry_mode=ORB_ENTRY_BREAKOUT))
+    assert enters_on_stop(OpeningRangeParams(entry_mode=ORB_ENTRY_FADE, stop_mode=ORB_STOP_FRACTION))
+    assert not enters_on_stop(OpeningRangeParams(entry_mode=ORB_ENTRY_RETEST))
+    assert not enters_on_stop(OpeningRangeParams(entry_mode=ORB_ENTRY_REJECTION, stop_mode=ORB_STOP_FRACTION))
+    assert enters_on_stop(EmaPullbackParams(confirm_entry=True))
+    assert not enters_on_stop(EmaPullbackParams())
+    for always in (DeadCatParams(), PullBackAndGoParams(), SqueezeBreakoutParams()):
+        assert enters_on_stop(always), type(always).__name__
+    for never in (InsideBarParams(), InsideBarTrailingParams(), ElasticBandParams(), EmaCrossoverParams()):
+        assert not enters_on_stop(never), type(never).__name__
+
+
+def test_every_registered_archetype_has_its_entries_classified() -> None:
+    """A new archetype has to be placed on one side, or its fill bars are silently never read."""
+    classified = {
+        DeadCatParams,
+        PullBackAndGoParams,
+        SqueezeBreakoutParams,
+        OpeningRangeParams,
+        EmaPullbackParams,
+        InsideBarParams,
+        InsideBarTrailingParams,
+        ElasticBandParams,
+        EmaCrossoverParams,
+    }
+    assert {archetypes.get(name).params_cls for name in archetypes.names()} == classified
+
+
+def stop_entry_run() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, float]:
+    """Run DeadCatBounce's stop entries on 5-minute bars built from the synthetic minutes."""
+    fine = synthetic_bars()
+    coarse = resample.resample(fine, 5)
+    base = DeadCatParams(
+        use_ema=False,
+        use_fast_sma=False,
+        require_previous_green=False,
+        require_new_high=False,
+        bars_required_to_trade=0,
+    )
+    spec = sweep.Grid(base=base, archetype=archetypes.DEADCATBOUNCE).required_context()
+    data = context.prepare(coarse, spec, bar_minutes=5)
+    instrument = get_instrument("MNQ")
+    _, log = sweep.run_combination(data, base, instrument, archetypes.DEADCATBOUNCE, keep_trades=True)
+    assert log is not None
+
+    return log, fine, coarse, base.slippage_ticks * instrument.tick_size
+
+
+def test_every_leg_of_a_real_stop_entry_run_is_read_on_its_own_fill_bar() -> None:
+    """The end-to-end claim: real fills line up with their minutes and get a reading."""
+    log, fine, coarse, slippage = stop_entry_run()
+    assert not log.empty, "fixture produced no trades; the test proves nothing"
+
+    table = check_fill_bars(log, fine, coarse, slippage=slippage, fill_limit_on_touch=False)
+    assert len(table) == len(log)
+    assert table["minute"].isin(FILL_BAR_SCORED).any(), "nothing was scored; the test proves nothing"
+    assert not (table["minute"] == ENTRY_UNLOCATED).any(), "every real fill traded through its trigger"
+    assert not (table["minute"] == MISALIGNED).any(), "every real fill bar is rebuilt by its own minutes"
