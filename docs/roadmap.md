@@ -778,6 +778,10 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 **Most of the registry's findings hold on the October 2026 re-sweep, and they move where the fill fixes reached a stop entry: OpeningRange's tight-stop fade now holds out profitably and EmaPullback's confirmation entry clears its paired bar in five of eight cells, while OpeningRange's trend=UP and 10-bar regime cell no longer clear gate 3.** Moved to [`docs/findings/m61-registry-resweep-fill-fixes.md`](findings/m61-registry-resweep-fill-fixes.md).
 
+### M62 — a book of copied prop accounts ([#446])
+
+**Copying one strategy's trades onto up to twenty accounts multiplies what one account makes and does not spread its risk: on InsideBarTrailing's midday cell every account in a book of twenty breaches on the same day in 96% of replays, with openings five trading days apart, and a book makes nothing pay that one account does not.** Moved to [`docs/findings/m62-prop-account-book.md`](findings/m62-prop-account-book.md).
+
 ### Do the shortlists travel? ([#330])
 
 **Most of what a shortlist loses is selection rather than instrument — the drop from selection window to own holdout is two to five times the further drop to a market never seen — and the two inside-bar archetypes travel with almost no additional cost, while nothing clears a profit factor of 1.1 anywhere.** Moved to [`docs/findings/cross-root-transfer.md`](findings/cross-root-transfer.md).
@@ -1347,6 +1351,8 @@ Beside the single-account figures it reports three about accounts going together
 
 - **A book's net grows with its size and the strategy's edge does not.** A large figure at 20 accounts is not a better strategy; read it beside the profit factor and the book of one.
 - **Staggered accounts share almost every trade**, so they are not independent samples and their agreement is not confirmation.
+
+The first read is §M62 ([`docs/findings/m62-prop-account-book.md`](findings/m62-prop-account-book.md)), and it bears out both.
 
 ### What is deliberately not modelled
 

@@ -256,11 +256,12 @@ Ranked by `funded_days`, MNQ — `days` is how long a funded account survived:
 
 Read `attempts` beside a pass rate and `censored_share` beside a funded life; the tool reports both. **None of this changes which strategy is best**, since the pool it ranks is the same stored registry. It changes which configurations inside one you would pick, and on what basis.
 
-### Three traps specific to prop accounts
+### Four traps specific to prop accounts
 
 - **`net` rewards variance and can rank a losing strategy above a winning one.** One configuration in the sample runs a profit factor of **0.932** and still nets +$3,120, because each blown account caps the loss at the fee while the wins were already withdrawn. That is real prop economics, not a modelling artefact — but read net beside the profit factor and the pass rate, never instead of them (§M28.13).
 - **On NQ the result depends on an assumption the bars cannot settle.** Whether a trade's peak or its trough came first flips Apex 50K on NQ from −$38,911 to +$139,891. On MNQ it was nearly free; on the October 2026 re-sweep, through the 2026 Apex evaluation, it raises OpeningRange's median net sevenfold (§M61). It is now the `excursion_order` parameter rather than a silent assumption, and `PEAK_FIRST` — the harsher reading — is the default (§M28.13).
 - **TopStep trails end-of-day, so intraday peaks never reach its high-water mark.** That is why the excursion order moves the Apex rows and not the TopStep ones — a mechanism, not a coincidence.
+- **Copying trades onto more accounts multiplies the worst day as well as the profit.** On InsideBarTrailing's midday cell twenty copied accounts make 16 to 21 times what one does, and in 96% of replays all twenty breach on the same day, even opened five trading days apart. A book makes nothing pay that one account does not, and paying for each new account out of the book's payouts works for that cell on four of its seven paying accounts and for OpeningRange's on none (§M62).
 
 ______________________________________________________________________
 
