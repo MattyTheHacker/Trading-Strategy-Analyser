@@ -350,7 +350,7 @@ Its two cells taken to a null are in §M54's family A. **OpeningRange's `phase=M
 | profitable without the session-close legs  | 0 of 40               | **0 of 40**           | 0 of 20               | **0 of 40**           |
 | median PF whole → without them, MNQ        | 1.216 → 0.371         | 1.181 → 0.311         | 1.430 → 0.238         | 1.312 → 0.234         |
 
-**Both reproduce.** The walk-forward still passes, the drawdown is still not the trades' ordering, the bootstrap still cannot exclude a loss, and neither cell has a configuration profitable without its forced flat. The prop accounts are not comparable: the gate reads replay the 2026 presets, an evaluation linked to its funded account, where both campaigns replayed the evaluations alone; §M46's re-run below uses the old presets for that reason. §M31.1's hold ladder inside the stratum was not re-swept and is not re-read.
+**Both reproduce.** The walk-forward still passes, the drawdown is still not the trades' ordering, the bootstrap still cannot exclude a loss, and neither cell has a configuration profitable without its forced flat. The prop accounts are not comparable: the gate reads replay the 2026 presets, an evaluation linked to its funded account, where both campaigns replayed the evaluations alone; §M46's re-run below replays the 2026 evaluations alone for that reason, the nearest the replay still has to the presets it used. §M31.1's hold ladder inside the stratum was not re-swept and is not re-read.
 
 ### §M28.16 — the consistent cells
 
@@ -725,7 +725,7 @@ A cost on the selection window in all eight cells now, against seven, and a gain
 
 ## The prop accounts
 
-The re-sweep's prop reads replay each firm's 2026 evaluation linked to its funded account ([#440]), as §M51 did. §M40 and §M43 read the evaluations alone, on presets that have since been replaced, so their re-reads below are on different accounts and compare in direction rather than in dollars.
+The re-sweep's prop reads replay each firm's 2026 evaluation linked to its funded account ([#440]), as §M51 did. §M40, §M43, §M46 and §M28.13 read the evaluations alone, on presets that have since been replaced ([#441]), so their re-reads below are on different accounts and compare in direction rather than in dollars. §M46's and §M28.13's were run for this file on the 2026 evaluations without their funded accounts, the nearest the replay still has to the presets they used.
 
 ### §M40 — ranking by what a prop trader wants
 
@@ -757,6 +757,66 @@ The re-sweep's prop reads replay each firm's 2026 evaluation linked to its funde
 
 ([`m51-prop-payback-timing.md`](m51-prop-payback-timing.md).) **InsideBarTrailing's midday cell reproduces to the dollar on its account**: TopStep 50K pays back on every configuration, at a median +$13,378 in 36 trading days, and LucidFlex 50K is second at +$8,956, both exactly §M51's. **OpeningRange's midday cell pays back less**: TopStep 50K at +$1,179 in 235 days on 90% of configurations, against +$6,806, and LucidFlex 50K at +$2,472 against +$6,580. The stop entry is again the archetype the fills moved. Apex still pays only on its 50K end-of-day account, and every 150K account is still weak.
 
+### §M46 — every shortlist at each contract count
+
+([`m46-registry-size-ladder.md`](m46-registry-size-ladder.md).) The same 55 shortlists through the same ladder, one to twenty MNQ contracts and one to four NQ, attempts uncapped. [#441] removed the four presets §M46 replayed, so this replays the nearest the replay still has: each firm's 2026 evaluation without its funded account, Apex's intraday-trail evaluations and TopStep's Combines at 50K and 150K. Apex's trail is now $2,000 on 50K and $4,000 on 150K, against §M46's $2,500 and $5,000. TopStep's Combine, as `propaccount` models it, has no daily loss limit, where §M46's TopStep presets failed an account on a $1,000 day on 50K and a $3,300 one on 150K. **So the dollars do not compare, and nor does TopStep's count of shortlists that pay**; what follows compares in direction.
+
+**InsideBarTrailing's midday cell shows how much the accounts alone move.** Its trades did not move (§M51 above reproduces to the dollar), yet its best size on Apex 50K is now four at +$4,500, against §M46's six at +$31,900, and on Apex 150K it loses at every size, where §M46 had it peak at ten to twelve. Both TopStep Combines now rise to the top of the ladder, where §M46's TopStep 150K peaked at sixteen.
+
+**Size still moves nothing but the dollars.** All 645 rung checks ran on the bars the stored row was swept on, and every archetype but InsideBarTrailing reproduced its stored trade count at every size. InsideBarTrailing again reproduces only at its stored six, 20 of 20 on both MNQ shortlists, and between 0 and 10 of 20 at every other size. The floor of one contract per target is unchanged, shortlist by shortlist.
+
+Shortlists with at least one size at which the median net is positive, §M46's count in brackets:
+
+| root | Apex 50K     | TopStep 50K   | Apex 150K   | TopStep 150K  |
+| ---- | ------------ | ------------- | ----------- | ------------- |
+| MNQ  | 10 of 28 (7) | 23 of 28 (20) | 3 of 28 (7) | 22 of 28 (22) |
+| NQ   | 1 of 27 (1)  | 22 of 27 (1)  | 1 of 27 (1) | 21 of 27 (13) |
+
+**On Apex 50K the three archetypes that pay on MNQ are still the three**: InsideBar, InsideBarTrailing (unfiltered and midday) and OpeningRange's opposite-extreme stop at 15 and 30 minutes, joined now by three of its ATR-stop shortlists, one of them by a dollar. On Apex 150K only three pay at all, InsideBar, InsideBarTrailing's unfiltered shortlist and OpeningRange's 30-minute R ladder, the last two by under $1,000.
+
+The best size on Apex 50K, MNQ, with the attempts and passes the median configuration takes there:
+
+| shortlist                                 |                        §M46 |                       §M61 |
+| ----------------------------------------- | --------------------------: | -------------------------: |
+| InsideBar                                 | 20: +168,600, 309.5 att, 10 | 10: +37,100, 360.5 att, 25 |
+| InsideBarTrailing, unfiltered             |     4: +33,700, 58.5 att, 7 |    4: +8,600, 171.5 att, 9 |
+| InsideBarTrailing, midday                 |     6: +31,900, 29 att, 3.5 |       4: +4,500, 62 att, 4 |
+| OpeningRange 30m, opposite stop, width    |       4: +23,600, 56 att, 6 |       3: +4,200, 88 att, 4 |
+| OpeningRange 15m, opposite stop, width    |       4: +22,100, 45 att, 3 |       3: +4,300, 96 att, 4 |
+| OpeningRange 15m, opposite stop, R ladder |       4: +15,000, 69 att, 4 |      4: +1,600, 172 att, 4 |
+| OpeningRange 30m, opposite stop, R ladder |        4: +9,900, 63 att, 4 |        4: +700, 142 att, 2 |
+
+Figures rounded to the nearest hundred dollars.
+
+**The sizes hold and the dollars fall four- to fourteenfold.** Everything but InsideBar is best at three or four contracts: OpeningRange at its stored four or one below, InsideBarTrailing at four, below its stored six. On the midday cell, whose trades are unchanged, sevenfold is the accounts alone; OpeningRange's R-ladder shortlists fall further, nine- and fourteenfold, as its midday cell fell in §M51 above, but the ladder cannot separate the fills from the accounts. **InsideBar is again the exception, and on the 2026 evaluation its ladder turns**: its median passes reach 25 at six and at ten contracts and fall to 5.5 at twenty, where the median configuration loses, so its best is ten rather than the top of the ladder; on Apex 150K its best is ten too.
+
+**On NQ the floor still decides Apex and no longer decides TopStep.** At four NQ contracts all 27 shortlists lose at the median on Apex 50K, and InsideBar pays there only at one contract, +$34,200 over 367 attempts, losing from two (§M46: best at three, +$105,000). On the TopStep 50K Combine 22 of 27 pay at four NQ contracts, every four-target archetype but DeadCatBounce among them: EmaCrossover's ATR stop at +$237,600 and OpeningRange's 30-minute opposite-stop R ladder at +$218,500, for instance. **§M46's "the four-target archetypes cannot be traded on an NQ 50K account" holds on the 2026 Apex evaluation and not on the 2026 Combine as modelled.** The plainest difference is the daily loss limit, which at four NQ contracts is 12.5 points, but the ladder does not measure it.
+
+**Every step up in size still buys more resets**: across the 55 shortlists and four presets the median attempt count rises at 874 of 912 steps from one size to the next, stays level at 37 and falls at 1 (§M46: 898, 11 and 3).
+
+No replay was cut short. 94 report reaching the attempt cap, all of them OpeningRange on NQ at four contracts on Apex 50K; the cap is the replay's trade count, so each held-out trade there opened a fresh account.
+
+### §M28.13 — the registry read through an account
+
+([`m28-13-account-read.md`](m28-13-account-read.md).) Its population run, every stored held-out configuration capped at five attempts, is not rebuilt. Its three findings are re-read from the §M46 ladder above at four contracts, the campaign's fixed size, and from one added check that changes only the excursion order, run on two of the ladder's shortlists through the same 2026 evaluations.
+
+**Survival is still not the question.** At four contracts no NQ configuration survives its first account on any of the four presets, 0 of 532 (§M28.13: 0 of 526), and on MNQ 93% breach their first Apex 50K evaluation (98%). The sequence still pays where the accounts die: InsideBar's MNQ shortlist takes a median 147.5 attempts on Apex 50K and nets a profit on every configuration. **And net still rewards variance.** Of the MNQ configurations that lose held out, 39 of 325 net a profit on Apex 50K, and on the TopStep 50K Combine 208 of 325 do, with 258 of 336 on NQ.
+
+**The binding constraint is still position size**, which is the ladder above.
+
+**The excursion order still decides NQ, and no longer leaves MNQ alone.** Apex 50K at four contracts, **only the order changes**:
+
+|                  | n   |      attempts |   passes |                 net |     net > 0 |
+| ---------------- | --- | ------------: | -------: | ------------------: | ----------: |
+| InsideBar MNQ    | 20  | 147.5 → 139.5 |  19 → 23 | +$29,653 → +$41,481 | 100% → 100% |
+| OpeningRange MNQ | 20  |    138 → 96.5 |   5 → 18 |  +$3,616 → +$25,265 | 100% → 100% |
+| InsideBar NQ     | 20  | 574.5 → 524.5 | 1 → 27.5 | −$10,344 → +$68,492 |   0% → 100% |
+| OpeningRange NQ  | 20  |   420 → 379.5 |   0 → 32 | −$8,366 → +$207,976 |   0% → 100% |
+
+Medians, peak-first → trough-first. OpeningRange is the 30-minute opposite-stop `width` shortlist; §M28.13's rows were every fourth stored configuration.
+
+**On NQ every configuration of both goes from a loss to a profit**, on Apex 150K as well; §M28.13 had InsideBar's going from 42% profitable to 77%. **On MNQ the order is no longer nearly free**: OpeningRange's median net rises sevenfold and its passes from 5 to 18, against §M28.13's +$14,045 to +$23,323. The 2026 evaluation's trail is $500 tighter and the shortlist is not §M28.13's subsample, so whether the fills, the account or the configurations moved it is not separated. **TopStep's Combines do not move at all**, 160 of 160 replays unchanged, as an end-of-day trail must not.
+
 ### What there is nothing to re-read in
 
 The four labels' calibrations, §M10.1 to §M10.4, and the regime threshold of §M27.5 are properties of the bars; the specifications, §M19.2, §M28, §M28.6 and §M34, and the tooling, §M7b, §M27.6, §M28.3 and §M28.4, hold no measurement the fills could move. Each stands as written.
@@ -781,10 +841,11 @@ A campaign that wants 30 minutes should name it before it runs, which those thre
 - **The two results the fills created are gate-2 results, not candidates.** OpeningRange's tight-stop fade (§M28.5) and EmaPullback's one-bar confirmation (§M39) both turn on what a stop entry's own bar does after its fill, which NinjaTrader's backtest walks one way and a live market need not. The minute bars could check both before either is pre-registered, as §M28.4 checked the retest.
 - **Every family named by a rule was named on the re-swept rows**, so a stratum that cleared in the original and is absent here was not tested here: §M19.3's `trend=UP` is the instance that mattered.
 - **The gold strata were re-picked, at 112 pairs against 68**, by the pre-registration's own rule; the pairs are not the same pairs.
-- **The prop replays use the 2026 presets** wherever the stored gate reads made them, and the original campaigns used presets since replaced.
+- **The prop replays use the 2026 presets** wherever the stored gate reads made them, and the original campaigns used presets since replaced. §M46's ladder and §M28.13's excursion check replay the 2026 evaluations alone, so neither separates the fills from the account terms, and §M28.13's population run is not rebuilt.
 
 [#439]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/439
 [#440]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/440
+[#441]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/pull/441
 [#451]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/pull/451
 [#453]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/pull/453
 [#454]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/454
