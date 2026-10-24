@@ -1587,6 +1587,25 @@ ORB_WIDTH_LADDERS: dict[str, tuple[float, ...]] = {
 """Per-leg targets as multiples of the range width past the trigger, one variant each."""
 
 
+def orb_width_ladder(variant: str) -> tuple[float, ...]:
+    """Return the width ladder a stored variant name carries, or the default it ran at.
+
+    Read off the name's ``target=`` token, as :func:`elastic_ladder` is, because a tuple is not
+    sweepable and so is not a stored column. OpeningRange and SqueezeBreakout share the tokens. A
+    name with no ladder token ran the default, and a width token not known here is refused.
+    """
+    ladders: dict[str, tuple[float, ...]] = ORB_FADE_LADDERS | ORB_WIDTH_LADDERS
+    for token in variant.split():
+        if token in ladders:
+            return ladders[token]
+
+        if token.startswith("target=w"):
+            msg = f"no width ladder for {token!r} in the variant name {variant!r}; known: {sorted(ladders)}"
+            raise KeyError(msg)
+
+    return OpeningRangeParams().target_width_multiples
+
+
 def openingrange_bracket_variants(root: str) -> list[Variant]:
     """Build §M28.11's run: the stop ladder past its boundary, crossed with the width ladder."""
     shared: dict[str, list[AxisValue]] = {

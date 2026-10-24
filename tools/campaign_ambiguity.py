@@ -2,6 +2,7 @@
 
     uv run tools/campaign_ambiguity.py --strategy OpeningRange --root MNQ
     uv run tools/campaign_ambiguity.py --strategy OpeningRange --window holdout
+    uv run tools/campaign_ambiguity.py --strategy EmaPullback --window holdout --fill-bars
 
 ``tools/README.md`` § "campaign_ambiguity.py".
 """
@@ -13,8 +14,12 @@ import logging
 import sys
 from dataclasses import replace
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pandas as pd
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 # Lets a tool run directly import its siblings -- ``tools/README.md`` § "Running a tool".
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -25,7 +30,7 @@ from nqbt.sim.bracket import AMBIGUITY_BEST_CASE, AMBIGUITY_NEAREST_TO_OPEN, AMB
 from tools.campaign_montecarlo import labelled
 from tools.campaign_null import label_of
 from tools.campaign_report import SHARES, swept_axes
-from tools.campaign_shortlist import TOP, rebuild, shortlist, source, verify
+from tools.campaign_shortlist import TOP, prepared, rebuild, run_logged, shortlist, source, verify
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +56,12 @@ SURVIVES = "survives"
 
 BREAKEVEN = 1.0
 """The profit factor :data:`SURVIVES` reads the second arm against."""
+
+type RowReader = Callable[  # type: ignore[explicit-any]  # duckdb's dtypes
+    [pd.Series, context.Dataset, archetypes.Archetype, str, pd.DataFrame, pd.DataFrame, str],
+    tuple[dict[str, object], pd.DataFrame],
+]
+"""What :func:`over_minute_bars` runs on each row, beside its dataset and its minute and coarse bars."""
 
 STATEMENT = "the claimed edge must survive the assumption"
 """What :data:`SURVIVES` means, said as a sentence rather than as a threshold on a share --
@@ -137,6 +148,33 @@ def measure(rows: pd.DataFrame, archetype: archetypes.Archetype, root: str) -> p
     return pd.DataFrame(measured)
 
 
+def over_minute_bars(
+    selected: pd.DataFrame,
+    axes: list[str],
+    archetype: archetypes.Archetype,
+    root: str,
+    read_row: RowReader,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Run ``read_row`` on each selected row against its own window's minute bars, and stack the results.
+
+    Returns the headline rows and the per-row tables, one of each per row.
+    """
+    bars: pd.DataFrame = splice.load_continuous(root)
+    measured: list[dict[str, object]] = []
+    tables: list[pd.DataFrame] = []
+    for (window, minutes), block in selected.groupby(["window", "resolution"], sort=False):
+        bar_minutes: int = int(minutes)  # type: ignore[call-overload]  # a groupby key on an int column
+        fine: pd.DataFrame = source(bars, str(window))
+        coarse: pd.DataFrame = resample.resample(fine, bar_minutes)
+        _, data = prepared(block, coarse, archetype, bar_minutes, context.PriceBasis.RAW)
+        for _, row in block.iterrows():
+            headline, table = read_row(row, data, archetype, root, fine, coarse, label_of(row, axes))
+            measured.append(headline)
+            tables.append(table)
+
+    return pd.DataFrame(measured), pd.concat(tables, ignore_index=True)
+
+
 def settle_row(  # type: ignore[explicit-any]  # duckdb's dtypes
     row: pd.Series,
     data: context.Dataset,
@@ -219,39 +257,69 @@ def settle(
     if qualifying.empty:
         return pd.DataFrame(), pd.DataFrame()
 
-    axes: list[str] = swept_axes(rows)
-    bars: pd.DataFrame = splice.load_continuous(root)
-    measured: list[dict[str, object]] = []
-    verdicts: list[pd.DataFrame] = []
-    for (window, minutes), block in qualifying.groupby(["window", "resolution"], sort=False):
-        bar_minutes: int = int(minutes)  # type: ignore[call-overload]  # a groupby key on an int column
-        fine: pd.DataFrame = source(bars, str(window))
-        coarse: pd.DataFrame = resample.resample(fine, bar_minutes)
-        rebuilt = [(row, rebuild(row, archetype)) for _, row in block.iterrows()]
-        spec: context.ContextSpec = context.ContextSpec()
-        for _, params in rebuilt:
-            spec = spec | sweep.Grid(base=params, archetype=archetype).required_context()
-        data: context.Dataset = context.prepare(
-            coarse,
-            spec,
-            bar_minutes=bar_minutes,
-            price_basis=context.PriceBasis.RAW,
-        )
+    return over_minute_bars(qualifying, swept_axes(rows), archetype, root, settle_row)
 
-        for row, _ in rebuilt:
-            headline, table = settle_row(
-                row,
-                data,
-                archetype,
-                root,
-                fine,
-                coarse,
-                label_of(row, axes),
-            )
-            measured.append(headline)
-            verdicts.append(table)
 
-    return pd.DataFrame(measured), pd.concat(verdicts, ignore_index=True)
+def fill_bar_row(  # type: ignore[explicit-any]  # duckdb's dtypes
+    row: pd.Series,
+    data: context.Dataset,
+    archetype: archetypes.Archetype,
+    root: str,
+    fine: pd.DataFrame,
+    coarse: pd.DataFrame,
+    label: str,
+) -> tuple[dict[str, object], pd.DataFrame]:
+    """Read one stop-entry configuration's fill bars against the minute bars inside them.
+
+    Returns the headline row and every leg's two readings.
+    """
+    params: archetypes.ArchetypeParams = rebuild(row, archetype)
+    summary, log = run_logged(data, replace(params, ambiguity_policy=RANKED_POLICY), root, archetype)
+    verify(row, summary)
+
+    slippage: float = float(row["slippage_ticks"]) * get_instrument(root).tick_size
+    legs: pd.DataFrame = disambiguate.check_fill_bars(
+        log,
+        fine,
+        coarse,
+        slippage=slippage,
+        fill_limit_on_touch=bool(params.fill_limit_on_touch),
+    )
+    counts: dict[str, object] = disambiguate.fill_bar_accuracy(legs)
+    measured: dict[str, object] = {
+        **labelled(row),
+        "label": label,
+        "profit_factor": float(summary["profit_factor"]),  # type: ignore[arg-type]  # a statistic by construction
+        "net_pnl": float(summary["net_pnl"]),  # type: ignore[arg-type]  # a statistic by construction
+        **counts,
+    }
+    logger.info(
+        "  %-44s PF %6.3f  path right %s of %s  spared %s legs making %s of the net",
+        label,
+        measured["profit_factor"],
+        counts["path_correct"],
+        counts["scored"],
+        counts["path_spared"],
+        counts["spared_share"],
+    )
+
+    return measured, legs.assign(label=label)
+
+
+def check_fill_bars(
+    rows: pd.DataFrame, archetype: archetypes.Archetype, root: str
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Read the fill bars of every shortlisted row that enters on a stop order, and skip the rest."""
+    enters_on_stop = pd.Series(
+        [disambiguate.enters_on_stop(rebuild(row, archetype)) for _, row in rows.iterrows()],
+        index=rows.index,
+        dtype=bool,
+    )
+    stop_entries: pd.DataFrame = rows[enters_on_stop]
+    if stop_entries.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    return over_minute_bars(stop_entries, swept_axes(rows), archetype, root, fill_bar_row)
 
 
 def survival(table: pd.DataFrame) -> list[str]:
@@ -319,6 +387,43 @@ def show(title: str, frame: pd.DataFrame) -> None:
         logger.info("%s", frame.to_string(index=False, float_format=lambda v: f"{v:.3f}"))
 
 
+def report_settled(rows: pd.DataFrame, archetype: archetypes.Archetype, root: str) -> None:
+    """Settle the band against the minute bars, and print what that corrected."""
+    logger.info("")
+    logger.info(
+        "--- settling the band against the minute bars, above %.0f%% ambiguous ---",
+        100.0 * disambiguate.MIN_AMBIGUOUS_SHARE,
+    )
+    settled, verdicts = settle(rows, archetype, root)
+    if settled.empty:
+        logger.info("no shortlisted row resolves enough bars by assumption to be worth settling")
+
+        return
+
+    show("the assumption scored, and the result with it corrected", settled)
+    show(
+        "the bars the assumption got wrong, and the ones a minute bar cannot settle",
+        unsettled(verdicts),
+    )
+
+
+def report_fill_bars(rows: pd.DataFrame, archetype: archetypes.Archetype, root: str) -> None:
+    """Read each stop entry's own bar against the minute bars, and print where the two part."""
+    logger.info("")
+    logger.info("--- reading each stop entry's own bar against the minute bars inside it ---")
+    checked, legs = check_fill_bars(rows, archetype, root)
+    if checked.empty:
+        logger.info("no shortlisted row enters on a stop order")
+
+        return
+
+    show("the path scored on each fill bar, and what the legs it spared made", checked)
+    show(
+        "every fill-bar leg, by how the path and the minute bars each read it",
+        legs.groupby(["simulated", "minute"]).size().reset_index(name="legs"),
+    )
+
+
 def main(argv: list[str]) -> int:
     """Measure the ambiguity spread and return the process exit code."""
     logsetup.configure(__name__)
@@ -334,7 +439,12 @@ def main(argv: list[str]) -> int:
     parser.add_argument(
         "--no-settle",
         action="store_true",
-        help="report the band only; skip reading the minute bars inside each ambiguous bar",
+        help="skip settling the band against the minute bars inside each ambiguous bar",
+    )
+    parser.add_argument(
+        "--fill-bars",
+        action="store_true",
+        help="also read each stop entry's own bar against the minute bars inside it",
     )
     args = parser.parse_args(argv[1:])
 
@@ -365,25 +475,11 @@ def main(argv: list[str]) -> int:
     for line in survival(table):
         logger.info("%s", line)
 
-    if args.no_settle:
-        return 0
+    if not args.no_settle:
+        report_settled(rows, archetype, args.root)
 
-    logger.info("")
-    logger.info(
-        "--- settling the band against the minute bars, above %.0f%% ambiguous ---",
-        100.0 * disambiguate.MIN_AMBIGUOUS_SHARE,
-    )
-    settled, verdicts = settle(rows, archetype, args.root)
-    if settled.empty:
-        logger.info("no shortlisted row resolves enough bars by assumption to be worth settling")
-
-        return 0
-
-    show("the assumption scored, and the result with it corrected", settled)
-    show(
-        "the bars the assumption got wrong, and the ones a minute bar cannot settle",
-        unsettled(verdicts),
-    )
+    if args.fill_bars:
+        report_fill_bars(rows, archetype, args.root)
 
     return 0
 

@@ -15,7 +15,7 @@ import pandas as pd
 import pytest
 
 from nqbt import archetypes, stats, trades
-from nqbt.sim.types import TARGET_R, ElasticBandParams, InsideBarParams
+from nqbt.sim.types import TARGET_R, ElasticBandParams, InsideBarParams, OpeningRangeParams
 from tools import campaign_holdout, campaign_report
 from tools.campaign_holdout import (
     GROUP_KEYS,
@@ -55,6 +55,7 @@ from tools.campaign_report import (
     swept_axes,
 )
 from tools.campaign_shortlist import rebuild
+from tools.campaign_sweep import CONFLUENCE_SIZING, IBT_SIZING, IBT_SIZING_HIGH, VARIANT_SETS, variants_for
 
 if TYPE_CHECKING:
     from nqbt.arrays import FloatArray
@@ -687,6 +688,71 @@ def test_an_inverted_elastic_row_takes_its_ladder_past_the_close_off_the_name() 
     assert isinstance(rebuilt, ElasticBandParams)
     assert rebuilt.invert_signal
     assert rebuilt.target_stretch_levels[0] == pytest.approx(2.0)
+
+
+def test_rebuilding_restores_the_opening_range_width_ladder_the_variant_names() -> None:
+    """``target_width_multiples`` is not sweepable either, and §M28.5's fade varies it by name.
+
+    Rebuilt at the default instead, a ``target=width+mid`` row re-ran to a different net and
+    ``verify`` refused it.
+    """
+    row = pd.Series({**OpeningRangeParams().as_dict(), "variant": "cash=30m entry=fade target=width+mid"})
+    del row["target_width_multiples"]
+    rebuilt = rebuild(row, archetypes.OPENINGRANGE)
+    assert isinstance(rebuilt, OpeningRangeParams)
+    np.testing.assert_array_equal(rebuilt.target_width_multiples, (0.5, 1.0, np.nan))
+
+
+def test_an_opening_range_name_without_a_ladder_token_rebuilds_at_the_default_ladder() -> None:
+    row = pd.Series({**OpeningRangeParams().as_dict(), "variant": "window=15m stop=opposite target=R"})
+    del row["target_width_multiples"]
+    rebuilt = rebuild(row, archetypes.OPENINGRANGE)
+    assert isinstance(rebuilt, OpeningRangeParams)
+    np.testing.assert_array_equal(rebuilt.target_width_multiples, OpeningRangeParams().target_width_multiples)
+
+
+def test_a_width_token_with_no_known_ladder_is_refused_rather_than_given_the_default() -> None:
+    """The default would re-run a different bracket, which only ``verify`` might notice."""
+    row = pd.Series({**OpeningRangeParams().as_dict(), "variant": "cash-br+15m target=w5.0"})
+    del row["target_width_multiples"]
+    with pytest.raises(KeyError, match=r"no width ladder for 'target=w5\.0'"):
+        rebuild(row, archetypes.OPENINGRANGE)
+
+
+SIZING_SETS = (IBT_SIZING, IBT_SIZING_HIGH, CONFLUENCE_SIZING)
+"""The sets built from fitted cuts, which exist only where the fit ran.
+
+Every ladder they carry is another set's, so leaving them out loses nothing."""
+
+
+def test_every_variant_outside_the_sizing_sets_rebuilds_at_its_ladders() -> None:
+    """No stored column carries a ladder, so each must come back off the variant's name.
+
+    The row holds only the name and the target mode, the two things a ladder is read from. One
+    root suffices because a root moves only the costs, and a name shared by two ladders is
+    checked against both, since a rebuild could not tell them apart.
+    """
+    checked: set[tuple[str, str, str]] = set()
+    for which in sorted(set(VARIANT_SETS) - set(SIZING_SETS)):
+        for name, build in variants_for(which).items():
+            archetype = archetypes.get(name)
+            for variant in build("MNQ"):
+                unstored = sorted(field for field in archetype.not_sweepable if hasattr(variant.base, field))
+                key = (name, variant.name, repr([getattr(variant.base, field) for field in unstored]))
+                if key in checked:
+                    continue
+
+                checked.add(key)
+                mode = getattr(variant.base, "target_mode", 0)
+                rebuilt = rebuild(pd.Series({"variant": variant.name, "target_mode": mode}), archetype)
+                for field in unstored:
+                    np.testing.assert_array_equal(
+                        getattr(rebuilt, field),
+                        getattr(variant.base, field),
+                        err_msg=f"{which}: {variant.name}",
+                    )
+
+    assert checked, "no variant was built; the test proves nothing"
 
 
 def test_rebuilding_keeps_the_default_for_a_column_the_row_does_not_carry() -> None:

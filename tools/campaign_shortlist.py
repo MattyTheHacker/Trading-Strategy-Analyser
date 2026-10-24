@@ -27,10 +27,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from nqbt import archetypes, context, logsetup, resample, results, sessions, splice, sweep
 from nqbt.instruments import get_instrument
-from nqbt.sim.types import TARGET_STRETCH, ElasticBandParams
+from nqbt.sim.types import TARGET_STRETCH, ElasticBandParams, OpeningRangeParams, SqueezeBreakoutParams
 from tools.campaign_holdout import held_out
 from tools.campaign_report import load, rank
-from tools.campaign_sweep import db_path, elastic_ladder, elastic_r_ladder, windows
+from tools.campaign_sweep import db_path, elastic_ladder, elastic_r_ladder, orb_width_ladder, windows
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +68,8 @@ def _coerced(value: object, default: object) -> object:
 def rebuild(row: pd.Series, archetype: archetypes.Archetype) -> archetypes.ArchetypeParams:  # type: ignore[explicit-any]  # duckdb's dtypes
     """Rebuild the parameter set a stored row came from, defaults filling anything not stored.
 
-    An ElasticBand row takes its target ladder from its variant name, under the target mode it ran.
+    An ElasticBand row takes its target ladder from its variant name, under the target mode it ran,
+    and an OpeningRange or SqueezeBreakout row its width ladder.
     """
     params: archetypes.ArchetypeParams = archetype.params_cls()
     updates: dict[str, object] = {}
@@ -79,6 +80,9 @@ def rebuild(row: pd.Series, archetype: archetypes.Archetype) -> archetypes.Arche
         updates[field.name] = _coerced(row[field.name], getattr(params, field.name))
     if isinstance(params, ElasticBandParams):
         updates |= _elastic_targets(str(row["variant"]), updates.get("target_mode", params.target_mode))
+
+    if isinstance(params, (OpeningRangeParams, SqueezeBreakoutParams)):
+        updates["target_width_multiples"] = orb_width_ladder(str(row["variant"]))
 
     return replace(params, **updates)
 
