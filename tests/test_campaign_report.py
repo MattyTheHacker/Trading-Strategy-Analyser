@@ -55,7 +55,7 @@ from tools.campaign_report import (
     swept_axes,
 )
 from tools.campaign_shortlist import rebuild
-from tools.campaign_sweep import VARIANT_SETS, variants_for
+from tools.campaign_sweep import CONFLUENCE_SIZING, IBT_SIZING, IBT_SIZING_HIGH, VARIANT_SETS, variants_for
 
 if TYPE_CHECKING:
     from nqbt.arrays import FloatArray
@@ -719,7 +719,13 @@ def test_a_width_token_with_no_known_ladder_is_refused_rather_than_given_the_def
         rebuild(row, archetypes.OPENINGRANGE)
 
 
-def test_every_variant_any_set_builds_rebuilds_at_the_ladders_it_was_swept_at() -> None:
+SIZING_SETS = (IBT_SIZING, IBT_SIZING_HIGH, CONFLUENCE_SIZING)
+"""The sets built from fitted cuts, which exist only where the fit ran.
+
+Every ladder they carry is another set's, so leaving them out loses nothing."""
+
+
+def test_every_variant_outside_the_sizing_sets_rebuilds_at_its_ladders() -> None:
     """No stored column carries a ladder, so each must come back off the variant's name.
 
     The row holds only the name and the target mode, the two things a ladder is read from. One
@@ -727,7 +733,7 @@ def test_every_variant_any_set_builds_rebuilds_at_the_ladders_it_was_swept_at() 
     checked against both, since a rebuild could not tell them apart.
     """
     checked: set[tuple[str, str, str]] = set()
-    for which in sorted(VARIANT_SETS):
+    for which in sorted(set(VARIANT_SETS) - set(SIZING_SETS)):
         for name, build in variants_for(which).items():
             archetype = archetypes.get(name)
             for variant in build("MNQ"):
