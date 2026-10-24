@@ -1221,8 +1221,8 @@ def test_each_narrow_variant_runs_at_exactly_one_resolution() -> None:
 
 
 def test_the_narrow_set_runs_at_every_resolution_the_campaign_split() -> None:
-    """One minute has no selection window to read an entry from -- §M44 -- and thirty no stored rows yet."""
-    assert set(NARROW_ENTRY) == set(RESOLUTIONS) - {1, 30}
+    """One minute has no selection window to read an entry from -- §M44."""
+    assert set(NARROW_ENTRY) == set(RESOLUTIONS) - {1}
 
 
 def test_the_narrow_entry_is_held_at_a_value_and_never_swept() -> None:
