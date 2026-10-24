@@ -283,7 +283,9 @@ Gate 3, the configuration the selection window ranks first on each root, 200 dra
 
 **The mechanism is [#472], and it retires §M28.5's own.** The fade is a stop entry that fills as price comes back through the level, so on its fill bar the extreme on the stop's side can come before the fill. §M28.5 measured the whole entry bar's adverse excursion against the stop, found it exceeded a 2% stop 84.7% of the time, and concluded that the stop sat inside the bar the order fills on. NinjaTrader reads the bar along its path and lets the stop see only what came after the fill, and the simulation now does the same (`docs/nt8-fidelity.md`, "A stop on its entry bar is read along the bar's path"), so an extreme that came before the fill no longer stops the trade. `ambiguous_share` at the tightest fraction falls from 0.287 to 0.087 for the same reason: a leg is flagged only where its own part of the path reached both levels.
 
-**It is a gate-2 result, not a candidate.** No gate-3 or gate-4 read has been run on it. The stop is narrower than a typical bar, so whether a trade survives its fill bar is decided by a walk from the open to the nearer extreme, which is NinjaTrader's model of a bar and not a record of one. The second tier would agree with it; the minute bars could test it on these 15-minute rows, as §M28.4 did for the retest, and that has not been done. §M28.5's verdict does not hold under the fill rule now in force: the stop axis is not monotone, and its tightest end is the fade's best. The rejection, §M28.7, is the test of the same question from a limit entry, and it is unchanged.
+**It is a gate-2 result, not a candidate.** No gate-3 or gate-4 read has been run on it. The stop is narrower than a typical bar, so whether a trade survives its fill bar is decided by a walk from the open to the nearer extreme, which is NinjaTrader's model of a bar and not a record of one. The second tier would agree with it, and the minute bars cannot test it (below). §M28.5's verdict does not hold under the fill rule now in force: the stop axis is not monotone, and its tightest end is the fade's best. The rejection, §M28.7, is the test of the same question from a limit entry, and it is unchanged.
+
+**The minute bars cannot settle it.** `tools/campaign_ambiguity.py --fill-bars` ([#488]) walks each stop entry's fill bar through the minute bars inside it, from the minute the order fills in, and scores how the path read it. It was run on the twenty fade configurations at a 2% stop that the holdout ranks first on each root, all cash-session ranges at 10 and 15 minutes, with profit factors of 2.04 to 2.24 on MNQ and 2.18 to 2.39 on NQ. **On 97.5% of their fill-bar legs on MNQ and 97.6% on NQ, a level is reached inside the minute the order fills in**, which a minute bar cannot order against the fill; the stop sits about 2% of a range from the entry. On the rest it can score, 380 legs on MNQ and 370 on NQ, the path and the minute bars agree on 88% and 85%, and the legs the path kept that the minute bars stop, 26 and 20, net slightly negative, a median of −0.1% of a configuration's net. Those are the legs whose fill minute stayed clear of both levels, not a sample of the rest. The ambiguous-bar check settles none of the 46 to 61 ambiguous bars on each of the six configurations above 5%, for the same reason. Only tick data could go further.
 
 ### §M28.7 — the rejection
 
@@ -662,6 +664,21 @@ A cost on the selection window in all eight cells now, against seven, and a gain
 
 **It is a candidate for a pre-registered test, not a strategy.** The paired gain held out is one to five hundredths of profit factor, on an archetype whose median configuration loses held out, and no gate-4 read has been run on it.
 
+**It does not rest on how the path reads its fill bar.** The same minute-bar check as the fade's, `--fill-bars` ([#488]), on the twenty one-bar confirmation configurations the holdout ranks first in each cell, can score over 99% of fill-bar legs, and the path and the minute bars agree on 98.6% to 99.9% of them. Where they part, the path is usually the harsher: it stops more legs that the minute bars hold through the bar or take to their target than it spares legs the minute bars stop. Summed over the twenty, so a trade two configurations share counts twice:
+
+| root | minutes | legs scored | path and minutes agree | path spared | path harsher |
+| ---- | ------: | ----------: | ---------------------: | ----------: | -----------: |
+| MNQ  |       2 |      67,019 |                  99.9% |           3 |           50 |
+| MNQ  |       5 |      73,685 |                  99.5% |          35 |          356 |
+| MNQ  |      10 |      21,383 |                  99.6% |           2 |           84 |
+| MNQ  |      15 |      15,239 |                  99.3% |           7 |          101 |
+| NQ   |       2 |      78,770 |                  99.9% |           5 |           57 |
+| NQ   |       5 |      54,163 |                  99.4% |          24 |          294 |
+| NQ   |      10 |      28,776 |                  99.7% |           3 |           86 |
+| NQ   |      15 |      13,430 |                  98.6% |          13 |          180 |
+
+The legs the path spared make between −5.0% and +5.4% of any configuration's net, and their total is a loss in six of eight cells.
+
 ## EmaCrossover's loose ends, the other markets and the context re-cuts
 
 ### The build spec's three loose ends
@@ -855,7 +872,7 @@ A campaign that wants 30 minutes should name it before it runs, which those thre
 - **Reads that need trade logs or contracts were not re-run**: the per-contract tallies of §M27 and §M27.3, the clock and volume screens over the survivor's own trades in §M27.7 and §M27.8, §M28.1's long-and-short null, §M28.15's fold-by-fold profit factors, and §M28.9's diversification.
 - **Three passes were not re-swept**: §M19.1's crossing of the two compression forms, §M31.1's hold ladder inside the fitted `DIRECTIONAL` cell, and the higher-timeframe file's one-off DeadCatBounce run.
 - **A difference against a campaign before §M44 has two causes**, the repaired archive and the fills, and this file separates them only where §M44 had already re-read the campaign or where the part-one table speaks for the whole archetype.
-- **The two results the fills created are gate-2 results, not candidates.** OpeningRange's tight-stop fade (§M28.5) and EmaPullback's one-bar confirmation (§M39) both turn on what a stop entry's own bar does after its fill, which NinjaTrader's backtest walks one way and a live market need not. The minute bars could check both before either is pre-registered, as §M28.4 checked the retest.
+- **The two results the fills created are gate-2 results, not candidates.** OpeningRange's tight-stop fade (§M28.5) and EmaPullback's one-bar confirmation (§M39) both turn on what a stop entry's own bar does after its fill, which NinjaTrader's backtest walks one way and a live market need not. The minute bars clear the confirmation of that and cannot settle the fade, whose fill minute already reaches a level on more than 97% of its legs; only tick data could.
 - **Every family named by a rule was named on the re-swept rows**, so a stratum that cleared in the original and is absent here was not tested here: §M19.3's `trend=UP` is the instance that mattered.
 - **The gold strata were re-picked, at 112 pairs against 68**, by the pre-registration's own rule; the pairs are not the same pairs.
 - **The prop replays use the 2026 presets** wherever the stored gate reads made them, and the original campaigns used presets since replaced. §M46's ladder and §M28.13's excursion check replay the 2026 evaluations alone, so neither separates the fills from the account terms, and §M28.13's population run is not rebuilt.
@@ -870,3 +887,4 @@ A campaign that wants 30 minutes should name it before it runs, which those thre
 [#471]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/pull/471
 [#472]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/pull/472
 [#479]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/pull/479
+[#488]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/pull/488
