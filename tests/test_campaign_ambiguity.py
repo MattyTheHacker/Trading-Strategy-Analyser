@@ -17,7 +17,7 @@ import pytest
 from nqbt import archetypes, context, disambiguate, resample, results, sessions, splice, sweep
 from nqbt.instruments import get_instrument
 from nqbt.sim.bracket import AMBIGUITY_NEAREST_TO_OPEN, AMBIGUITY_WORST_CASE
-from nqbt.sim.types import InsideBarParams
+from nqbt.sim.types import DeadCatParams, InsideBarParams
 from tests.rows import number
 from tools import campaign_ambiguity
 from tools.campaign_ambiguity import (
@@ -547,3 +547,116 @@ def test_the_printed_bars_are_the_ones_worth_looking_at() -> None:
 
     assert list(shown["resolved"]) == ["stop_first", "still_ambiguous"]
     assert campaign_ambiguity.unsettled(pd.DataFrame()).empty
+
+
+# -- reading a stop entry's own bar ----------------------------------------------------------
+
+
+def stop_entry_grid() -> sweep.Grid:
+    """Build two DeadCatBounce combinations, whose entries are stop orders, on a target axis."""
+    return sweep.Grid.of(
+        DeadCatParams(
+            use_ema=False,
+            use_fast_sma=False,
+            require_previous_green=False,
+            require_new_high=False,
+            bars_required_to_trade=0,
+        ),
+        tp_multiplier=[1.0, 2.0],
+    )
+
+
+def stored_stop_entries(db: Path, bars: pd.DataFrame, minutes: int) -> int:
+    """Sweep the stop-entry grid at one point and store it the way ``campaign_sweep.run_point`` does."""
+    frame = resample.resample(bars, minutes)
+    table, _ = sweep.sweep(frame, stop_entry_grid(), get_instrument(ROOT))
+    table.insert(0, "variant", "bracket")
+    table.insert(1, "stratum", "unfiltered")
+    table.insert(2, "window", "full")
+    table["combo_id"] = range(len(table))
+
+    return results.save_sweep(
+        table,
+        root=ROOT,
+        instrument=ROOT,
+        bars=frame,
+        axes=stop_entry_grid().axis_values(),
+        strategy="DeadCatBounce",
+        resolution=minutes,
+        db_path=db,
+    )
+
+
+def test_every_stop_entry_row_has_each_of_its_legs_read_on_its_fill_bar(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One headline per stored row, re-run to the figure it stored, carrying every leg's reading."""
+    db = tmp_path / "DeadCatBounce.duckdb"
+    bars = synthetic_bars()
+    stored_stop_entries(db, bars, 5)
+    monkeypatch.setattr(splice, "load_continuous", lambda _: bars)
+    rows = combos(db)
+    assert rows["trades"].sum() > 0, "fixture produced no trades; the test proves nothing"
+
+    checked, legs = campaign_ambiguity.check_fill_bars(rows, archetypes.DEADCATBOUNCE, ROOT)
+    assert len(checked) == len(rows)
+    assert list(checked["profit_factor"]) == pytest.approx(list(rows["profit_factor"]))
+    assert checked["fill_bar_legs"].sum() == len(legs)
+    assert set(legs["label"]) == set(checked["label"])
+
+
+def test_a_shortlist_with_no_stop_entry_reads_no_fill_bar_rather_than_raising(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """InsideBar enters at the market, so it has no path to read and no bars are loaded for it."""
+    db = tmp_path / f"{STRATEGY}.duckdb"
+    stored(db, synthetic_bars(), 5, "full")
+    monkeypatch.setattr(
+        splice,
+        "load_continuous",
+        lambda _: (_ for _ in ()).throw(AssertionError("bars loaded for a shortlist with no stop entry")),
+    )
+
+    checked, legs = campaign_ambiguity.check_fill_bars(combos(db), archetypes.INSIDEBAR, ROOT)
+    assert checked.empty
+    assert legs.empty
+
+
+def steps_run(monkeypatch: pytest.MonkeyPatch, *flags: str, read: pd.DataFrame | None = None) -> list[str]:
+    """Run ``main`` with every step stubbed, and return the minute-bar steps it reached, in order."""
+    rows = pd.DataFrame({"window": ["full"], "resolution": [5]})
+    reached: list[str] = []
+    readings = (pd.DataFrame(), pd.DataFrame()) if read is None else (measured(), read)
+
+    def settle(*_args: object) -> tuple[pd.DataFrame, pd.DataFrame]:
+        reached.append("settle")
+
+        return pd.DataFrame(), pd.DataFrame()
+
+    def check(*_args: object) -> tuple[pd.DataFrame, pd.DataFrame]:
+        reached.append("fill bars")
+
+        return readings
+
+    monkeypatch.setattr(campaign_ambiguity, "shortlist", lambda *_args: rows)
+    monkeypatch.setattr(campaign_ambiguity, "measure", lambda *_args: measured())
+    monkeypatch.setattr(campaign_ambiguity, "settle", settle)
+    monkeypatch.setattr(campaign_ambiguity, "check_fill_bars", check)
+    assert campaign_ambiguity.main(["campaign_ambiguity.py", "--strategy", STRATEGY, *flags]) == 0
+
+    return reached
+
+
+def test_the_fill_bars_are_read_only_when_asked(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``--fill-bars`` is a step of its own, independent of settling the band."""
+    assert steps_run(monkeypatch) == ["settle"]
+    assert steps_run(monkeypatch, "--fill-bars") == ["settle", "fill bars"]
+    assert steps_run(monkeypatch, "--no-settle", "--fill-bars") == ["fill bars"]
+
+
+def test_the_fill_bars_are_read_whatever_the_settling_found(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A settling step that found nothing to settle used to end the run before this one."""
+    legs = pd.DataFrame(
+        {"simulated": ["held", "held", "stop_first"], "minute": ["held", "stop_first", "stop_first"]},
+    )
+    assert steps_run(monkeypatch, "--fill-bars", read=legs) == ["settle", "fill bars"]

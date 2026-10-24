@@ -4,10 +4,11 @@
 
 A bar holding both the stop and a target cannot say which came first, so the simulation
 assumes -- ``docs/nt8-fidelity.md``, "Ambiguous bars resolve to whichever level is nearer the
-open". The minute bars inside that bar usually can say.
+open". The minute bars inside that bar usually can say. They can also say whether a stop entry's
+own bar went the way the path the simulation walks it along says -- :func:`check_fill_bars`.
 
-**A diagnostic that must never reach ``nqbt/sim/``**, run after a result exists and only above
-:data:`MIN_AMBIGUOUS_SHARE` -- ``docs/roadmap.md`` §M28.4.
+**A diagnostic that must never reach ``nqbt/sim/``**, run after a result exists, and the ambiguous
+bars only above :data:`MIN_AMBIGUOUS_SHARE` -- ``docs/roadmap.md`` §M28.4.
 """
 
 from __future__ import annotations
@@ -18,6 +19,14 @@ import numpy as np
 import pandas as pd
 
 from nqbt.sim.bracket import AMBIGUITY_BEST_CASE, AMBIGUITY_WORST_CASE, limit_filled, sided
+from nqbt.sim.types import (
+    ORB_LIMIT_ENTRIES,
+    DeadCatParams,
+    EmaPullbackParams,
+    OpeningRangeParams,
+    PullBackAndGoParams,
+    SqueezeBreakoutParams,
+)
 
 if TYPE_CHECKING:
     from nqbt.arrays import FloatArray, IntArray, OffsetArray
@@ -118,13 +127,15 @@ def first_level_reached(
     *,
     fill_limit_on_touch: bool,
     opened_in: int = -1,
+    if_neither: str = MISALIGNED,
 ) -> str:
     """Return which level the minute bars reach first, or why they cannot say.
 
     Reads the simulator's own two predicates rather than restating them. ``opened_in`` is the
     minute the position opened inside, and the minutes before it are not the trade's; a level
     reached inside that same minute cannot be ordered against the fill, so it is reported as
-    unsettled -- ``docs/roadmap.md`` §M28.4.
+    unsettled -- ``docs/roadmap.md`` §M28.4. ``if_neither`` is returned when no minute reaches
+    either level.
     """
     low: FloatArray = window["low"].to_numpy()
     high: FloatArray = window["high"].to_numpy()
@@ -143,7 +154,7 @@ def first_level_reached(
 
         return STOP_FIRST if stop_hit else TARGET_FIRST
 
-    return MISALIGNED
+    return if_neither
 
 
 def first_target(
@@ -358,3 +369,169 @@ def resolved_log(
             resolved.loc[taking, :] = arms[policy].loc[taking, :]
 
     return resolved
+
+
+HELD = "held"
+"""Neither level reached after the fill, so the leg was still open at its fill bar's close."""
+
+FILL_BAR_SCORED = (STOP_FIRST, TARGET_FIRST, HELD)
+"""The fill-bar outcomes the path is scored on. A minute too coarse to order a level against the
+fill, or a window off its bar, is counted instead."""
+
+FILL_BAR_COLUMNS = [
+    "trade_id",
+    "leg",
+    "entry_bar",
+    "direction",
+    "stop",
+    "target",
+    "net_pnl",
+    "simulated",
+    "minute",
+]
+
+
+def enters_on_stop(params: object) -> bool:
+    """Return whether a configuration enters on stop orders, whose own bar the simulation walks a path along.
+
+    Mirrors each archetype's ``OpenTrade.stop_entry`` -- ``docs/nt8-fidelity.md``, "A stop on its
+    entry bar is read along the bar's path".
+    """
+    if isinstance(params, OpeningRangeParams):
+        return params.entry_mode not in ORB_LIMIT_ENTRIES
+
+    if isinstance(params, EmaPullbackParams):
+        return params.confirm_entry
+
+    return isinstance(params, (DeadCatParams, PullBackAndGoParams, SqueezeBreakoutParams))
+
+
+def fill_minute(
+    window: pd.DataFrame, coarse_bar: pd.Series[float], entry_price: float, slippage: float, direction: float
+) -> int:
+    """Return which minute bar a stop entry filled inside, or ``-1`` if it filled at its bar's open.
+
+    The trigger is the fill less its slippage, so the earliest minute that traded through it is the
+    earliest the position can have existed; ``len(window)`` when no minute did.
+    """
+    trigger: float = entry_price - direction * slippage
+    if direction * coarse_bar["open"] >= direction * trigger:
+        return -1
+
+    favourable: FloatArray = window["high" if direction > 0.0 else "low"].to_numpy()
+    reached: OffsetArray = np.flatnonzero(direction * favourable >= direction * trigger)
+    if reached.size == 0:
+        return len(window)
+
+    return int(reached[0])
+
+
+def simulated_outcome(exit_bar: int, fill_bar: int, exit_reason: str) -> str:
+    """Return how the simulation's path read a leg's fill bar, from where and why the leg left.
+
+    A leg leaving its fill bar any other way, at the session close say, reached neither level on it.
+    """
+    if exit_bar != fill_bar:
+        return HELD
+
+    if exit_reason == "stop":
+        return STOP_FIRST
+
+    if exit_reason == "target":
+        return TARGET_FIRST
+
+    return HELD
+
+
+def check_fill_bars(
+    log: pd.DataFrame,
+    fine: pd.DataFrame,
+    coarse: pd.DataFrame,
+    *,
+    slippage: float,
+    fill_limit_on_touch: bool,
+) -> pd.DataFrame:
+    """Return one row per leg, saying how the path and the minute bars each read its stop entry's fill bar.
+
+    ``log`` is a stop-entry configuration's trade log on ``coarse``, whose bars ``fine`` built. Every
+    leg is walked from the fill, as a market takes it, not by the path's rule for earlier legs --
+    ``docs/nt8-fidelity.md``, "A stop on its entry bar is read along the bar's path".
+    """
+    owner: IntArray = owning_bar(pd.DatetimeIndex(fine.index), pd.DatetimeIndex(coarse.index))
+    rows: list[dict[str, object]] = []
+    for _, legs in log.groupby("trade_id", sort=True):
+        trade_id: int = int(legs["trade_id"].iloc[0])
+        position: int = int(legs["entry_bar"].iloc[0])
+        coarse_bar: pd.Series[float] = coarse.iloc[position]
+        window: pd.DataFrame = sub_bars(fine, owner, position)
+        direction: float = float(legs["direction"].iloc[0])
+        entry_price: float = float(legs["entry_price"].iloc[0])
+        opened_in: int = fill_minute(window, coarse_bar, entry_price, slippage, direction)
+        lined_up: bool = rebuilds(window, coarse_bar)
+        for leg, stop, target, exit_bar, reason, net in zip(
+            legs["leg"],
+            legs["initial_stop"],
+            legs["target_price"],
+            legs["exit_bar"],
+            legs["exit_reason"],
+            legs["net_pnl"],
+            strict=True,
+        ):
+            minute: str = MISALIGNED
+            if lined_up:
+                minute = first_level_reached(
+                    window,
+                    float(stop),
+                    float(target),
+                    direction,
+                    fill_limit_on_touch=fill_limit_on_touch,
+                    opened_in=opened_in,
+                    if_neither=HELD,
+                )
+
+            rows.append(
+                {
+                    "trade_id": trade_id,
+                    "leg": int(leg),
+                    "entry_bar": position,
+                    "direction": direction,
+                    "stop": float(stop),
+                    "target": float(target),
+                    "net_pnl": float(net),
+                    "simulated": simulated_outcome(int(exit_bar), position, str(reason)),
+                    "minute": minute,
+                },
+            )
+    table: pd.DataFrame = pd.DataFrame(rows, columns=FILL_BAR_COLUMNS)
+    scored = table["minute"].isin(FILL_BAR_SCORED)
+    table["agrees"] = (table["simulated"] == table["minute"]).astype("boolean").where(scored)
+
+    return table
+
+
+def fill_bar_accuracy(table: pd.DataFrame) -> dict[str, object]:
+    """Measure how often the path read a fill bar as its minute bars do, and what rests on the misses.
+
+    ``path_spared`` counts legs the path kept open or took to their target that the minute bars stop
+    on that bar, ``spared_net`` is what those legs made, and ``spared_share`` is that as a share of
+    what every leg made, where they made anything; ``path_stopped`` counts the reverse.
+    """
+    scored: pd.DataFrame = table[table["minute"].isin(FILL_BAR_SCORED)]
+    spared: pd.DataFrame = scored[(scored["simulated"] != STOP_FIRST) & (scored["minute"] == STOP_FIRST)]
+    stopped: pd.DataFrame = scored[(scored["simulated"] == STOP_FIRST) & (scored["minute"] != STOP_FIRST)]
+    correct: int = int(scored["agrees"].sum())
+    total_net: float = float(table["net_pnl"].sum())
+    spared_net: float = float(spared["net_pnl"].sum())
+
+    return {
+        "fill_bar_legs": len(table),
+        "scored": len(scored),
+        "path_correct": correct,
+        "path_accuracy": correct / len(scored) if len(scored) else float("nan"),
+        "path_spared": len(spared),
+        "spared_net": spared_net,
+        "spared_share": spared_net / total_net if total_net > 0.0 else float("nan"),
+        "path_stopped": len(stopped),
+        "still_ambiguous": int((table["minute"] == STILL_AMBIGUOUS).sum()),
+        "refused": int((~table["minute"].isin([*FILL_BAR_SCORED, STILL_AMBIGUOUS])).sum()),
+    }
