@@ -532,7 +532,7 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 ### M26.7 — the inverted signal: the fade's bars traded the other way ([#279])
 
-**Pre-registered, not yet run: five arms, the fade and the inversion on the same signal bars, on R targets and each on its own stretch ladder, in all 23 strata at five bar sizes, read with §M37's paired bar and gate 3.** Pre-registered in [`docs/findings/m26-7-inverted-signal-preregistration.md`](findings/m26-7-inverted-signal-preregistration.md); the rules and their NinjaScript are [`nt8-fidelity.md`](nt8-fidelity.md) §M26.7.
+**Pre-registered and run at 2 to 15 minutes, 1 minute not yet run: paired on the same signal bars, every inverted arm beats its fade twin on the selection window and loses to it held out at every bar size, so no pair clears §M37's bar; the inversion fails gate 2 unfiltered on both roots where the fades pass, and gate 3 finds nothing on both roots.** Moved to [`docs/findings/m26-7-inverted-signal-result.md`](findings/m26-7-inverted-signal-result.md), pre-registered in [`docs/findings/m26-7-inverted-signal-preregistration.md`](findings/m26-7-inverted-signal-preregistration.md); the rules and their NinjaScript are [`nt8-fidelity.md`](nt8-fidelity.md) §M26.7.
 
 ### M26.8 — the stop on the band itself: the level §M26 specified and never built ([#280])
 
@@ -740,19 +740,19 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 ### M52 — the conditional early exit's third tier ([#369])
 
-**Pre-registered, not yet run: 36 arms of #369's third tier over every archetype's stored grid, at 5, 10 and 15 minutes, read with §M48's and §M50's bar over a family of 33 cells.** Pre-registered in [`docs/findings/m52-early-exit-tier-3-preregistration.md`](findings/m52-early-exit-tier-3-preregistration.md); the rules and the NinjaScript each would be written as are [`nt8-fidelity.md`](nt8-fidelity.md), "The conditional early exit".
+**Pre-registered and run: 5 of 33 cells clear, three of them EmaPullback's, where giving back half of a 1 R excursion gains about a hundredth of held-out profit factor at every bar size with the median configuration still losing, and the others InsideBarTrailing unfiltered at 15 minutes and SqueezeBreakout at 5; neither midday cell clears, and every exit that can close a winner costs held out in a majority of its cells.** Moved to [`docs/findings/m52-early-exit-tier-3-result.md`](findings/m52-early-exit-tier-3-result.md), pre-registered in [`docs/findings/m52-early-exit-tier-3-preregistration.md`](findings/m52-early-exit-tier-3-preregistration.md); the rules and the NinjaScript each would be written as are [`nt8-fidelity.md`](nt8-fidelity.md), "The conditional early exit".
 
 ### M53 — EmaPullback's stop trailed on an average of its own ([#439])
 
-**Pre-registered, not yet run: EmaCrossover's moving-average trail on the trend archetype, three arms over §M35's grid — the fixed stop, §M37's slow-average trail and a third average over EmaCrossover's trail grid — in all 23 strata at 2, 5, 10 and 15 minutes, read with §M37's paired bar over a family of 8.** Pre-registered in [`docs/findings/m53-ema-pullback-ma-trail-preregistration.md`](findings/m53-ema-pullback-ma-trail-preregistration.md); the rules are [`nt8-fidelity.md`](nt8-fidelity.md), "The build spec's three loose ends: the trail, the round number and the count" and §M34.
+**Pre-registered and run, every prediction holding: the controls reproduce exactly, and paired over identical grids the third average costs against the fixed stop on the selection window at every bar size and gains held out from 5 minutes up, so it clears §M37's bar against neither arm at any resolution; its own axes barely matter, and gate 3 clears in none of its 18 cells, at 2 to 15 minutes or at 2 to 30.** Moved to [`docs/findings/m53-ema-pullback-ma-trail-result.md`](findings/m53-ema-pullback-ma-trail-result.md), pre-registered in [`docs/findings/m53-ema-pullback-ma-trail-preregistration.md`](findings/m53-ema-pullback-ma-trail-preregistration.md); the rules are [`nt8-fidelity.md`](nt8-fidelity.md), "The build spec's three loose ends: the trail, the round number and the count" and §M34.
 
 ### M54 — a family-wise null over the consistent cells ([#439])
 
-**Pre-registered, not yet run: gate 3's matched null read family-wise — each test's standardised profit-factor excess against the best of every draw across its family — over §M44's consistent cells, named on the re-swept rows, and §M28.16's ten, each family on its own and both from the campaign's own variants; a cell clears where a configuration reaches a family-wise p below 0.05 on both roots.** Pre-registered in [`docs/findings/m54-family-wise-null-preregistration.md`](findings/m54-family-wise-null-preregistration.md).
+**Pre-registered and run: no cell clears family-wise on both roots in either family. §M28.16's ten cells reproduce §M44's per-test counts and their best test reaches a family-wise p of 0.229; §M44's consistent cells, named on the re-swept rows, are 99, and EmaPullback's few-trade cells take the best of 384 of their 400 draws, so that family's answer of 0.187 says nothing about any other archetype.** Moved to [`docs/findings/m54-family-wise-null-result.md`](findings/m54-family-wise-null-result.md), pre-registered in [`docs/findings/m54-family-wise-null-preregistration.md`](findings/m54-family-wise-null-preregistration.md).
 
 ### M55 — EmaCrossover's confluence count over filters that point the trade's way ([#439])
 
-**Pre-registered, not yet run: the confluence count over the cash-open and midday phases and the trend, higher-timeframe and VWAP sides relative to the trade, in nine arms per stop — the control, each gate alone and at least one to all four — unfiltered at five bar sizes, read with §M37's paired bar over a family of 80 and gate 3 family-wise.** Pre-registered in [`docs/findings/m55-side-count-preregistration.md`](findings/m55-side-count-preregistration.md); the filters and their NinjaScript are [`nt8-fidelity.md`](nt8-fidelity.md), "Filters relative to the trade's side".
+**Pre-registered and run at 2 to 15 minutes, 1 minute not yet run: 14 of 64 cells clear §M37's paired bar against the ungated control, against a prediction of none — the phase gate at all four sizes under the swing stop and at 2 and 5 under the ATR stop — and none clears gate 3 family-wise, at a smallest p of 0.41 over 140 tests.** Moved to [`docs/findings/m55-side-count-result.md`](findings/m55-side-count-result.md), pre-registered in [`docs/findings/m55-side-count-preregistration.md`](findings/m55-side-count-preregistration.md); the filters and their NinjaScript are [`nt8-fidelity.md`](nt8-fidelity.md), "Filters relative to the trade's side".
 
 ### M56 — every archetype in half-hour slots of the cash session ([#439])
 
@@ -760,19 +760,27 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 ### M57 — the noise area, followed, against its pieces and its fade ([#439])
 
-**Pre-registered, not yet run: ElasticBand on the noise area in four arms — the paper's rule, decided on the half hour and trailed on the band's edge or the VWAP; the same decided on every bar; the same without the trail; and its fade — over one grid in all 23 strata at five bar sizes, read with §M37's paired bar over a family of 15 and the rule through gate 3 family-wise.** Pre-registered in [`docs/findings/m57-noise-area-preregistration.md`](findings/m57-noise-area-preregistration.md); the band and its rules are [`nt8-fidelity.md`](nt8-fidelity.md), "The noise area".
+**Pre-registered and run at 2 to 15 minutes, 1 minute not yet run: the rule passes gate 2 unfiltered on both roots and in 11 of 18 strata, and clears gate 3 in no cell, at a smallest family-wise p of 0.115 over 216 tests; no arm clears §M37's paired bar against it — the fade costs everywhere, deciding on every bar costs, and dropping the trail raises profit factor in all 16 cells but misses the sign test on NQ's selection window.** Moved to [`docs/findings/m57-noise-area-result.md`](findings/m57-noise-area-result.md), pre-registered in [`docs/findings/m57-noise-area-preregistration.md`](findings/m57-noise-area-preregistration.md); the band and its rules are [`nt8-fidelity.md`](nt8-fidelity.md), "The noise area".
 
 ### M58 — the latched squeeze ([#439])
 
-**Pre-registered, not yet run: SqueezeBreakout traded only once its squeeze ends, from the window frozen at the last squeezed bar, for 3, 6 or 12 bar closes beside the unlatched control, over §M19.3's grid in all 23 strata at 2, 5, 10 and 15 minutes, read with §M37's paired bar over a family of 12 and through gate 3 per arm.** Pre-registered in [`docs/findings/m58-squeeze-latch-preregistration.md`](findings/m58-squeeze-latch-preregistration.md); the rules and the NinjaScript a port would use are [`nt8-fidelity.md`](nt8-fidelity.md), "The latched squeeze".
+**Pre-registered and run: 5 of 12 latch and bar-size cells clear §M37's paired bar against a prediction of none, every length at 2 minutes and 3 and 12 closes at 5, with the median configuration still losing; no latched arm beats its null unfiltered, and two thin cells pass §M19.3's gate-3 bar on both roots, 6 closes in `trend=MIXED` and 12 in `compression=EXPANDED`, neither family-wise on both.** Moved to [`docs/findings/m58-squeeze-latch-result.md`](findings/m58-squeeze-latch-result.md), pre-registered in [`docs/findings/m58-squeeze-latch-preregistration.md`](findings/m58-squeeze-latch-preregistration.md); the rules and the NinjaScript a port would use are [`nt8-fidelity.md`](nt8-fidelity.md), "The latched squeeze".
 
 ### M59 — EmaCrossover's confluence count over conditions it does not read ([#439])
 
-**Pre-registered, not yet run: each EmaCrossover trade at its defaults counted over five conditions that read no moving average — the VWAP side, the signal bar's body, a new high or low, the Bollinger midline side and a break of the cash opening range — at its signal bar, against 200 matched random entries at 5 minutes on both roots; read as edge only where the top count beats its null on both roots in both windows.** Pre-registered in [`docs/findings/m59-confluence-not-read-preregistration.md`](findings/m59-confluence-not-read-preregistration.md).
+**Pre-registered and run: counted over five conditions that read no moving average, at the signal bar, EmaCrossover's top count does not beat 200 matched random entries on either root in either window, so the count is not edge; nor does its profit factor rise with the count, whose best bin in the full window is one condition.** Moved to [`docs/findings/m59-confluence-not-read-result.md`](findings/m59-confluence-not-read-result.md), pre-registered in [`docs/findings/m59-confluence-not-read-preregistration.md`](findings/m59-confluence-not-read-preregistration.md).
 
 ### M60 — a null over the level's kind ([#439])
 
-**Pre-registered, not yet run: OpeningRange's unfiltered shortlist against a null that keeps each session's own range width and price and places the bracket at random around that price, beside §M28.2's null over which session's range is traded, at 5, 10 and 15 minutes on both roots; a bar size clears where a configuration reaches a family-wise p below 0.05 on both roots.** Pre-registered in [`docs/findings/m60-level-kind-null-preregistration.md`](findings/m60-level-kind-null-preregistration.md).
+**Pre-registered and run, every prediction holding: all 60 shortlisted configurations beat a random bracket of their session's own width on sign, by +0.10 to +0.17 of held-out profit factor, and none reaches a family-wise p below 0.05, so no bar size clears; beside it §M28.2's level null is cleared on both roots at 15 minutes alone, NQ at 0.0499.** Moved to [`docs/findings/m60-level-kind-null-result.md`](findings/m60-level-kind-null-result.md), pre-registered in [`docs/findings/m60-level-kind-null-preregistration.md`](findings/m60-level-kind-null-preregistration.md).
+
+### M61 — every older campaign re-read after the fill fixes ([#439])
+
+**Most of the registry's findings hold on the October 2026 re-sweep, and they move where the fill fixes reached a stop entry: OpeningRange's tight-stop fade now holds out profitably and EmaPullback's confirmation entry clears its paired bar in five of eight cells, while OpeningRange's trend=UP and 10-bar regime cell no longer clear gate 3.** Moved to [`docs/findings/m61-registry-resweep-fill-fixes.md`](findings/m61-registry-resweep-fill-fixes.md).
+
+### M62 — a book of copied prop accounts ([#446])
+
+**Copying one strategy's trades onto up to twenty accounts multiplies what one account makes and does not spread its risk: on InsideBarTrailing's midday cell every account in a book of twenty breaches on the same day in 96% of replays, with openings five trading days apart, and a book makes nothing pay that one account does not.** Moved to [`docs/findings/m62-prop-account-book.md`](findings/m62-prop-account-book.md).
 
 ### Do the shortlists travel? ([#330])
 
@@ -1343,6 +1351,8 @@ Beside the single-account figures it reports three about accounts going together
 
 - **A book's net grows with its size and the strategy's edge does not.** A large figure at 20 accounts is not a better strategy; read it beside the profit factor and the book of one.
 - **Staggered accounts share almost every trade**, so they are not independent samples and their agreement is not confirmation.
+
+The first read is §M62 ([`docs/findings/m62-prop-account-book.md`](findings/m62-prop-account-book.md)), and it bears out both.
 
 ### What is deliberately not modelled
 
