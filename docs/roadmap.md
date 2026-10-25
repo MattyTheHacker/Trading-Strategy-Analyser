@@ -784,7 +784,7 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 ### M63 — EmaPullback's one-bar confirmation entry through gate 4 ([#311])
 
-**Pre-registered before its outputs were opened: the confirmation passes gate 4 at a bar size if, on both roots, the walk-forward, the bootstrap and the exclusion all pass, read at 10 and 15 minutes, where it cleared §M39's paired bar on both roots.** Pre-registered in [`docs/findings/m63-ema-pullback-confirmation-gate-4-preregistration.md`](findings/m63-ema-pullback-confirmation-gate-4-preregistration.md).
+**Pre-registered before its outputs were opened, and it fails gate 4 at every bar size: no shortlisted configuration survives without its session-close legs, the bootstrap fails in every cell, and the walk-forward fails on at least one root at 10 and 15 minutes, where it cleared §M39's paired bar; its shortlists beat the market entry's, which fail too.** Moved to [`docs/findings/m63-ema-pullback-confirmation-gate-4-result.md`](findings/m63-ema-pullback-confirmation-gate-4-result.md), pre-registered in [`docs/findings/m63-ema-pullback-confirmation-gate-4-preregistration.md`](findings/m63-ema-pullback-confirmation-gate-4-preregistration.md).
 
 ### Do the shortlists travel? ([#330])
 
