@@ -47,7 +47,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v10.3.0
+        uses: astral-sh/setup-uv@v10.3.2
         with:
           version: ${{ env.SETUP_UV_VERSION }}
           cache-dependency-glob: uv.lock
@@ -82,7 +82,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v10.3.0
+        uses: astral-sh/setup-uv@v10.3.2
         with:
           version: ${{ env.SETUP_UV_VERSION }}
           cache-dependency-glob: uv.lock
@@ -104,7 +104,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v10.3.0
+        uses: astral-sh/setup-uv@v10.3.2
         with:
           version: ${{ env.SETUP_UV_VERSION }}
           cache-dependency-glob: uv.lock
@@ -124,7 +124,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v10.3.0
+        uses: astral-sh/setup-uv@v10.3.2
         with:
           version: ${{ env.SETUP_UV_VERSION }}
           cache-dependency-glob: uv.lock
@@ -148,7 +148,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v10.3.0
+        uses: astral-sh/setup-uv@v10.3.2
         with:
           version: ${{ env.SETUP_UV_VERSION }}
           cache-dependency-glob: uv.lock
