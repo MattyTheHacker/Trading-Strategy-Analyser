@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools==84.0.0"]
+requires = ["setuptools==84.2.1"]
 build-backend = "setuptools.build_meta"
 
 
@@ -28,7 +28,7 @@ dev = [
     "pytest==9.1.1",
     "pytest-cov==7.1.0",
     "TA-Lib==0.8.1",
-    "ruff==0.17.1",
+    "ruff==0.17.2",
     "mypy==2.4.0",
     "pandas-stubs==3.0.5.260914",
     "pymarkdownlnt==0.9.41",
