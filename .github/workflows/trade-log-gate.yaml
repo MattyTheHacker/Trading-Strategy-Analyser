@@ -75,7 +75,7 @@ jobs:
       # whenever the head's lock is unchanged.
       - name: Set up uv
         if: steps.scope.outputs.applies == 'true'
-        uses: astral-sh/setup-uv@v10.3.0
+        uses: astral-sh/setup-uv@v10.3.2
         with:
           version: ${{ env.SETUP_UV_VERSION }}
           working-directory: head
