@@ -82,7 +82,7 @@ def test_the_audit_trail_reports_the_simulations_own_order_arithmetic(
     """
     log, detail = audited
     first_leg = log.groupby("trade_id").first()
-    joined = detail.set_index("trade_id").join(first_leg, rsuffix="_log")
+    joined = detail.set_index("trade_id").join(first_leg, suffixes=("", "_log"))  # type: ignore[call-arg]  # pandas-stubs 3.0.5 predates pandas 3.1's suffixes keyword
 
     assert len(joined) == log["trade_id"].nunique()
     pd.testing.assert_series_equal(joined["initial_stop"], joined["initial_stop_log"], check_names=False)

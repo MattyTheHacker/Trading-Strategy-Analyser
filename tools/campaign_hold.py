@@ -55,11 +55,10 @@ def held(name: str, windows: list[str], stratum: str | None = None) -> pd.DataFr
 
 def bound_share(control: pd.DataFrame, treatment: pd.DataFrame, keys: list[str]) -> pd.DataFrame:
     """Measure, per cell, whether the cap moved the average hold at all."""
-    joined: pd.DataFrame = cells(control, keys, BOUND).join(
+    joined: pd.DataFrame = cells(control, keys, BOUND).join(  # type: ignore[call-arg]  # pandas-stubs 3.0.5 predates pandas 3.1's suffixes keyword
         cells(treatment, keys, BOUND),
         how="inner",
-        lsuffix="_control",
-        rsuffix="_treatment",
+        suffixes=("_control", "_treatment"),
     )
     joined["bound"] = joined["median_treatment"] != joined["median_control"]
 

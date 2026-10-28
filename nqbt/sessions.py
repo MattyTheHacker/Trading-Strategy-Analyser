@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 EASTERN = "America/New_York"
 
 FRIDAY = 4
-"""``DatetimeIndex.dayofweek`` for the last weekday a session may end on."""
+"""``DatetimeIndex.day_of_week`` for the last weekday a session may end on."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,7 +120,7 @@ def classify(
     trading_ts: pd.DatetimeIndex = day + pd.to_timedelta(after_close.astype("int8"), unit="D")
 
     in_break: BoolArray = after_close & (seconds <= template.open_seconds)
-    is_weekday: BoolArray = trading_ts.dayofweek <= FRIDAY
+    is_weekday: BoolArray = trading_ts.day_of_week <= FRIDAY
     in_session: BoolArray = np.asarray(~in_break & is_weekday)
 
     trading_day: DateArray = trading_ts.to_numpy().astype("datetime64[D]")

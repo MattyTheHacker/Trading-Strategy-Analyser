@@ -795,7 +795,7 @@ def test_contract_bars_reads_the_per_contract_cache(tmp_path: Path) -> None:
         ],
     )
     read = annotate.contract_bars(log, cache_dir=tmp_path)
-    pd.testing.assert_index_equal(read.index, frame.index)
+    pd.testing.assert_index_equal(read.index, frame.index, check_freq=False)  # type: ignore[call-arg]  # pandas-stubs 3.0.5 predates pandas 3.1's check_freq keyword
 
 
 def test_contract_bars_refuses_a_log_that_names_no_contract() -> None:
