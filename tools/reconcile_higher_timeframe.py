@@ -49,8 +49,8 @@ def read_probe(primary_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
         msg: str = f"no coarse export beside {primary_path.name}; expected {coarse_path.name}"
         raise FileNotFoundError(msg)
 
-    primary: pd.DataFrame = pd.read_csv(primary_path, sep=";", float_precision="round_trip")
-    coarse: pd.DataFrame = pd.read_csv(coarse_path, sep=";", float_precision="round_trip")
+    primary: pd.DataFrame = pd.read_csv(primary_path, sep=";")
+    coarse: pd.DataFrame = pd.read_csv(coarse_path, sep=";")
     for frame in (primary, coarse):
         frame["utc"] = pd.to_datetime(frame["utc"], format="%Y%m%d %H%M%S", utc=True)
     primary["coarse_utc"] = pd.to_datetime(
