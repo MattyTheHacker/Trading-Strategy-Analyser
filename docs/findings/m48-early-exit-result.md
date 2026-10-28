@@ -2,11 +2,11 @@
 id: M48
 title: "M48 — the conditional early exit: exits that can close a winner cost, and the one sizeable held-out gain is at a bar size the candidate is not traded at"
 archetypes: [DeadCatBounce, ElasticBand, EmaCrossover, EmaPullback, InsideBar, InsideBarTrailing, OpeningRange, PullBackAndGo, SqueezeBreakout]
-issues: [369, 401]
+issues: [369, 398, 401]
 gates: [1, 2]
 outcome: mixed
 verdict: >-
-  Pre-registered and run: 13 of 44 cells clear the bar, the selection window's pick paying held out on both roots at p < 0.05, but seven of them by less than 0.005 of profit factor on a root, which a sign test over configurations sharing their trades calls significant; exits that can close a winner cost in both windows, the loss-only and before-close forms move almost nothing, and the one gain above 0.01 on both roots with one arm, outside the two archetypes not to trade, is the trend exit in InsideBarTrailing's midday cell at 10 minutes, +0.071 and +0.084 held out, where at 5 minutes, the bar size the cell is traded at, the same exit costs; and through the prop accounts the picks change little, while that trend exit makes the cell worse at both 5 and 10 minutes.
+  Pre-registered and run: 13 of 44 cells clear the bar, the selection window's pick paying held out on both roots at p < 0.05, but seven of them by less than 0.005 of profit factor on a root, which a sign test over configurations sharing their trades calls significant; exits that can close a winner cost in both windows, the loss-only and before-close forms move almost nothing, and the one gain above 0.01 on both roots with one arm, outside the two archetypes not to trade, is the trend exit in InsideBarTrailing's midday cell at 10 minutes, +0.071 and +0.084 held out, where at 5 minutes, the bar size the cell is traded at, the same exit costs; and through the prop accounts the picks change little, while that trend exit makes the cell worse at both 5 and 10 minutes. Replayed later through the 2026 accounts, every arm in every cell, an exit makes a losing account lose less and a paying one pay less, and turns a loss into a profit in 132 of 24,960 comparisons.
 ---
 
 # M48 — the conditional early exit: exits that can close a winner cost, and the one sizeable held-out gain is at a bar size the candidate is not traded at ([#369])
@@ -149,11 +149,50 @@ Not pre-registered, and run after the verdict was read. For each of the 13 clear
 
 On NQ the cell's median net is negative on every preset with the exit or without it. **The 10-minute profit-factor gain does not survive the account** on MNQ's two TopStep presets, the only ones where the control was profitable at all at that bar size; why was not measured. **InsideBar's 5-minute NQ pick, the same exit, splits by firm**: Apex's median net rises from 72,730 to 114,974 at 50K and from 183,401 to 383,340 at 150K, while TopStep 50K's profitable share falls from 75% to 45%.
 
+## Every arm through the prop accounts ([#398])
+
+Not pre-registered, and read after the verdict, as the replay above was. **Every one of the 26 arms and its control, in every cell §M48 read**: unfiltered on all nine archetypes and `phase=MIDDAY` on InsideBarTrailing and OpeningRange, at 2, 5, 10 and 15 minutes on both roots, once per base variant. That makes 240 cells. Each arm's held-out shortlist, the selection window's top 20, was replayed at its stored base size through the four 2026 presets ([#440]): Apex's intraday evaluation linked to its PA account, and TopStep's Combine linked to its XFA, at 50K and 150K. Every re-run reproduces its stored row.
+
+**It compares with the replay above in direction only.** These rows are the October 2026 re-sweep's, after the fill fixes, rather than §M48's own. And the presets are the 2026 ones, each evaluation linked to its funded account, rather than the evaluations alone.
+
+A row below is one arm in one cell on one preset, compared with its own control's shortlist there:
+
+| across 24,960 arm × cell × preset pairs       | better |   same | worse |
+| --------------------------------------------- | -----: | -----: | ----: |
+| share of the shortlist that ends in profit    |  1,654 | 20,752 | 2,554 |
+| share that passes an evaluation at least once |  2,031 | 19,084 | 3,845 |
+| median net, payout less fees                  | 12,135 |  5,714 | 7,111 |
+| median attempts, fewer being better           | 13,668 |  6,415 | 4,877 |
+
+**An exit makes a losing account lose less and a paying one pay less.** In most cells the control loses money, and an exit makes that cheaper: fewer accounts bought, and a smaller loss. Where the control is profitable on half its shortlist or more, the arms lower median net in 878 pairs and raise it in 307, and lower the profitable share in 657 against 188. Those are 1,196 pairs, all on MNQ and 936 of them on TopStep 50K. **A loss rarely becomes a profit**: median net turns positive in 132 pairs, all on MNQ, and negative in 418.
+
+**So the split follows the firm, because it follows the control.** On Apex, where the controls almost never pay, the arms raise median net in 3,950 pairs against 813 at 150K, and in 3,811 against 923 at 50K. On TopStep they lower it more often than they raise it: in 2,776 pairs against 2,115 at 150K, and in 2,599 against 2,259 at 50K.
+
+**Where the control pays, the arms that can close a winner cost the most**, as they cost profit factor above. The not-working exit at a positive threshold lowers median net in 43 to 45 of 46 pairs at 3, 5 and 10 bars, and the regime exit in 41 of 46 unconditionally and 43 only if losing. The losing-before-the-close windows are level, 20 to 26 pairs better against 20 to 26 worse. The deepest not-working exit, at −0.5 R, is mildly worse, 15 to 22 against 22 to 30.
+
+**NQ shows nothing.** No shortlist, control or arm, ends in profit on any preset. At the stored base size of 4 contracts, and 6 on InsideBarTrailing, TopStep's funded accounts refuse about 91% of NQ trades, and on Apex, which takes nearly all of them, every shortlist still loses.
+
+**InsideBarTrailing's midday cell at 5 minutes on MNQ**, the one [#344] would trade, profitable share and median net:
+
+| arm             |    TopStep 50K | TopStep 150K |     Apex 50K |
+| --------------- | -------------: | -----------: | -----------: |
+| control         | 100% / +13,378 |   45% / −220 |  5% / −2,021 |
+| `close30m`      | 100% / +15,091 |   60% / +798 |  5% / −2,080 |
+| `close60m`      | 100% / +15,089 |     50% / −9 |  5% / −1,657 |
+| `close120m`     |  90% / +16,784 | 25% / −1,882 | 20% / −2,339 |
+| `bars10@-0.5R`  | 100% / +14,278 |   45% / −220 |  5% / −2,021 |
+| `trend-opposed` |  95% / +12,383 |  0% / −6,903 |  0% / −2,709 |
+| `regime`        |  100% / +4,610 |  0% / −5,379 |   35% / −313 |
+| `bars3@0.5R`    |    0% / −2,429 |  0% / −6,741 |    0% / −867 |
+
+**Closing a losing trade 30 or 60 minutes before the close is the one change that helps this cell on both TopStep presets**: about $1,700 of median net on 50K, $200 to $1,000 on 150K, and roughly level on Apex 50K. It is one arm of 26 in one cell of 240, picked after reading, so it is a lead for a pre-registered test rather than a finding. Every arm that can close a winner costs on both TopStep presets; the regime exit takes TopStep 50K's median from $13,378 to $4,610. On Apex 50K, the regime exit and the 10-bar not-working exit at a positive threshold raise the profitable share from 5% to 30–40%, and still lose at the median. On Apex the default excursion order decides the account, as [§M28.13](m28-13-account-read.md) found, so read those columns with that in mind.
+
 ## What this settles, and what it does not
 
 - **The conditional form of §M29's lever, as a market exit, rescues no archetype.** Closing winners early costs, as §M28.12 said it would; closing only losers, at a threshold or before the close, changes almost nothing; and the pre-registered verdict clears mostly by amounts no account would register, which the prop replay bears out.
 - **InsideBarTrailing's trend exit at 10 minutes is not a candidate.** It is one bar size of four, it costs profit factor at the one [#344] trades, and through the prop accounts it costs at both. It would also need porting: the trend label has no NinjaScript yet, so every row with it on is `TIER1_ONLY`.
-- **Not tested here**: a stop that moves — breakeven ([#351]), a trail to structure ([#352]) or a stop tightening with age or before the close; #369's second and third tiers; any stratum but the two; and the prop replay of every arm in every cell rather than the picks, which is [#398].
+- **Not tested here**: a stop that moves — breakeven ([#351]), a trail to structure ([#352]) or a stop tightening with age or before the close; #369's second and third tiers; and any stratum but the two.
+- **Through the accounts, an exit softens a losing strategy and costs a paying one** (§ "Every arm through the prop accounts"). No arm turns the registry's losing cells into paying ones. In InsideBarTrailing's midday cell, closing a loser 30 or 60 minutes before the close is the one lead, and it is unregistered.
 
 ## Re-swept after the same-side re-entry fix
 
@@ -162,6 +201,8 @@ On NQ the cell's median net is negative on every preset with the exit or without
 ## How it was read
 
 From the stored rows alone: every arm is a variant named `<base variant> exit=<arm>`, in `results/campaign/<Archetype>.duckdb`. A delta is the median, over configurations with at least 30 trades in both arms, of the treatment's profit factor minus the control's, paired with `tools/campaign_paired.py`'s functions and keyed on the base variant as `tools/campaign_hold.py` keys the hold ladder; "bound" is that tool's `bound_share` on average bars held. Gate 2 is `tools/campaign_holdout.py`'s verdict, run once per arm. **`tools/campaign_early_exit.py` reproduces the paired tables, the verdict (`--picks`) and the control's reproduction (`--reproduce`)**; the contrasts between arms, gate 1 and the counts behind the predictions were computed from the same functions by a local script. **The trade figures here are the ratio of the two arms' medians**, the tool's first form; it now pairs them configuration by configuration, so its `trades_ratio` can differ slightly from the numbers above. The prop replay is `tools/campaign_propaccount.py`'s `--rerun` path, one variant per call, driven by a local script; a row's figure is the median over the shortlist, then over base variants where an arm spans several.
+
+**The replay of every arm** is `tools/campaign_gates.py --variants early-exit --reads prop --prop-strata unfiltered phase=MIDDAY`, once per archetype and bar size, in the reads that followed the October 2026 re-sweep. Each arm's shortlist on each preset was then compared with its control's by a local script, on the shortlist's share ending in profit, its share passing at least once, its median net and its median attempts.
 
 [#344]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/344
 [#351]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/351
@@ -172,3 +213,4 @@ From the stored rows alone: every arm is a variant named `<base variant> exit=<a
 [#398]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/398
 [#401]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/401
 [#402]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/pull/402
+[#440]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/440
