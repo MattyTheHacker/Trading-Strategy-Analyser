@@ -45,7 +45,7 @@ def minute_bars(sessions_wanted: int = 3, seed: int = 11) -> pd.DataFrame:
         # 1,380 bars: the first is stamped 18:01 and the last 17:00 the next day.
         stamps.extend(open_et + pd.Timedelta(minutes=m) for m in range(1, 1381))
         open_et = open_et + pd.Timedelta(days=1)
-        while open_et.dayofweek in (4, 5):  # Friday 18:00 and Saturday 18:00 do not open
+        while open_et.day_of_week in (4, 5):  # Friday 18:00 and Saturday 18:00 do not open
             open_et = open_et + pd.Timedelta(days=1)
 
     idx = pd.DatetimeIndex(stamps).tz_convert("UTC")

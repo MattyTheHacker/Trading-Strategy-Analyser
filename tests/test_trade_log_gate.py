@@ -80,20 +80,17 @@ def test_a_one_ulp_difference_is_detected(capture: Capture) -> None:
     assert compare_trade_logs.compare(before, after, set()) == 1
 
 
-def test_the_lax_parser_really_would_have_missed_it(capture: Capture) -> None:
-    """Pins *why* the gate needs ``round_trip``, so the fix is not silently reverted.
+def test_the_default_parser_reads_a_one_ulp_edit_exactly(capture: Capture) -> None:
+    """Pins the parser the gate reads with, which has been exact only since pandas 3.1.
 
-    If pandas ever fixes its default parser this fails, and the guard above becomes
-    belt-and-braces rather than load-bearing -- which is worth being told about.
+    If it ever loses the ULP again, the gate goes blind to a one-ULP difference as it was
+    before #113.
     """
     _, after = capture
     perturbed = math.nextafter(0.5789473684210527, math.inf)
     edit_field(after / "live_mnq.csv", "r_multiple", 0, f"{perturbed:.17g}")
 
-    lax = pd.read_csv(after / "live_mnq.csv")["r_multiple"].iloc[0]
-    exact = pd.read_csv(after / "live_mnq.csv", float_precision="round_trip")["r_multiple"].iloc[0]
-    assert lax != exact, "the default parser no longer loses the ULP"
-    assert exact == perturbed
+    assert pd.read_csv(after / "live_mnq.csv")["r_multiple"].iloc[0] == perturbed
 
 
 def test_a_signed_zero_is_not_a_difference(capture: Capture) -> None:

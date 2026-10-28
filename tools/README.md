@@ -728,7 +728,7 @@ The fifth reads the registry rather than a list of names, so registering an arch
 
 **It deletes numba's `.nbi`/`.nbc` cache files before each capture.** `cache=True` does not track cross-module dependencies, so a change to `bracket.py` leaves every archetype's compiled loop holding the old inlined fill rules, and a capture over them compares new source against old machine code and passes because the change never ran. Measured on the ambiguity policy: identical source, caches deleted, different trade log.
 
-Every frame is written with `float_format="%.17g"`, which is explicit but is *not* what makes the gate exact: `compare_trade_logs.py` reading with `float_precision="round_trip"` is, and either writer is exact against that reader. 17-digit text against pandas' *default* parser is worse than the default writer -- measured in #113. An earlier claim here, "4 of 1,664 `r_multiple` values", was measuring the reader and attributing it to the writer.
+Every frame is written with `float_format="%.17g"`, which is explicit but is *not* what makes the gate exact: `compare_trade_logs.py` reading with an exact parser is, and either writer is exact against that reader. That is pandas' default parser since 3.1; before it the gate passed `float_precision="round_trip"`, because 17-digit text against the then-default parser is worse than the default writer -- measured in #113. An earlier claim here, "4 of 1,664 `r_multiple` values", was measuring the reader and attributing it to the writer.
 
 ### compare_trade_logs.py
 
@@ -738,7 +738,7 @@ Compares two captures from `capture_trade_logs.py`, and exits non-zero on any di
 uv run tools/compare_trade_logs.py before after [--added col ...]
 ```
 
-With no `--added` it demands identity, the gate for a refactor meant to preserve behaviour exactly. A file missing from `after` fails; a file only in `after`, such as a newly registered archetype's log, is listed as new and not compared. `--added` names columns the change is expected to introduce; every other column must still match exactly, dtypes included (M9 used `--added source instrument direction`). It reads with `float_precision="round_trip"`, the other half of the `%.17g` the capture writes: pandas' default CSV parser is not correctly rounded and folds adjacent float64 values together, so a bare `read_csv` cannot see a one-ULP difference however many digits were written.
+With no `--added` it demands identity, the gate for a refactor meant to preserve behaviour exactly. A file missing from `after` fails; a file only in `after`, such as a newly registered archetype's log, is listed as new and not compared. `--added` names columns the change is expected to introduce; every other column must still match exactly, dtypes included (M9 used `--added source instrument direction`). It reads with pandas' default CSV parser, which is correctly rounded since pandas 3.1. Before that it passed `float_precision="round_trip"`, because the default parser folded adjacent float64 values together and a bare `read_csv` could not see a one-ULP difference however many digits were written.
 
 ### trade_log_gate_ci.py
 

@@ -141,31 +141,45 @@ def leg_matrix(
     return trades.validate_legs(trades.LegMatrix(matrix, n))
 
 
-CANCELLING = [1e16, 1.0, 1.0, -1e16]
+CANCELLING = [1.0, 1e100, 1.0, -1e100]
 """Four leg P&Ls whose total depends on how the summation is done.
 
-Added left to right they come to 0.0, because the two ones fall off the end of a float64
-beside 1e16. A Kahan-compensated sum, which is what pandas' ``groupby`` uses, returns 2.0.
+Added left to right, or Kahan-compensated, they come to 0.0. ``np.add.reduceat``, which is what
+pandas' ``groupby`` uses on sorted keys, returns 1.0.
 """
 
 
-def test_a_running_sum_would_not_reproduce_pandas() -> None:
-    """The premise of the next test: these two summations genuinely differ."""
+def kahan_sum(values: list[float]) -> float:
+    """Return the Kahan-compensated sum, which pandas' ``groupby`` used before 3.1."""
+    total = 0.0
+    compensation = 0.0
+    for value in values:
+        y = value - compensation
+        t = total + y
+        compensation = (t - total) - y
+        total = t
+
+    return total
+
+
+def test_neither_a_running_nor_a_kahan_sum_would_reproduce_pandas() -> None:
+    """The premise of the next test: these summations genuinely differ."""
     running = 0.0
     for value in CANCELLING:
         running += value
     assert running == 0.0
-    assert pd.Series(CANCELLING).groupby([1, 1, 1, 1]).sum().iloc[0] == 2.0
+    assert kahan_sum(CANCELLING) == 0.0
+    assert pd.Series(CANCELLING).groupby([1, 1, 1, 1]).sum().iloc[0] == 1.0
 
 
-def test_the_grouped_sum_is_compensated_like_pandas() -> None:
-    """Guards the Kahan loop in ``_grouped_sum`` against being "simplified" away."""
+def test_the_grouped_sum_is_summed_as_pandas_sums_it() -> None:
+    """Guards ``_grouped_sum`` against being swapped for another summation."""
     legs = leg_matrix([1, 1, 1, 1], CANCELLING)
     index = minute_index(legs.count)
-    assert stats.summarise_legs(legs, context.day_codes(index)).net_pnl == 2.0
+    assert stats.summarise_legs(legs, context.day_codes(index)).net_pnl == 1.0
 
     frame = trades.trades_to_frame(legs.matrix, legs.count, index, instrument="NQ")
-    assert stats.summarise(frame).net_pnl == 2.0
+    assert stats.summarise(frame).net_pnl == 1.0
 
 
 def test_legs_written_out_of_trade_order_are_refused() -> None:

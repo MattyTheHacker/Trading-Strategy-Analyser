@@ -74,7 +74,7 @@ def test_session_edges_mark_first_and_last_in_session_bars_only() -> None:
         ),
     )
     # classify sorts nothing; the caller supplies ascending order, so re-sort here.
-    order = np.argsort(info.eastern.values)
+    order = np.argsort(info.eastern.tz_convert(None).to_numpy())
     in_session = info.in_session[order]
     is_open = info.is_session_open[order]
     is_close = info.is_session_close[order]

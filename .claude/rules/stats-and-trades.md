@@ -29,9 +29,10 @@ paths:
   are obtained — which is what reduces "do they agree?" to "do they group the legs the same
   way?". **Do not re-inline it into either caller.** `docs/roadmap.md` § "The numpy-native
   summary path".
-- **Pandas' `groupby.sum` is Kahan-compensated**, and `_grouped_sum` carries the same
-  compensation term for that reason alone. A plain running sum disagrees with pandas in the
-  last bit on real trades; `np.add.reduceat` disagrees more often.
+- **`_grouped_sum` sums exactly as pandas' `groupby.sum` does, which since pandas 3.1 is
+  `np.add.reduceat`** on sorted, NaN-free keys — every leg matrix. Up to 3.0 pandas was
+  Kahan-compensated and `_grouped_sum` carried the term; a plain running sum or a Kahan sum now
+  disagrees with pandas in the last bit on real trades. Re-check this on every pandas bump.
 - **`Dataset.day_codes` is local, not UTC.** `summarise` groups daily P&L by
   `DatetimeIndex.date`, which is the index's timezone — a UTC-only version passes every test on
   the UTC archive and is an hour out on a `Europe/London` index.

@@ -26,12 +26,14 @@ on that are easy to undo:
   different trade log. `tools/capture_trade_logs.py` purges `*.nbi`/`*.nbc` before each capture
   — **do not remove that purge to make a capture faster.** It disables the gate on exactly the
   file the gate exists to protect. `docs/roadmap.md` §M28.4.
-- **`float_precision="round_trip"` on the read side is what makes the gate correct** — with it,
-  either writer is exact. The `%.17g` on the write side fixes nothing on its own and, paired
-  with a default parser, makes matters worse, because 17-digit text is what a lax parser
-  mis-rounds. `float_precision="high"` fails the same way. Until #113 the gate read with a bare
-  `read_csv`, so a one-ULP difference was invisible to it; `tests/test_trade_log_gate.py` pins
-  that it cannot regress.
+- **An exact parser on the read side is what makes the gate correct** — with one, either writer
+  is exact. Since pandas 3.1 the default `read_csv` parser is exact and `float_precision` is
+  deprecated, so the gate reads with the default; before that it needed
+  `float_precision="round_trip"`. The `%.17g` on the write side fixes nothing on its own and,
+  paired with a lax parser, makes matters worse, because 17-digit text is what a lax parser
+  mis-rounds. Until #113 the gate read with pandas' then-lax default, so a one-ULP difference was
+  invisible to it; `tests/test_trade_log_gate.py` pins that the default parser keeps a one-ULP
+  edit and that the gate reports it.
 - **Verifying the gate can still fail is part of using it, and a pandas round-trip is the wrong
   way to do it** — perturbing a value via `read_csv`/`to_csv` trips a *collateral* difference
   and reports a column you did not touch, which reads like success. **Perturb the CSV text

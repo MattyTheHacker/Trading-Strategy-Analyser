@@ -84,8 +84,8 @@ def read_run(events_path: Path) -> Run:
     if config_path.exists():
         config = pd.read_csv(config_path, sep=";")
 
-    events = pd.read_csv(events_path, sep=";", float_precision="round_trip", low_memory=False)
-    bars = pd.read_csv(bars_path, sep=";", float_precision="round_trip").set_index("bar")
+    events = pd.read_csv(events_path, sep=";", low_memory=False)
+    bars = pd.read_csv(bars_path, sep=";").set_index("bar")
 
     return Run(stem=name[: -len("_events.csv")], events=events, bars=bars, config=config)
 

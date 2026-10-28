@@ -41,8 +41,8 @@ def compare(before: Path, after: Path, added: set[str]) -> int:
         logger.info(" new %s: absent from %s, so not compared", name, before)
 
     for name in (n for n in names if n not in missing):
-        old = pd.read_csv(before / name, float_precision="round_trip")
-        new = pd.read_csv(after / name, float_precision="round_trip")
+        old = pd.read_csv(before / name)
+        new = pd.read_csv(after / name)
 
         unexpected = [c for c in new.columns if c not in old.columns and c not in added]
         if unexpected:

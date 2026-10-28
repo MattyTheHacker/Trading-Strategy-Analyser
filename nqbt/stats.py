@@ -335,28 +335,13 @@ def _run_starts(keys: FloatArray | IndexArray) -> IntArray:
     return starts[: groups + 1]
 
 
-@njit(cache=True)
 def _grouped_sum(values: FloatArray, starts: IntArray) -> FloatArray:
-    """Sum each group with Kahan compensation -- which is what pandas' ``groupby`` does.
+    """Sum each group with ``np.add.reduceat`` -- which is what pandas' ``groupby`` does here.
 
-    The compensation is load-bearing, not decoration -- ``docs/roadmap.md`` §"The numpy-native
-    summary path". Nulls are skipped for the same reason: ``groupby.sum`` defaults to
-    ``skipna=True``.
+    The choice of summation is load-bearing, not decoration -- ``docs/roadmap.md`` §"The
+    numpy-native summary path".
     """
-    out = np.empty(starts.size - 1, np.float64)
-    for g in range(starts.size - 1):
-        total = 0.0
-        compensation = 0.0
-        for i in range(starts[g], starts[g + 1]):
-            value = values[i]
-            if value == value:  # noqa: PLR0124 - NaN is the only value unequal to itself
-                y = value - compensation
-                t = total + y
-                compensation = (t - total) - y
-                total = t
-        out[g] = total
-
-    return out
+    return np.add.reduceat(values, starts[:-1])
 
 
 @njit(cache=True)
