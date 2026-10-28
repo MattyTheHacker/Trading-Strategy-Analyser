@@ -112,12 +112,12 @@ def _migrate_axis_columns(con: duckdb.DuckDBPyConnection) -> None:
 
 def _count(con: duckdb.DuckDBPyConnection, sql: str, parameters: Sequence[object] = ()) -> int:
     """Fetch the single number an aggregate query returns."""
-    row = con.execute(sql, list(parameters)).fetchone()
-    if row is None:  # pragma: no cover - an aggregate always returns exactly one row
+    rows = con.execute(sql, list(parameters)).fetchall()
+    if not rows:  # pragma: no cover - an aggregate always returns exactly one row
         msg: str = f"no row from {sql!r}"
         raise RuntimeError(msg)
 
-    return int(row[0])
+    return int(rows[0][0])
 
 
 def _table_exists(con: duckdb.DuckDBPyConnection, table: str) -> bool:
