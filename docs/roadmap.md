@@ -782,6 +782,10 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 **Copying one strategy's trades onto up to twenty accounts multiplies what one account makes and does not spread its risk: on InsideBarTrailing's midday cell every account in a book of twenty breaches on the same day in 96% of replays, with openings five trading days apart, and a book makes nothing pay that one account does not.** Moved to [`docs/findings/m62-prop-account-book.md`](findings/m62-prop-account-book.md).
 
+### M63 — EmaPullback's one-bar confirmation entry through gate 4 ([#311])
+
+**Pre-registered before its outputs were opened, and it fails gate 4 at every bar size: no shortlisted configuration survives without its session-close legs, the bootstrap fails in every cell, and the walk-forward fails on at least one root at 10 and 15 minutes, where it cleared §M39's paired bar; its shortlists beat the market entry's, which fail too.** Moved to [`docs/findings/m63-ema-pullback-confirmation-gate-4-result.md`](findings/m63-ema-pullback-confirmation-gate-4-result.md), pre-registered in [`docs/findings/m63-ema-pullback-confirmation-gate-4-preregistration.md`](findings/m63-ema-pullback-confirmation-gate-4-preregistration.md).
+
 ### Do the shortlists travel? ([#330])
 
 **Most of what a shortlist loses is selection rather than instrument — the drop from selection window to own holdout is two to five times the further drop to a market never seen — and the two inside-bar archetypes travel with almost no additional cost, while nothing clears a profit factor of 1.1 anywhere.** Moved to [`docs/findings/cross-root-transfer.md`](findings/cross-root-transfer.md).
