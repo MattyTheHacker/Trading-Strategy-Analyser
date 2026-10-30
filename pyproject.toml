@@ -28,12 +28,12 @@ dev = [
     "pytest==9.1.1",
     "pytest-cov==7.1.0",
     "TA-Lib==0.8.1",
-    "ruff==0.17.2",
+    "ruff==0.17.3",
     "mypy==2.4.0",
     "pandas-stubs==3.0.5.260914",
     "pymarkdownlnt==0.9.41",
     "mdformat-gfm==1.0.0",
-    "mdformat-frontmatter==2.1.2",
+    "mdformat-frontmatter==2.2.0",
     "libcst==1.9.0",
 ]
 
