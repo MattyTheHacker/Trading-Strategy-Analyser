@@ -6,14 +6,14 @@ issues: [439]
 gates: [1, 2, 3]
 outcome: negative
 verdict: >-
-  Pre-registered and run on the October 2026 re-sweep at 2 to 15 minutes, with 1 minute still to run: the noise-area rule passes gate 2 unfiltered on both roots and in 11 of 18 strata, against a prediction that it would fail, and then clears gate 3 in no cell, at a smallest family-wise p of 0.115 over 216 tests; no arm clears §M37's paired bar against it — the fade costs in every cell, deciding on every bar costs on the selection window at every size, and dropping the trail raises the median profit factor in all 16 root, size and window cells but reaches the sign test on NQ's selection window at none.
+  Pre-registered and run on the October 2026 re-sweep at 2 to 15 minutes, with 1 minute read afterwards and changing no verdict: the noise-area rule passes gate 2 unfiltered on both roots and in 11 of 18 strata, against a prediction that it would fail, and then clears gate 3 in no cell, at a smallest family-wise p of 0.115 over 216 tests; no arm clears §M37's paired bar against it — the fade costs in every cell, deciding on every bar costs on the selection window at every size, and dropping the trail raises the median profit factor in all 16 root, size and window cells but reaches the sign test on NQ's selection window at none.
 ---
 
 # M57 — the noise-area rule clears gate 2 on both roots and not gate 3, and no arm clears the paired bar against it, though dropping its trail raises profit factor in every cell ([#439])
 
 Pre-registered in [`m57-noise-area-preregistration.md`](m57-noise-area-preregistration.md) before the sweep started, and read here by that file's own rules, on the rows of the October 2026 re-sweep. It is the noise-area break, Zarattini, Aziz and Barbon's intraday momentum rule, which [§M28](m28-opening-range-spec.md) listed and [§M28.2](m28-2-deferral-list.md) deferred, run as a band source on ElasticBand.
 
-**One minute is not read yet.** The pre-registration names 1, 2, 5, 10 and 15 minutes, and the re-sweep's 1-minute pass has not reached this set. Everything below is the four larger bar sizes, so the paired read's family is 12 cells rather than 15. Gates 2 and 3 were also read at 2 to 15 minutes; one minute's rows could change which strata clear gate 2, and so gate 3's family.
+**One minute was read last, once the re-sweep's 1-minute pass finished.** Everything below is the four larger bar sizes, a family of 12 cells, and § "One minute" completes it to 15. Gates 2 and 3 here are at 2 to 15 minutes; one minute's rows do change which strata clear gate 2.
 
 ## In plain terms
 
@@ -32,7 +32,7 @@ Of the three changes tried, betting the other way loses everywhere, and checking
 | **Arms**        | `noise=rule target=runner`, the rule; `noise=every-bar`, decided on every bar; `noise=no-trail`, without the trail; `noise=fade`, faded |
 | **Grid**        | `entry_std` 1.0, 1.5 and 2.0 × `exit_at_cash_close` off and on × the account stop and the ATR stop, 12 combinations in every arm        |
 | **Strata**      | all 23, one context dimension at a time; 18 hold rows                                                                                   |
-| **Resolutions** | 2, 5, 10 and 15 minutes; 1 minute not yet run                                                                                           |
+| **Resolutions** | 2, 5, 10 and 15 minutes; 1 minute in § "One minute"                                                                                     |
 | **Roots**       | MNQ and NQ                                                                                                                              |
 | **Costs**       | $1.50 per contract round trip on MNQ, $4.50 on NQ, plus one tick of slippage                                                            |
 | **Windows**     | selection 2020-10-25 to 2024-05-13 on MNQ (2024-05-10 on NQ), holdout from there to 2026-09-18                                          |
@@ -101,11 +101,29 @@ Of the three changes tried, betting the other way loses everywhere, and checking
 
 **It leaves the trail open.** Holding to the close without the trail beats the trail in every cell, and returns its drawdown held out where the rule does not, but it misses the pre-registered bar. Gate 3 was pre-registered on the rule alone, so it has not been run on the no-trail arm.
 
-**One minute is owed**, and with it the fourth prediction and the rest of the family of 15.
+## One minute
+
+Read on 2026-11-01 by the same rules, on the rows of the re-sweep's fourth part, 12 pairs per cell.
+
+**No arm clears, so none of 15.** Unfiltered, median paired delta against the rule:
+
+| arm       | selection, MNQ / NQ | holdout, MNQ / NQ |
+| --------- | ------------------- | ----------------- |
+| every bar | −0.275 / −0.227     | −0.032 / −0.064   |
+| no trail  | +0.094 / +0.095     | +0.029 / +0.011   |
+| the fade  | −0.617 / −0.620     | −0.255 / −0.314   |
+
+**Dropping the trail is again the closest.** Its delta is positive in all four cells, so in all 20 at every size, and it fails on the holdout here, improving 8 and 6 of 12 pairs. The fade again loses every pair.
+
+**The rule's median configuration** is 1.335 and 1.361 on the selection window and 1.032 and 1.094 held out.
+
+**Gate 2 with 1 minute in the pool** still passes on both roots unfiltered, at 1.09 and 1.18 with net-to-drawdown 0.27 and 0.69, and without the trail at 1.20 and 1.25 with 1.59 and 2.20. It still clears 11 of 18 strata, **though not the same 11**: `compression=COMPRESSED` and `compression=NORMAL` join and `regime=DIRECTIONAL` and `trend=DOWN` leave. Gate 3 is pre-registered at 5 minutes, so its figures above stand, on the family as it was at 2 to 15 minutes.
+
+**The prediction.** "The rule's unfiltered median profit factor under the account stop moves by less than 0.02 between 1 and 15 minutes on each root." **Wrong by 0.001, on NQ's selection window alone.** It moves by 0.012 and 0.013 on MNQ's two windows, and by 0.005 held out and 0.021 on the selection window on NQ. The 1-minute bars moved neither end of that range. Its held-out trades are 353 to 357 at every size.
 
 ## How it was read
 
-- **Sweep.** `campaign_sweep.py --strategies ElasticBand --variants elastic-noise --split --strata elastic-noise`, at 2, 5, 10 and 15 minutes in the re-sweep; 1 minute is in its fourth part.
+- **Sweep.** `campaign_sweep.py --strategies ElasticBand --variants elastic-noise --split --strata elastic-noise`, at 2, 5, 10 and 15 minutes in the re-sweep and 1 minute in its fourth part.
 - **Paired read.** `campaign_paired`'s `paired` and `verdict` on profit factor, each arm against the rule, unfiltered and in each stratum, each window on its own; the same pairing on trades, win rate, average bars held, `session_close_share` and mean R beside it.
 - **Gates 1 and 2.** The share of each arm's configurations above a profit factor of 1.0, and `campaign_holdout`'s `pair_windows` and `verdict` run once per arm.
 - **Gate 3.** `campaign_null.py --strategy ElasticBand --variant 'noise=rule target=runner' --stratum <the 11> --root MNQ NQ --window selection --test-window holdout --resolution 5 --top 10 --iterations 400`, then `campaign_null.py --family-of` over its table.
