@@ -70,7 +70,7 @@ from tools.campaign_holdout import held_out
 from tools.campaign_null import stored_rows
 from tools.campaign_propaccount import CONTRACTS, lifetime_figures, uncapped
 from tools.campaign_report import log_key
-from tools.campaign_shortlist import TOP, rebuild
+from tools.campaign_shortlist import TOP, rebuild, rerun_group, verify
 from tools.campaign_sweep import (
     RESOLUTIONS,
     ROOTS,
@@ -738,13 +738,22 @@ def null_for_shortlist(
     seed: int,
     archetype: archetypes.Archetype = archetypes.INSIDEBARTRAILING,
 ) -> pd.DataFrame:
-    """Test every shortlisted sizing arm's configuration against its shuffled sizes, held out."""
+    """Test every shortlisted sizing arm's configuration against its shuffled sizes, held out.
+
+    A row missing its stored figures on the bars it was swept on is refused before its block draws.
+    """
     stored: pd.DataFrame = stored_rows(archetype.name, root, HELD_OUT)
     candidates: tuple[pd.DataFrame, ...] = candidate_bars(stored, splice.load_continuous(root))
     measured: list[dict[str, object]] = []
     for minutes, block in rows.groupby("resolution", sort=False):
         bar_minutes: int = int(minutes)  # type: ignore[arg-type]  # a groupby key on an int column
         frame, swept = bars_for(candidates, stored, block, bar_minutes)
+        if swept:
+            for row, summary, _ in rerun_group(
+                block, frame, archetype, root, bar_minutes, context.PriceBasis.RAW
+            ):
+                verify(row, summary)
+
         for _, row in block.iterrows():
             params: ArchetypeParams = rebuild(row, archetype)
             data: context.Dataset = context.prepare(
