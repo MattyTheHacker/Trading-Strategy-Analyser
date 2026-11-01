@@ -115,7 +115,17 @@ Read on 2026-11-01 by the same rules, on the rows of the re-sweep's fourth part,
 
 **The prediction is right.** Every arm's median configuration loses on both roots in both windows: the fades at 0.791 to 0.958, and the inversions at 0.898 to 0.986.
 
-**Gate 2 with 1 minute in the pool** still passes every fade and fails every inversion unfiltered on both roots. **The strata change**: the inversion on R no longer clears `trend=MIXED`, and the 2σ ladder adds `phase=MIDDAY`, so the family gate 3 was run on is not quite the one a 1-to-15 read would pick. The 1σ ladder's is unchanged. Gate 3 above is on 2 to 15 minutes, as it says, and was not re-run.
+**Gate 2 with 1 minute in the pool** still passes every fade and fails every inversion unfiltered on both roots. **The strata change**: the inversion on R no longer clears `trend=MIXED`, and the 2σ ladder adds `phase=MIDDAY`, so the family gate 3 was first run on is not quite the one a 1-to-15 read picks. The 1σ ladder's is unchanged.
+
+**Gate 3 on that family still clears nothing**: 50 tests, 400 draws, none refused, with the shortlists ranked over 1 to 15 minutes. The R arm has no stratum left to test.
+
+| arm                     | strata                        | tests | family-wise p | below p = 0.05 |
+| ----------------------- | ----------------------------- | ----: | ------------: | -------------: |
+| +1σ                     | `trend=MIXED`                 |    10 |         0.137 |              1 |
+| +2σ                     | `trend=MIXED`, `phase=MIDDAY` |    20 |         0.840 |              0 |
+| the fade on the midline | `trend=MIXED`, `phase=MIDDAY` |    20 |         0.623 |              0 |
+
+The 1σ ladder's result is the one above, the same configuration on NQ at 5 minutes on 69 trades. Only two of the 50 shortlisted rows are at 1 minute.
 
 ## How it was read
 

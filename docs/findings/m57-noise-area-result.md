@@ -6,7 +6,7 @@ issues: [439]
 gates: [1, 2, 3]
 outcome: negative
 verdict: >-
-  Pre-registered and run on the October 2026 re-sweep at 2 to 15 minutes, with 1 minute read afterwards and changing no verdict: the noise-area rule passes gate 2 unfiltered on both roots and in 11 of 18 strata, against a prediction that it would fail, and then clears gate 3 in no cell, at a smallest family-wise p of 0.115 over 216 tests; no arm clears §M37's paired bar against it — the fade costs in every cell, deciding on every bar costs on the selection window at every size, and dropping the trail raises the median profit factor in all 16 root, size and window cells but reaches the sign test on NQ's selection window at none.
+  Pre-registered and run on the October 2026 re-sweep at 2 to 15 minutes, with 1 minute read afterwards and changing no verdict: the noise-area rule passes gate 2 unfiltered on both roots and in 11 of 18 strata, against a prediction that it would fail, and then clears gate 3 in no cell, at a smallest family-wise p of 0.115 over 216 tests, and 0.137 over the 204 of the family 1 minute picks; no arm clears §M37's paired bar against it — the fade costs in every cell, deciding on every bar costs on the selection window at every size, and dropping the trail raises the median profit factor in all 16 root, size and window cells but reaches the sign test on NQ's selection window at none.
 ---
 
 # M57 — the noise-area rule clears gate 2 on both roots and not gate 3, and no arm clears the paired bar against it, though dropping its trail raises profit factor in every cell ([#439])
@@ -117,7 +117,13 @@ Read on 2026-11-01 by the same rules, on the rows of the re-sweep's fourth part,
 
 **The rule's median configuration** is 1.335 and 1.361 on the selection window and 1.032 and 1.094 held out.
 
-**Gate 2 with 1 minute in the pool** still passes on both roots unfiltered, at 1.09 and 1.18 with net-to-drawdown 0.27 and 0.69, and without the trail at 1.20 and 1.25 with 1.59 and 2.20. It still clears 11 of 18 strata, **though not the same 11**: `compression=COMPRESSED` and `compression=NORMAL` join and `regime=DIRECTIONAL` and `trend=DOWN` leave. Gate 3 is pre-registered at 5 minutes, so its figures above stand, on the family as it was at 2 to 15 minutes.
+**Gate 2 with 1 minute in the pool** still passes on both roots unfiltered, at 1.09 and 1.18 with net-to-drawdown 0.27 and 0.69, and without the trail at 1.20 and 1.25 with 1.59 and 2.20. It still clears 11 of 18 strata, **though not the same 11**: `compression=COMPRESSED` and `compression=NORMAL` join and `regime=DIRECTIONAL` and `trend=DOWN` leave.
+
+**Gate 3 on that family still clears nothing.** Gate 3 itself stays at 5 minutes as pre-registered, so 176 of its tests are the ones above and the two new strata add 28: 204 tests, none refused. **A cell needs a family-wise p below 0.05 on both roots, and the smallest is 0.137**, on MNQ, with `htf=ABOVE` and `compression=NORMAL` level there.
+
+**`compression=NORMAL` is the one to note, and it is a read rather than a pass.** It has the strongest shortlist of the family: a median held-out profit factor of 1.47 and 1.46, a net-to-drawdown of 3.35 and 3.20, and 5 of 10 tests below p = 0.05 on each root, on 66 to 239 trades. Its family-wise p is 0.137 and 0.165. It entered the family only because 1 minute moved gate 2, and the 28 new tests read alone reach 0.030, which is not the family the pre-registration names. `compression=COMPRESSED` holds four configurations per root and all lose, at 0.82 and 0.80.
+
+**One test at a time**, 38 of the 204 are below p = 0.05 and 167 are profitable held out. So the first prediction, that the rule clears gate 3 in no stratum, is right on both families.
 
 **The prediction.** "The rule's unfiltered median profit factor under the account stop moves by less than 0.02 between 1 and 15 minutes on each root." **Wrong by 0.001, on NQ's selection window alone.** It moves by 0.012 and 0.013 on MNQ's two windows, and by 0.005 held out and 0.021 on the selection window on NQ. The 1-minute bars moved neither end of that range. Its held-out trades are 353 to 357 at every size.
 
