@@ -792,6 +792,10 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 **Read from stored outputs, with no new run: no exit clears either midday cell at 5 minutes under its own bar, the late-day exits gain held out and lose on the selection window, and #344's Phase 2 is a negative result; the confluence size clears its account null on TopStep, still loses money on Apex and passes no more on NQ.** Moved to [`docs/findings/m64-phase-2-midday-reread.md`](findings/m64-phase-2-midday-reread.md).
 
+### M65 — OpeningRange's 1-minute campaigns on the October 2026 re-sweep ([#439])
+
+**The four campaigns §M61 left waiting for 1-minute bars: 2022 to 2025 reproduce to the dollar, 2026 is now a small loss on both roots and no follow-through arm restores it, the break in gate 3 between 30 and 45 minutes holds and the wider stop still fails 2022; the entry's excess over a permuted range now peaks at a stop of 1.5 to 2 range widths rather than 1, and a target-only arm now returns its drawdown**: [`docs/findings/m65-openingrange-one-minute.md`](findings/m65-openingrange-one-minute.md).
+
 ### Do the shortlists travel? ([#330])
 
 **Most of what a shortlist loses is selection rather than instrument — the drop from selection window to own holdout is two to five times the further drop to a market never seen — and the two inside-bar archetypes travel with almost no additional cost, while nothing clears a profit factor of 1.1 anywhere.** Moved to [`docs/findings/cross-root-transfer.md`](findings/cross-root-transfer.md).

@@ -1,37 +1,37 @@
 ---
 id: M26.7
-title: "M26.7 — ElasticBand's signal inverted wins the selection window and loses the holdout against the fade, at every bar size, and fails gate 2"
+title: "M26.7 — ElasticBand's signal inverted wins the selection window and loses the holdout against the fade, at 2 to 15 minutes, and fails gate 2"
 archetypes: [ElasticBand]
 issues: [279, 439]
 gates: [1, 2, 3]
 outcome: negative
 verdict: >-
-  Pre-registered and run on the October 2026 re-sweep at 2 to 15 minutes, with 1 minute still to run: paired on the same signal bars, every inverted arm beats its fade twin on the selection window and loses to it held out, at every bar size on both roots, so no pair clears §M37's bar; held out the inversion wins less often than the fade on R in all eight cells, against a prediction that it would win more; it fails gate 2 unfiltered on both roots and clears it in one stratum per arm against the fades' 14 and 15, and gate 3 finds nothing on both roots.
+  Pre-registered and run on the October 2026 re-sweep at 2 to 15 minutes, with 1 minute read afterwards: paired on the same signal bars, every inverted arm beats its fade twin on the selection window and loses to it held out, at each of those sizes on both roots, so no pair clears §M37's bar, and at 1 minute it no longer loses held out and still clears nothing; held out the inversion wins less often than the fade on R in all eight cells, against a prediction that it would win more; it fails gate 2 unfiltered on both roots and clears it in one stratum per arm against the fades' 14 and 15, and gate 3 finds nothing on both roots.
 ---
 
-# M26.7 — ElasticBand's signal inverted wins the selection window and loses the holdout against the fade, at every bar size, and fails gate 2 ([#279])
+# M26.7 — ElasticBand's signal inverted wins the selection window and loses the holdout against the fade, at 2 to 15 minutes, and fails gate 2 ([#279])
 
 Pre-registered in [`m26-7-inverted-signal-preregistration.md`](m26-7-inverted-signal-preregistration.md) before the sweep started, and read here by that file's own rules, on the rows of the October 2026 re-sweep. [#279] asked whether ElasticBand's fade "may be more valuable inverted": the same signal bars, traded with the move rather than against it.
 
-**One minute is not read yet.** The pre-registration names 1, 2, 5, 10 and 15 minutes, and the re-sweep's 1-minute pass has not reached this set. Everything below is the four larger bar sizes, so the paired read's family is 12 cells rather than 15, and gates 2 and 3 were read at 2 to 15 minutes.
+**One minute was read last, once the re-sweep's 1-minute pass finished.** Everything below is the four larger bar sizes, a family of 12 cells. § "One minute" completes it to 15, and one claim changes there. Gates 2 and 3 here are at 2 to 15 minutes.
 
 ## In plain terms
 
 ElasticBand bets that a stretched price snaps back toward its average. This run took exactly the same moments and bet the other way: that the stretch carries on.
 
-**On the earlier data, betting the other way looks better at every chart size. On the later data, it is worse at every one.** A change whose effect flips with the period it is measured on is not one to trade. On the later data the original snap-back bet is the one that holds up: its best settings stay profitable, and the reversed version's do not.
+**On the earlier data, betting the other way looks better at every chart size. On the later data, it is worse at every one from 2 minutes up.** A change whose effect flips with the period it is measured on is not one to trade. On the later data the original snap-back bet is the one that holds up: its best settings stay profitable, and the reversed version's do not.
 
 ## What was run
 
-|                 |                                                                                                                         |
-| --------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| **Arms**        | the fade on R and on its midline ladder, and the inverted signal on R and on stretch ladders 1σ and 2σ past the close   |
-| **Grid**        | §M26.5's VWAP channel; `entry_std` × `min_bars_outside` × `stop_mode` × `max_hold_bars`, 36 combinations in every arm   |
-| **Strata**      | all 23, one context dimension at a time; 22 hold rows                                                                   |
-| **Resolutions** | 2, 5, 10 and 15 minutes; 1 minute not yet run; 30 minutes was swept since and is shown beside them, outside the verdict |
-| **Roots**       | MNQ and NQ                                                                                                              |
-| **Costs**       | $1.50 per contract round trip on MNQ, $4.50 on NQ, plus one tick of slippage                                            |
-| **Windows**     | selection 2020-10-25 to 2024-05-13 on MNQ (2024-05-10 on NQ), holdout from there to 2026-09-18                          |
+|                 |                                                                                                                               |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| **Arms**        | the fade on R and on its midline ladder, and the inverted signal on R and on stretch ladders 1σ and 2σ past the close         |
+| **Grid**        | §M26.5's VWAP channel; `entry_std` × `min_bars_outside` × `stop_mode` × `max_hold_bars`, 36 combinations in every arm         |
+| **Strata**      | all 23, one context dimension at a time; 22 hold rows                                                                         |
+| **Resolutions** | 2, 5, 10 and 15 minutes; 1 minute in § "One minute"; 30 minutes was swept since and is shown beside them, outside the verdict |
+| **Roots**       | MNQ and NQ                                                                                                                    |
+| **Costs**       | $1.50 per contract round trip on MNQ, $4.50 on NQ, plus one tick of slippage                                                  |
+| **Windows**     | selection 2020-10-25 to 2024-05-13 on MNQ (2024-05-10 on NQ), holdout from there to 2026-09-18                                |
 
 `htf=AT`, the close exactly on the 60-minute average, holds no rows. As pre-registered there is no reproduction step: the fade arms are the control, run in the same pass.
 
@@ -91,7 +91,7 @@ ElasticBand bets that a stretched price snaps back toward its average. This run 
 - **"The inverted signal wins more often than the fade: its win rate is above its R twin's in a majority of the ten unfiltered held-out root × resolution cells." Wrong.** It is below in all eight read so far, so one minute cannot make it a majority. On the selection window it is above in all eight.
 - **"It does not clear the bar in (2) for any pair at any resolution." Right**, at the four sizes read.
 - **"Fewer strata clear gate 2 on both roots under each inverted arm than under its fade twin." Right**: one against 15 on R, and one against 14 for both ladders.
-- **"At one minute every arm's median configuration loses on both roots."** Not yet read.
+- **"At one minute every arm's median configuration loses on both roots." Right**: § "One minute".
 
 ## What this settles, and what it does not
 
@@ -99,7 +99,33 @@ ElasticBand bets that a stretched price snaps back toward its average. This run 
 
 **It does not make the fade a candidate.** The fade's gains are held out and its losses on the selection window, so this run measures a period effect on both sides of the same bars, not an edge on either. The fade's own gates belong to §M26.5 and the re-sweep, not to this file.
 
-**One minute is owed**, and with it the fourth prediction and the rest of the family of 15.
+## One minute
+
+Read on 2026-11-01 by the same rules, on the rows of the re-sweep's fourth part, 36 pairs per cell.
+
+**No pair clears, so none of 15. The sign no longer follows the window here.** Median paired delta, unfiltered:
+
+| inverted arm, against | selection, MNQ / NQ | holdout, MNQ / NQ |
+| --------------------- | ------------------- | ----------------- |
+| R, the fade on R      | +0.133 / +0.165     | +0.067 / +0.046   |
+| +1σ, the midline      | +0.070 / +0.109     | +0.010 / +0.002   |
+| +2σ, the midline      | +0.085 / +0.139     | +0.011 / −0.003   |
+
+**At 2 to 15 minutes every held-out delta is negative. At 1 minute five of six are positive**, because the fade itself loses at this size. R comes closest to clearing, and its held-out sign test on NQ reaches only p = 0.065. It is a smaller version of the same period effect, at a size where neither side makes money.
+
+**The prediction is right.** Every arm's median configuration loses on both roots in both windows: the fades at 0.791 to 0.958, and the inversions at 0.898 to 0.986.
+
+**Gate 2 with 1 minute in the pool** still passes every fade and fails every inversion unfiltered on both roots. **The strata change**: the inversion on R no longer clears `trend=MIXED`, and the 2σ ladder adds `phase=MIDDAY`, so the family gate 3 was first run on is not quite the one a 1-to-15 read picks. The 1σ ladder's is unchanged.
+
+**Gate 3 on that family still clears nothing**: 50 tests, 400 draws, none refused, with the shortlists ranked over 1 to 15 minutes. The R arm has no stratum left to test.
+
+| arm                     | strata                        | tests | family-wise p | below p = 0.05 |
+| ----------------------- | ----------------------------- | ----: | ------------: | -------------: |
+| +1σ                     | `trend=MIXED`                 |    10 |         0.137 |              1 |
+| +2σ                     | `trend=MIXED`, `phase=MIDDAY` |    20 |         0.840 |              0 |
+| the fade on the midline | `trend=MIXED`, `phase=MIDDAY` |    20 |         0.623 |              0 |
+
+The 1σ ladder's result is the one above, the same configuration on NQ at 5 minutes on 69 trades. Only two of the 50 shortlisted rows are at 1 minute.
 
 ## How it was read
 

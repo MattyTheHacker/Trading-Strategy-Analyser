@@ -6,14 +6,14 @@ issues: [74, 439]
 gates: [1, 2, 3]
 outcome: mixed
 verdict: >-
-  Pre-registered and run on the October 2026 re-sweep at 2 to 15 minutes, with 1 minute still to run: 14 of 64 arm, stop and bar-size cells clear §M37's paired bar against the ungated control, against a prediction of none — the phase gate at all four sizes under the swing stop and at 2 and 5 under the ATR stop, by +0.04 to +0.17 of held-out profit factor — but none clears gate 3 family-wise, at a smallest p of 0.41 over 140 tests, and three clearing cells still lose held out; the gates make EmaCrossover better than itself without making it better than a random entry.
+  Pre-registered and run on the October 2026 re-sweep, with 1 minute read afterwards: 18 of the 80 arm, stop and bar-size cells clear §M37's paired bar against the ungated control, against a prediction of none — the phase gate at all five sizes under the swing stop and at 1, 2 and 5 under the ATR stop, by +0.03 to +0.17 of held-out profit factor — but none clears gate 3 family-wise, at a smallest p of 0.46 over 180 tests, and six clearing cells still lose held out; the gates make EmaCrossover better than itself without making it better than a random entry.
 ---
 
 # M55 — EmaCrossover's side-relative confluence count: the phase gate clears the paired bar at every bar size on the swing stop, and nothing clears gate 3 ([#439])
 
 Pre-registered in [`m55-side-count-preregistration.md`](m55-side-count-preregistration.md) before the sweep started, and read here by that file's own rules, on the rows of the October 2026 re-sweep. It is the third of the loose ends [`build-spec-loose-ends-measured.md`](build-spec-loose-ends-measured.md) left: the confluence count over filters that point the trade's way, where [the first count](confluence-count-per-trade.md) ([#74]) used filters that did not.
 
-**One minute is not read yet.** The pre-registration names 1, 2, 5, 10 and 15 minutes, and the re-sweep's 1-minute pass has not reached this set. Everything below is the four larger bar sizes, so the paired read's family is 64 cells rather than 80; one minute will be read when its rows exist.
+**One minute was read last, once the re-sweep's 1-minute pass finished.** Everything below is the four larger bar sizes, a family of 64 cells, and § "One minute" completes it to 80.
 
 ## In plain terms
 
@@ -30,7 +30,7 @@ EmaCrossover buys when a fast average crosses above a slow one. This run asked w
 | **Arms**        | 9 per stop: `gates=none`, each of `phase`, `trend`, `htf` and `vwap` alone, and at least one, two, three or all four of them |
 | **Stops**       | `stop=atr` and `stop=swing`, 32 combinations in every arm                                                                    |
 | **Stratum**     | unfiltered alone                                                                                                             |
-| **Resolutions** | 2, 5, 10 and 15 minutes; 1 minute not yet run                                                                                |
+| **Resolutions** | 2, 5, 10 and 15 minutes; 1 minute in § "One minute"                                                                          |
 | **Roots**       | MNQ and NQ                                                                                                                   |
 | **Costs**       | $1.50 per contract round trip on MNQ, $4.50 on NQ, plus one tick of slippage                                                 |
 | **Windows**     | selection 2020-10-25 to 2024-05-13 on MNQ (2024-05-10 on NQ), holdout from there to 2026-09-18                               |
@@ -86,11 +86,38 @@ Every cell pairs all 32 combinations in both windows, so no pair count is short.
 
 **It does not make EmaCrossover a candidate.** Gate 3 finds no gated arm beating a random entry under the same gate. And the phase gate sends more of its trades to the forced flat, the dependence gate 4's exclusion read exists to catch, which was not run here.
 
-**One minute is owed**, and with it the last of the five predictions and the rest of the family of 80.
+## One minute
+
+Read on 2026-11-01 by the same rules, on the rows of the re-sweep's fourth part. All 32 combinations pair in every cell.
+
+**The paired read: 4 of 16 cells clear, so 18 of 80.** Each in both windows, on both roots:
+
+| stop    | arm     | selection delta, MNQ / NQ | held-out delta, MNQ / NQ |
+| ------- | ------- | ------------------------- | ------------------------ |
+| `swing` | `phase` | +0.095 / +0.060           | +0.083 / +0.057          |
+| `atr`   | `phase` | +0.074 / +0.047           | +0.038 / +0.025          |
+| `swing` | `3of4`  | +0.066 / +0.059           | +0.019 / +0.020          |
+| `swing` | `2of4`  | +0.020 / +0.016           | +0.017 / +0.014          |
+
+**The phase gate clears again**, now at all five sizes under the swing stop and at 1, 2 and 5 under the ATR stop. It keeps about a quarter of the trades, as at the larger sizes, and raises the win rate by 1 to 3 points. `session_close_share` stays under 0.04, since a 1-minute stop rarely lasts to the close. Mean R stays negative under both stops.
+
+**Gate 3 still clears nothing.** The four cells add 40 tests. Over the whole family of 180 the smallest family-wise p is 0.461, and one of the new tests is below p = 0.05 alone: the swing stop's `phase` on MNQ, at 0.035. None was refused.
+
+**All four lose, or nearly.** The shortlists' median held-out profit factor is 0.960 and 0.966 for the ATR stop's `phase`, 0.907 and 0.963 for `2of4`, and 0.887 and 0.927 for `3of4`. The swing stop's `phase` is 0.984 on MNQ and 1.008 on NQ.
+
+**Gates 1 and 2.** With 1 minute in each arm's pool, the verdict is unchanged: every arm passes gate 2 on both roots except the swing stop with all four gates. At 1 minute alone, no more than 34% of any arm's configurations are profitable held out.
+
+**The loose ends' own question.** `gates=2of4` beats both neighbours on held-out profit factor in 2 of the 4 cells at 1 minute, both under the ATR stop, so 5 of 20.
+
+**The predictions, at 1 minute:**
+
+- **"At one minute every arm's median configuration loses on both roots." Right held out, and wrong on NQ's selection window for two arms.** Held out, all 18 arms sit at 0.791 to 0.968. On the selection window `4of4` is 1.020 under the ATR stop and 1.041 under the swing stop, on NQ alone.
+- **"`gates=vwap`'s paired delta is the smallest." Still wrong.** It is the smallest in 3 of the 8 cells and `trend` in 5, so 19 of 40 in all.
+- **"The count arms order by trades." The order holds in all 8 cells.** `4of4` is again under the floor in none, at a median of 455 to 478 held-out trades.
 
 ## How it was read
 
-- **Sweep.** `campaign_sweep.py --strategies EmaCrossover --variants side-count --split --strata side-count`, at 2, 5, 10 and 15 minutes in the re-sweep's second part; 1 minute is in its fourth.
+- **Sweep.** `campaign_sweep.py --strategies EmaCrossover --variants side-count --split --strata side-count`, at 2, 5, 10 and 15 minutes in the re-sweep's second part and 1 minute in its fourth.
 - **Paired read.** `campaign_paired`'s `paired` and `verdict` on profit factor, each gated arm against `gates=none` under the same stop, unfiltered, each window on its own; the same pairing on trades, win rate, average bars held, `session_close_share` and mean R beside it.
 - **Gate 3.** `campaign_null.py --strategy EmaCrossover --variant <arm> --stratum unfiltered --root MNQ NQ --resolution <its size> --window selection --test-window holdout --top 5 --iterations 400` for each of the 14 cells, then `campaign_null.py --family-of` over all fourteen tables.
 - **Gates 1 and 2.** The share of each arm's configurations above a profit factor of 1.0, and `campaign_holdout`'s verdict run once per arm.
