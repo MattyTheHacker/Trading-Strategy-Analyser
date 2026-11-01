@@ -2,10 +2,10 @@
 
 Three claims carry this module. **A window is recovered by cutting the archive back or it is not
 recovered at all**, and which of the two happened has to reach the caller rather than being
-assumed either way. **A re-run is read back against the rows it came from and not refused by
-them**, because the archive moving under a campaign is what makes the re-run necessary. And **a
-reconciliation is per bar size**, since one figure spanning two of them would hide a root that
-reproduced at one and not the other.
+assumed either way. **A re-run on the bars a row was swept on is refused if it misses that row,
+and on any other bars is only read back against it**, because the archive moving under a campaign
+is what makes the re-run necessary. And **a reconciliation is per bar size**, since one figure
+spanning two of them would hide a root that reproduced at one and not the other.
 
 The helpers here are shared with ``tests/test_campaign_flatten.py``, which measures the same
 bars through the flatten ladder.
@@ -13,14 +13,18 @@ bars through the flatten ladder.
 
 from __future__ import annotations
 
+import logging
+from dataclasses import replace
+
 import pandas as pd
 import pytest
 
-from nqbt import archetypes, resample, splice
+from nqbt import archetypes, context, resample, splice
+from nqbt.sim.types import ORB_TARGET_WIDTH, OpeningRangeParams
 from tests.test_campaign_shortlist import synthetic_bars
 from tools import campaign_swept as module
 from tools.campaign_holdout import JOIN_KEYS
-from tools.campaign_shortlist import source
+from tools.campaign_shortlist import rerun_group, source
 from tools.campaign_swept import (
     CELL_KEYS,
     HELD_OUT,
@@ -31,18 +35,19 @@ from tools.campaign_swept import (
     logs_for,
     on_swept_bars,
     reconciliation,
+    refuse_unreproduced,
     stored_figures,
 )
 
 
-def stored_frame(bars: pd.DataFrame, first: int, last: int) -> pd.DataFrame:
+def stored_frame(bars: pd.DataFrame, first: int, last: int, variant: str = "bracket") -> pd.DataFrame:
     """Build a stored-rows frame keyed the way ``campaign_null.stored_rows`` keys one."""
     frame = pd.DataFrame(
         [
             {
                 "root": "MNQ",
                 "resolution": 5,
-                "variant": "bracket",
+                "variant": variant,
                 "stratum": "unfiltered",
                 "combo_id": 0,
                 "sweep_id": 1,
@@ -75,6 +80,35 @@ def stored_row() -> pd.DataFrame:
             },
         ],
     )
+
+
+def as_swept(rows: pd.DataFrame, frame: pd.DataFrame, name: str = archetypes.INSIDEBAR.name) -> pd.DataFrame:
+    """Return ``rows`` carrying the figures a re-run on ``frame`` gives, as a sweep of it would store."""
+    figures = pd.DataFrame(
+        [
+            summary
+            for _, summary, _ in rerun_group(
+                rows, frame, archetypes.get(name), "MNQ", 5, context.PriceBasis.RAW
+            )
+        ],
+    )
+    assert (figures["trades"] > 0).all(), "no trades; the check proves nothing"
+
+    return rows.assign(trades=figures["trades"].to_numpy(), net_pnl=figures["net_pnl"].to_numpy())
+
+
+def on_held_out_bars(monkeypatch: pytest.MonkeyPatch, variant: str = "bracket") -> pd.DataFrame:
+    """Point the archive and the stored rows at one synthetic series, and return its held-out frame."""
+    bars = synthetic_bars(n=6000)
+    frame = resample.resample(source(bars, HELD_OUT), 5)
+    monkeypatch.setattr(splice, "load_continuous", lambda _root: bars)
+    monkeypatch.setattr(
+        module,
+        "stored_rows",
+        lambda _name, _root, _window, **_: stored_frame(frame, 0, len(frame) - 1, variant),
+    )
+
+    return frame
 
 
 def measured(**columns: object) -> pd.DataFrame:
@@ -207,13 +241,8 @@ def test_every_configuration_gets_a_log_keyed_by_the_ids_its_row_carries(
 
     That is the failure ``campaign_shortlist.verify`` exists to stop.
     """
-    bars = synthetic_bars(n=6000)
-    frame = resample.resample(source(bars, HELD_OUT), 5)
-    monkeypatch.setattr(splice, "load_continuous", lambda _root: bars)
-    monkeypatch.setattr(
-        module, "stored_rows", lambda _name, _root, _window: stored_frame(frame, 0, len(frame) - 1)
-    )
-    logs, reconciled = logs_for(archetypes.INSIDEBAR.name, stored_row(), "MNQ")
+    frame = on_held_out_bars(monkeypatch)
+    logs, reconciled = logs_for(archetypes.INSIDEBAR.name, as_swept(stored_row(), frame), "MNQ")
 
     assert list(logs) == [(1, 0)]
     assert len(reconciled) == 1
@@ -230,3 +259,105 @@ def test_a_cell_read_off_bars_it_was_not_swept_on_reaches_the_reconciliation(
     _, reconciled = logs_for(archetypes.INSIDEBAR.name, stored_row(), "MNQ")
 
     assert bool(reconciled[SWEPT_BARS].iloc[0]) is False
+
+
+# -- refusing a row its re-run misses ----------------------------------------------------------
+
+
+def test_a_row_missing_its_figures_on_its_swept_bars_is_refused_by_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    frame = on_held_out_bars(monkeypatch)
+    wrong = as_swept(stored_row(), frame).assign(trades=lambda rows: rows["trades"] + 1)
+
+    with pytest.raises(RuntimeError, match="sweep 1 combo 0 re-ran to"):
+        logs_for(archetypes.INSIDEBAR.name, wrong, "MNQ")
+
+    with pytest.raises(RuntimeError, match="sweep 1 combo 0 re-ran to"):
+        refuse_unreproduced(archetypes.INSIDEBAR.name, wrong, "MNQ")
+
+
+def test_a_width_ladder_rebuilt_at_the_wrong_ladder_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The row #488's bug re-ran: its name says one ladder and its figures belong to another."""
+    swept_variant = "target=w1.0"
+    frame = on_held_out_bars(monkeypatch, variant="target=w0.5")
+    params = replace(OpeningRangeParams(), target_mode=ORB_TARGET_WIDTH)
+    row = pd.concat(
+        [stored_row().drop(columns="atr_multiplier"), pd.DataFrame([params.as_dict()])], axis=1
+    ).assign(variant=swept_variant)
+    wrong = as_swept(row, frame, archetypes.OPENINGRANGE.name).assign(variant="target=w0.5")
+
+    with pytest.raises(RuntimeError, match="sweep 1 combo 0 re-ran to"):
+        logs_for(archetypes.OPENINGRANGE.name, wrong, "MNQ")
+
+
+def test_rows_resized_away_from_their_figures_are_not_held_to_them(monkeypatch: pytest.MonkeyPatch) -> None:
+    frame = on_held_out_bars(monkeypatch)
+    wrong = as_swept(stored_row(), frame).assign(net_pnl=lambda rows: rows["net_pnl"] + 1.0)
+    logs, _ = logs_for(archetypes.INSIDEBAR.name, wrong, "MNQ", require_stored=False)
+
+    assert list(logs) == [(1, 0)]
+
+
+def test_rows_that_reproduce_pass_the_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    frame = on_held_out_bars(monkeypatch)
+    refuse_unreproduced(archetypes.INSIDEBAR.name, as_swept(stored_row(), frame), "MNQ")
+
+
+def test_the_check_runs_each_row_in_its_own_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    bars = synthetic_bars(n=6000)
+    frame = resample.resample(source(bars, "selection"), 5)
+    monkeypatch.setattr(splice, "load_continuous", lambda _root: bars)
+    asked: list[str] = []
+
+    def stored_in(_name: str, _root: str, window: str, **_: object) -> pd.DataFrame:
+        asked.append(window)
+
+        return stored_frame(frame, 0, len(frame) - 1)
+
+    monkeypatch.setattr(module, "stored_rows", stored_in)
+    rows = as_swept(stored_row().assign(window="selection"), frame)
+    refuse_unreproduced(archetypes.INSIDEBAR.name, rows, "MNQ")
+    assert asked == ["selection"]
+
+    with pytest.raises(RuntimeError, match="re-ran to"):
+        refuse_unreproduced(archetypes.INSIDEBAR.name, rows.assign(trades=rows["trades"] + 1), "MNQ")
+
+
+def test_the_check_reads_only_the_variants_and_bar_sizes_it_was_given(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A newer campaign in the same database would otherwise move the cut back past these rows."""
+    bars = synthetic_bars(n=6000)
+    frame = resample.resample(source(bars, HELD_OUT), 5)
+    monkeypatch.setattr(splice, "load_continuous", lambda _root: bars)
+    narrowed: list[dict[str, object]] = []
+
+    def stored_in(_name: str, _root: str, _window: str, **narrowing: object) -> pd.DataFrame:
+        narrowed.append(narrowing)
+
+        return stored_frame(frame, 0, len(frame) - 1)
+
+    monkeypatch.setattr(module, "stored_rows", stored_in)
+    rows = as_swept(stored_row(), frame)
+    narrowed.clear()
+    refuse_unreproduced(archetypes.INSIDEBAR.name, rows, "MNQ")
+    assert narrowed == [{"variants": {"bracket"}, "resolutions": {5}}]
+
+
+def test_rows_from_another_window_are_refused_before_held_out_bars_are_run() -> None:
+    """Their figures describe other bars, so reading a log back against them says nothing."""
+    with pytest.raises(RuntimeError, match=r"belong to \['selection'\]"):
+        logs_for(archetypes.INSIDEBAR.name, stored_row().assign(window="selection"), "MNQ")
+
+
+def test_the_check_says_when_a_rows_swept_bars_cannot_be_recovered(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    bars = synthetic_bars(n=6000)
+    monkeypatch.setattr(splice, "load_continuous", lambda _root: bars)
+    monkeypatch.setattr(module, "stored_rows", lambda _name, _root, _window, **_: stored_frame(bars, 0, 10))
+    with caplog.at_level(logging.WARNING, logger=module.__name__):
+        refuse_unreproduced(archetypes.INSIDEBAR.name, stored_row(), "MNQ")
+
+    assert "not on their swept bars, so 1 rows go unchecked" in caplog.text
