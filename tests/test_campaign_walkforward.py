@@ -230,6 +230,7 @@ def test_a_shortlist_spanning_resolutions_walks_each_one_forward_on_its_own(
     """
     rows = pd.concat([stored_rows(resolution=[5, 5]), stored_rows(resolution=[10, 10])])
     monkeypatch.setattr(campaign_walkforward, "shortlist", lambda *_: rows)
+    monkeypatch.setattr(campaign_walkforward, "refuse_unreproduced", lambda *_: None)
     monkeypatch.setattr(splice, "load_continuous", lambda _: synthetic_bars())
 
     ran: list[int] = []
@@ -248,6 +249,20 @@ def test_a_shortlist_spanning_resolutions_walks_each_one_forward_on_its_own(
     assert ran == [5, 10]
 
 
+def test_a_shortlist_that_does_not_reproduce_is_refused_before_it_walks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def refuse(*_: object) -> None:
+        msg = "sweep 1 combo 0 re-ran to 1 trades, not the 2 stored"
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr(campaign_walkforward, "shortlist", lambda *_: stored_rows(resolution=[5, 5]))
+    monkeypatch.setattr(campaign_walkforward, "refuse_unreproduced", refuse)
+    monkeypatch.setattr(campaign_walkforward, "run_resolution", lambda *_: pytest.fail("walked it anyway"))
+    with pytest.raises(RuntimeError, match="sweep 1 combo 0 re-ran"):
+        main(["campaign_walkforward.py", "--strategy", STRATEGY])
+
+
 def test_the_variant_flag_confines_the_pool_to_one_geometry(monkeypatch: pytest.MonkeyPatch) -> None:
     """Gate 4 ranking across a mixture of geometries is what §M28.9 measured the cost of.
 
@@ -261,6 +276,7 @@ def test_the_variant_flag_confines_the_pool_to_one_geometry(monkeypatch: pytest.
         profit_factor=[1.2, 1.4],
     )
     monkeypatch.setattr(campaign_shortlist, "load", lambda *_: rows)
+    monkeypatch.setattr(campaign_walkforward, "refuse_unreproduced", lambda *_: None)
     monkeypatch.setattr(splice, "load_continuous", lambda _: synthetic_bars(n=100))
 
     walked: list[str] = []

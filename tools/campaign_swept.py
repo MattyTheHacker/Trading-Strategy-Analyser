@@ -3,8 +3,8 @@
     uv run tools/campaign_exits.py --strategy InsideBarTrailing --rerun
     uv run tools/campaign_montecarlo.py --strategy InsideBarTrailing --rerun
 
-The agreement with the stored row is reported rather than required --
-``tools/README.md`` § "campaign_swept.py".
+A row that misses what it stored on the bars it was swept on is refused; on any other bars the
+difference is reported -- ``tools/README.md`` § "campaign_swept.py".
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from nqbt import archetypes, context, resample, splice
 from tools.campaign_null import series_moved, stored_for, stored_rows
 from tools.campaign_report import log_key
-from tools.campaign_shortlist import NET_PNL_TOLERANCE, rerun_group, source, swept_series
+from tools.campaign_shortlist import NET_PNL_TOLERANCE, rerun_group, source, swept_series, verify
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ SWEPT_BARS = "swept_bars"
 history earlier than its tail makes unrecoverable."""
 
 RECONCILED = ("trades", "net_pnl")
-"""What a re-run is read back against in the row the sweep stored for it; reported, not required."""
+"""What a re-run is read back against in the row the sweep stored for it."""
 
 CELL_KEYS = ["root", "resolution"]
 """What one reconciliation row pools over, never across resolutions."""
@@ -60,13 +60,14 @@ def bars_for(
     stored: pd.DataFrame,
     block: pd.DataFrame,
     minutes: int,
+    window: str = HELD_OUT,
 ) -> tuple[pd.DataFrame, bool]:
-    """Return the held-out frame to run, preferring the one these rows were swept on.
+    """Return ``window``'s frame to run, preferring the one these rows were swept on.
 
     Neither kind of frame is refused; which bars a cell ran on is reported beside its result
     instead.
     """
-    frames: list[pd.DataFrame] = [resample.resample(source(bars, HELD_OUT), minutes) for bars in candidates]
+    frames: list[pd.DataFrame] = [resample.resample(source(bars, window), minutes) for bars in candidates]
     for frame in frames:
         if on_swept_bars(stored, block, frame):
             return frame, True
@@ -119,11 +120,20 @@ def logs_for(
     name: str,
     rows: pd.DataFrame,
     root: str,
+    *,
+    require_stored: bool = True,
 ) -> tuple[dict[tuple[int, int], pd.DataFrame], pd.DataFrame]:
     """Return each shortlisted configuration's held-out log, keyed by its stored ids, and what it reproduced.
 
-    Each block runs on the bars its rows were swept on, wherever those survive.
+    Each block runs on the bars its rows were swept on, wherever those survive, and a row missing
+    its stored figures there is refused. Pass ``require_stored=False`` for rows resized away from
+    those figures, after :func:`refuse_unreproduced` has checked them at their stored size.
     """
+    other_windows: list[str] = sorted(set(rows["window"]) - {HELD_OUT})
+    if other_windows:
+        msg: str = f"logs_for re-runs the {HELD_OUT} window, and these rows belong to {other_windows}"
+        raise RuntimeError(msg)
+
     archetype: archetypes.Archetype = archetypes.get(name)
     stored: pd.DataFrame = stored_rows(name, root, HELD_OUT)
     archive: pd.DataFrame = splice.load_continuous(root)
@@ -153,6 +163,9 @@ def logs_for(
             bar_minutes,
             context.PriceBasis.RAW,
         ):
+            if swept and require_stored:
+                verify(row, summary)
+
             logs[log_key(row)] = log
             measured.append(
                 {
@@ -164,3 +177,41 @@ def logs_for(
             )
 
     return logs, reconciliation(pd.DataFrame(measured), CELL_KEYS)
+
+
+def warn_unchecked(root: str, minutes: int, window: object, count: int) -> None:
+    """Log that a block's rows are not on their swept bars, so nothing holds them to their figures."""
+    logger.warning(
+        "  %-4s %2dm %s: not on their swept bars, so %d rows go unchecked", root, minutes, window, count
+    )
+
+
+def refuse_unreproduced(name: str, rows: pd.DataFrame, root: str) -> None:
+    """Re-run ``rows`` in their own windows and refuse one missing what it stored on its swept bars.
+
+    A block whose swept bars cannot be recovered is logged rather than refused.
+    """
+    archetype: archetypes.Archetype = archetypes.get(name)
+    archive: pd.DataFrame = splice.load_continuous(root)
+    for window, in_window in rows.groupby("window", sort=False):
+        stored: pd.DataFrame = stored_rows(
+            name,
+            root,
+            str(window),
+            variants=set(in_window["variant"]),
+            resolutions={int(minutes) for minutes in in_window["resolution"]},
+        )
+        candidates: tuple[pd.DataFrame, ...] = candidate_bars(stored, archive)
+        for minutes, block in in_window.groupby("resolution", sort=False):
+            bar_minutes: int = int(minutes)  # type: ignore[arg-type]  # a groupby key on an int column
+            frame: pd.DataFrame
+            swept: bool
+            frame, swept = bars_for(candidates, stored, block, bar_minutes, str(window))
+            if not swept:
+                warn_unchecked(root, bar_minutes, window, len(block))
+                continue
+
+            for row, summary, _ in rerun_group(
+                block, frame, archetype, root, bar_minutes, context.PriceBasis.RAW
+            ):
+                verify(row, summary)

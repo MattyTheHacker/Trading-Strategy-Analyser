@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import logging
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -21,7 +22,7 @@ import pytest
 from nqbt import disambiguate, propaccount, resample, results, sessions, splice, sweep
 from nqbt.instruments import get_instrument
 from nqbt.sim.types import InsideBarParams
-from tools import campaign_propobjectives
+from tools import campaign_null, campaign_propobjectives
 from tools.campaign_propaccount import calendar, sessions_between
 from tools.campaign_propobjectives import (
     CONTROL,
@@ -559,8 +560,9 @@ def synthetic_bars(n: int = 6000, seed: int = 7) -> pd.DataFrame:
     return frame
 
 
-def stored_selection(db: Path, bars: pd.DataFrame) -> pd.DataFrame:
+def stored_selection(monkeypatch: pytest.MonkeyPatch, db: Path, bars: pd.DataFrame) -> pd.DataFrame:
     """Sweep two InsideBar configurations on the selection window and read them back as stored rows."""
+    monkeypatch.setattr(campaign_null, "db_path", lambda _name: db)
     frame = resample.resample(source(bars, "selection"), 5)
     grid = sweep.Grid.of(
         InsideBarParams(slow_sma_period=50, bars_required_to_trade=60), atr_multiplier=[5.0, 10.0]
@@ -585,10 +587,10 @@ def stored_selection(db: Path, bars: pd.DataFrame) -> pd.DataFrame:
 
 
 def test_a_window_is_re_run_and_replayed_through_every_preset_each_configuration_asks_for(
-    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     bars = synthetic_bars()
-    rows = stored_selection(tmp_path / "InsideBar.duckdb", bars)
+    rows = stored_selection(monkeypatch, tmp_path / "InsideBar.duckdb", bars)
     assert rows["trades"].min() > 0, "fixture produced no trades; the test proves nothing"
 
     closed = evaluation()
@@ -607,21 +609,35 @@ def test_a_window_is_re_run_and_replayed_through_every_preset_each_configuration
     assert list(measured.drop_duplicates("combo_id")["trades"]) == list(rows["trades"])
 
 
-def test_a_stored_row_the_archive_no_longer_reproduces_is_re_measured_rather_than_refused(
-    tmp_path: Path,
+def test_a_row_its_re_run_misses_on_its_swept_bars_is_refused_by_name(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    bars = synthetic_bars()
+    rows = stored_selection(monkeypatch, tmp_path / "InsideBar.duckdb", bars)
+    wrong = rows.assign(trades=rows["trades"] + 1)
+    wanted = {campaign_propobjectives.key_of(row): [evaluation()] for _, row in wrong.iterrows()}
+
+    with pytest.raises(RuntimeError, match=f"sweep {int(rows['sweep_id'].iloc[0])} combo 0 re-ran to"):
+        measure_window("InsideBar", wrong, ROOT, source(bars, "selection"), wanted, n_jobs=1)
+
+
+def test_a_row_the_archive_has_moved_under_is_re_measured_with_a_warning(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     """The archive moved under every campaign stored before 2026-09-16.
 
     The figures a shortlist is read by are the re-run's own and never the stored row's.
     """
     bars = synthetic_bars()
-    rows = stored_selection(tmp_path / "InsideBar.duckdb", bars)
-    stale = rows.assign(trades=rows["trades"] + 1, profit_factor=99.0)
-    wanted = {campaign_propobjectives.key_of(row): [evaluation()] for _, row in stale.iterrows()}
+    rows = stored_selection(monkeypatch, tmp_path / "InsideBar.duckdb", bars)
+    moved = source(bars, "selection").iloc[:-2000]
+    wanted = {campaign_propobjectives.key_of(row): [evaluation()] for _, row in rows.iterrows()}
 
-    measured = measure_window("InsideBar", stale, ROOT, source(bars, "selection"), wanted, n_jobs=1)
-    assert list(measured["trades"]) == list(rows["trades"])
-    assert list(measured[CONTROL]) == pytest.approx(list(rows["profit_factor"]))
+    with caplog.at_level(logging.WARNING, logger=campaign_propobjectives.__name__):
+        measured = measure_window("InsideBar", rows, ROOT, moved, wanted, n_jobs=1)
+
+    assert "not on their swept bars, so 2 rows go unchecked" in caplog.text
+    assert (measured["trades"].to_numpy() < rows["trades"].to_numpy()).all()
 
 
 # -- the report --------------------------------------------------------------------------------
