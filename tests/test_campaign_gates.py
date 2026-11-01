@@ -592,6 +592,7 @@ def on_the_walk(monkeypatch: pytest.MonkeyPatch, walk: pd.DataFrame) -> pd.DataF
         campaign_gates, "bars_for", lambda candidates, _stored, _block, _minutes: (candidates[0], True)
     )
     monkeypatch.setattr(campaign_sizing, "stored_rows", lambda *_: pd.DataFrame())
+    monkeypatch.setattr(campaign_sizing, "verify", lambda *_: None)
     monkeypatch.setattr(splice, "load_continuous", lambda _root: walk)
     monkeypatch.setattr(campaign_sizing, "candidate_bars", lambda _stored, archive: (archive,))
     monkeypatch.setattr(

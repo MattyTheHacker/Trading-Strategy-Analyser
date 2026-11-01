@@ -32,6 +32,7 @@ from nqbt.trades import C_QUANTITY, LONG, SHORT
 from tests.test_insidebartrailing_sim import walk_bars
 from tools import campaign_sizing, campaign_sweep
 from tools.campaign_propaccount import CONTRACTS, DEFAULT_PRESETS, contracts_per_trade, uncapped
+from tools.campaign_shortlist import rerun_group
 from tools.campaign_sizing import (
     EARLY_QUANTILE,
     MAX_FAVOURABLE_SHARE,
@@ -327,20 +328,64 @@ def stored_confluence_row(combo_id: int) -> pd.Series:  # type: ignore[explicit-
     )
 
 
-def test_every_shortlisted_row_is_nulled_on_the_bars_it_was_swept_on(monkeypatch: pytest.MonkeyPatch) -> None:
+def on_walk_bars(monkeypatch: pytest.MonkeyPatch, *, swept: bool = True) -> pd.DataFrame:
+    """Point a null's loaders at one synthetic walk, and say whether those are the rows' swept bars."""
     bars = walk_bars(6000, seed=9)
     monkeypatch.setattr(campaign_sizing, "stored_rows", lambda *_: pd.DataFrame())
     monkeypatch.setattr(splice, "load_continuous", lambda _root: bars)
     monkeypatch.setattr(campaign_sizing, "candidate_bars", lambda _stored, archive: (archive,))
     monkeypatch.setattr(
-        campaign_sizing, "bars_for", lambda candidates, _stored, _block, _minutes: (candidates[0], True)
+        campaign_sizing, "bars_for", lambda candidates, _stored, _block, _minutes: (candidates[0], swept)
     )
-    rows = pd.DataFrame([stored_confluence_row(1), stored_confluence_row(2)])
+
+    return bars
+
+
+def as_swept(
+    rows: pd.DataFrame, bars: pd.DataFrame, archetype: archetypes.Archetype = archetypes.INSIDEBARTRAILING
+) -> pd.DataFrame:
+    """Return ``rows`` carrying the figures a re-run on ``bars`` gives, as a sweep of them would store."""
+    figures = pd.DataFrame(
+        [summary for _, summary, _ in rerun_group(rows, bars, archetype, "MNQ", 1, context.PriceBasis.RAW)],
+    )
+
+    return rows.assign(trades=figures["trades"].to_numpy(), net_pnl=figures["net_pnl"].to_numpy())
+
+
+def test_every_shortlisted_row_is_nulled_on_the_bars_it_was_swept_on(monkeypatch: pytest.MonkeyPatch) -> None:
+    bars = on_walk_bars(monkeypatch)
+    rows = as_swept(pd.DataFrame([stored_confluence_row(1), stored_confluence_row(2)]), bars)
     table = campaign_sizing.null_for_shortlist(rows, "MNQ", by="profit_factor", draws=3, seed=0)
     assert list(table["combo_id"]) == [1, 2]
     assert set(table["labels"]) == {"size_on_trend,size_on_vwap"}
     assert table["swept_bars"].all()
     assert table["p"].between(1 / 4, 1.0).all()
+
+
+def test_a_row_missing_its_figures_on_its_swept_bars_is_refused_before_its_draws(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bars = on_walk_bars(monkeypatch)
+    rows = as_swept(pd.DataFrame([stored_confluence_row(1)]), bars)
+    monkeypatch.setattr(campaign_sizing, "shuffled_null", lambda *_, **__: pytest.fail("drew it anyway"))
+    with pytest.raises(RuntimeError, match="sweep 7 combo 1 re-ran to"):
+        campaign_sizing.null_for_shortlist(
+            rows.assign(trades=rows["trades"] + 1), "MNQ", by="profit_factor", draws=3, seed=0
+        )
+
+    with pytest.raises(RuntimeError, match="sweep 7 combo 1 re-ran to"):
+        campaign_sizing.null_for_shortlist(
+            rows.assign(net_pnl=rows["net_pnl"] + 1.0), "MNQ", by="profit_factor", draws=3, seed=0
+        )
+
+
+def test_a_row_off_its_swept_bars_is_nulled_and_reported_rather_than_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    on_walk_bars(monkeypatch, swept=False)
+    rows = pd.DataFrame([stored_confluence_row(1)]).assign(trades=1, net_pnl=1.0)
+    table = campaign_sizing.null_for_shortlist(rows, "MNQ", by="profit_factor", draws=3, seed=0)
+    assert not table["swept_bars"].any()
 
 
 def test_fit_is_the_default_path_of_its_subcommand(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -706,8 +751,9 @@ def test_a_shortlist_is_nulled_through_its_own_archetype(
         "variant": "bracket size=confluence",
         **dataclasses.asdict(sized_insidebar()),
     }
+    rows = as_swept(pd.DataFrame([row]), short_walk, archetypes.INSIDEBAR)
     table = campaign_sizing.null_for_shortlist(
-        pd.DataFrame([row]), "MNQ", by="profit_factor", draws=3, seed=0, archetype=archetypes.INSIDEBAR
+        rows, "MNQ", by="profit_factor", draws=3, seed=0, archetype=archetypes.INSIDEBAR
     )
     assert list(table["labels"]) == ["size_on_trend,size_on_vwap,size_on_regime"]
     assert table["trades"].iloc[0] > 0
