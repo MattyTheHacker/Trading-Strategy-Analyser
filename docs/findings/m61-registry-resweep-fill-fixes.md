@@ -50,7 +50,7 @@ Against the stored rows, cell by cell (one cell is one archetype × root × reso
 
 **Each archetype moved in the direction its fix points.** The two stop entries at a level gain most and trade less: the old rule for a bar holding both the fill and the stop booked the stop whenever the open lay on the stop's side, which for a stop entry it does, and reading the bar along its path books it only when the path after the fill reaches it (`docs/nt8-fidelity.md`, "A stop on its entry bar is read along the bar's path"). The ported stop entries gain a little. The three archetypes whose stops moved onto the tick grid lose a little. InsideBar and InsideBarTrailing changed only where a target was gapped through, in about one cell in twenty. 3,459 cells' median configurations crossed a profit factor of 1.0 in one direction or the other, 2,760 of them OpeningRange's and 451 SqueezeBreakout's.
 
-**Thirty minutes became a campaign bar size** after the run started ([#479]), and every campaign grid was swept at it. **One minute is still running**: the re-sweep's last part sweeps every set at 1 minute, and nothing here reads it beyond the whole-series campaign grid at 1 minute, which the first part ran. **And the campaign grids were swept on five more roots**, ES, MES, GC, MGC and SI, which the gold strata below read.
+**Thirty minutes became a campaign bar size** after the run started ([#479]), and every campaign grid was swept at it. **One minute came last**: the re-sweep's last part swept every set at 1 minute after these reads were written, and [One minute](#one-minute) below reads it. **And the campaign grids were swept on five more roots**, ES, MES, GC, MGC and SI, which the gold strata below read.
 
 ## How each campaign was re-read
 
@@ -216,7 +216,7 @@ DeadCatBounce at its defaults on MNQ's 1-minute bars from 2024, $1.24 commission
 
 ## OpeningRange
 
-The archetype the fills moved most: its breakout and fade are stop entries, which [#472] reads along the fill bar's path, and its retest and rejection are limit entries, which [#453] and [#455] reach. Three of its campaigns, §M28.8, §M28.10 and §M28.11, and §M28.9's table by year read 1-minute bars and wait for the last part of the re-sweep. §M28.3, §M28.4 and §M28.6 are tooling and a specification, with nothing to re-read.
+The archetype the fills moved most: its breakout and fade are stop entries, which [#472] reads along the fill bar's path, and its retest and rejection are limit entries, which [#453] and [#455] reach. Three of its campaigns, §M28.8, §M28.10 and §M28.11, and §M28.9's table by year read 1-minute bars and are re-read in [§M65](m65-openingrange-one-minute.md). §M28.3, §M28.4 and §M28.6 are tooling and a specification, with nothing to re-read.
 
 ### §M28.1 — OpeningRange swept
 
@@ -315,7 +315,7 @@ Every configuration whose assumption decides three legs in ten is still profitab
 | ElasticBand       | −0.583 / −0.633   | −0.606 / −0.494 |
 | OpeningRange      | unusable          | 0.834 / 0.711   |
 
-OpeningRange's row is readable now because the shortlist ranks its campaign variants alone rather than every set in its database. The verdict holds: the binding constraint is net-to-drawdown rather than profit factor. Its table by year, and so its finding that the edge is absent from 2026, is 1-minute and waits for the last part.
+OpeningRange's row is readable now because the shortlist ranks its campaign variants alone rather than every set in its database. The verdict holds: the binding constraint is net-to-drawdown rather than profit factor. Its table by year, and so its finding that the edge is absent from 2026, is 1-minute, and §M65 re-reads it: 2026 is now a small loss on both roots.
 
 ### §M28.12 — the bracket against the flatten
 
@@ -865,9 +865,59 @@ Every campaign grid was swept at 30 minutes, and no campaign above reads it, bec
 
 A campaign that wants 30 minutes should name it before it runs, which those three could not.
 
+## One minute
+
+The re-sweep's last part swept every set at 1 minute, and its reads finished on 2026-11-01. **They change no verdict in this file: at 1 minute only OpeningRange's median configuration makes money, in about half of its variants.** [§M65](m65-openingrange-one-minute.md) reads OpeningRange's four 1-minute campaigns, and [§M55](m55-side-count-result.md), [§M57](m57-noise-area-result.md) and [§M26.7](m26-7-inverted-signal-result.md) carry their own 1-minute sections. Everything above stays read at 2 to 15 minutes, as the split windows held when it was written. This is what the rest adds, on the campaign variants.
+
+Unfiltered, MNQ / NQ, each figure the best of the archetype's variants:
+
+| archetype         | variants | profitable on selection, % | median profit factor on selection | held-out top 20 | passes gate 2 |
+| ----------------- | -------: | -------------------------: | --------------------------------: | --------------: | ------------: |
+| DeadCatBounce     |        1 |                      0 / 0 |                     0.559 / 0.693 |   0.719 / 0.852 |         0 / 0 |
+| ElasticBand       |        4 |                  3.8 / 5.3 |                     0.847 / 0.903 |   0.929 / 0.940 |         0 / 0 |
+| EmaCrossover      |        2 |                  0.4 / 1.6 |                     0.830 / 0.901 |   0.959 / 0.981 |         0 / 0 |
+| EmaPullback       |        1 |                 9.6 / 16.3 |                     0.893 / 0.936 |   0.965 / 0.694 |         0 / 0 |
+| InsideBar         |        1 |                      0 / 0 |                     0.806 / 0.891 |   0.902 / 0.925 |         0 / 0 |
+| InsideBarTrailing |        1 |                      0 / 0 |                     0.801 / 0.865 |   0.916 / 0.951 |         0 / 0 |
+| OpeningRange      |       12 |                  100 / 100 |                     1.163 / 1.170 |   1.119 / 1.110 |         5 / 4 |
+| PullBackAndGo     |        1 |                      0 / 0 |                     0.602 / 0.712 |   0.604 / 0.753 |         0 / 0 |
+| SqueezeBreakout   |        4 |                 1.7 / 10.6 |                     0.844 / 0.897 |   0.990 / 1.028 |         0 / 2 |
+
+**OpeningRange's exception is its stop.** Its six `stop=opposite` variants have medians from 0.995 to 1.170, and on the 15- and 30-minute ranges all four are above 1.1. Its six `stop=atr` variants have medians from 0.735 to 0.952. So "every archetype's median configuration loses money at one minute" holds only for the other eight archetypes. Across OpeningRange's twelve, the median variant is 0.954 and 0.983.
+
+**Gate 4 finds nothing to take further.** Across the unfiltered shortlists, only three reads leave anything standing:
+
+- **InsideBar's exclusion:** 4 of 20 and 5 of 20 survive without their session-close legs, though all fail the bootstrap and the walk-forward. It is §M28.12's forced flat again, losing on both roots.
+- **EmaPullback's bootstrap and walk-forward:** one configuration of 20 and the one walk-forward cell on MNQ, on a median of 90 trades. On NQ the shortlist's held-out profit factor is 0.675.
+- **The walk-forward alone:** ElasticBand 1 of 4 on MNQ, EmaCrossover 2 of 2 on NQ, SqueezeBreakout 2 and 3 of 4, and OpeningRange 4 and 5 of 12.
+
+**The two midday cells split.** OpeningRange's `phase=MIDDAY` puts 17 and 18 of 216 configurations above a bootstrap 5th percentile of 1.0 and passes the walk-forward in 8 and 11 of 12 variants, with none surviving the exclusion. It has a median of 313 trades. **InsideBarTrailing's returns nothing at 1 minute**: none of 40 on the exclusion or the bootstrap and neither root on the walk-forward, with a median held-out profit factor of 0.90, against 30 of 40 on the bootstrap at 5 minutes in §M42's section above.
+
+**InsideBarTrailing's other sets do not change that.** In the unfiltered and midday cells, every set fails gate 2 on both roots, except `ibt-structure-ends`, where 6 of 49 midday MNQ cells and 2 and 1 of 49 unfiltered cells pass, none returning its drawdown.
+
+- **The hold:** every rung costs and the cost grows as the cap tightens, from a held-out median of 0.844 and 0.875 uncapped to 0.743 and 0.815 at 5 bars, which is §M29's result again.
+- **The structure trail:** paired over 432 configurations, the held-out profit factor rises in 9 of 24 arms on each root unfiltered and in 6 and 5 of 24 at midday. With the arms past the ends of its ladders, 29 and 26 of 48 rise unfiltered, and 19 and 15 of 48 at midday. These are raw counts rather than §M49's bar.
+- **Sizing:** `ibt-sizing`'s arms rise in at most 3 of 8 and `ibt-sizing-high`'s in at most 1 of 7, in any cell.
+- **The confluence size:** against its shuffled sizes, 79 and 52 of 140 midday tests are below p = 0.05 and 13 and 2 of 140 unfiltered, on median profit factors of 0.92 and 0.91 at midday. That is a better sizing of a cell that still loses.
+- **The early exits:** these were read through gate 2 and gate 4 only. §M48's and §M50's paired bar was not applied.
+
+**Through the prop accounts**, the median net of a book of accounts is negative on every preset and at every book size for every archetype read, except OpeningRange on MNQ through LucidPro 50K, whose best is +$4,430 on a staggered book of 15, on 55% of its configurations. EmaPullback's accounts and SqueezeBreakout's on NQ were not read at 1 minute.
+
+**On the other five roots**, InsideBar, InsideBarTrailing, DeadCatBounce and PullBackAndGo pass gate 2 unfiltered in no cell. The rest pass it in these:
+
+| archetype       |  ES |  GC | MES | MGC |  SI |
+| --------------- | --: | --: | --: | --: | --: |
+| ElasticBand     |   0 |   4 |   0 |   2 |   4 |
+| EmaCrossover    |   0 |   2 |   0 |   1 |   0 |
+| EmaPullback     |   1 |   1 |   0 |   0 |   0 |
+| OpeningRange    |   2 |   3 |   0 |   0 |   3 |
+| SqueezeBreakout |   0 |   0 |   0 |   1 |   0 |
+
+Gate 3 at 1 minute is only what §M65, §M55, §M57 and §M26.7 ran.
+
 ## What this does not settle
 
-- **One minute is still running.** §M28.8, §M28.10, §M28.11 and §M28.9's table by year read 1-minute bars and are not re-read. Every other campaign that ran 1 minute is read here at 2 to 15, which is all the split windows hold until the last part of the re-sweep finishes.
+- **Eight 1-minute steps did not finish and were dropped.** EmaPullback's account objectives and four books and SqueezeBreakout's two NQ books repeatedly ran out of memory. InsideBarTrailing's sizing pass stopped short of gate 4 on one arm, `size=confluence`, which the confluence set reads anyway. The run's log counts all eight as done, so its "321 of 321" overstates by eight.
 - **Two reads cannot be re-run, because the null tool cannot shortlist the way they did**: §M26.4's, by band source, and the loose ends' null over the confluence count, by count.
 - **Reads that need trade logs or contracts were not re-run**: the per-contract tallies of §M27 and §M27.3, the clock and volume screens over the survivor's own trades in §M27.7 and §M27.8, §M28.1's long-and-short null, §M28.15's fold-by-fold profit factors, and §M28.9's diversification.
 - **Three passes were not re-swept**: §M19.1's crossing of the two compression forms, §M31.1's hold ladder inside the fitted `DIRECTIONAL` cell, and the higher-timeframe file's one-off DeadCatBounce run.
