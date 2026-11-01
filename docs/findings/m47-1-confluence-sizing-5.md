@@ -157,7 +157,7 @@ Pooled over the presets it passes 336 accounts in 3,134 attempts, against the co
 - **#295's question is answered at three bar sizes: the confluence size puts more contracts on the better trades on OpeningRange, EmaCrossover and InsideBarTrailing**, and not on the other six.
 - **It makes none of them tradeable on its own.** On OpeningRange most clearing cells lose money held out, and no cell that clears passes all three gate-4 reads.
 - **F0's answer is that no single label carries §M45's cell**: volume clears narrowly and the other three do not, while all four together clear 20 and 17 of 20.
-- **In that cell on MNQ the size raises prop passes on all four presets.** It is the read [#344]'s port waits on, untested and not size-matched.
+- **In that cell on MNQ the size raises prop passes on all four presets.** It is the read [#344]'s port waits on, untested and not size-matched. [§M64](m64-phase-2-midday-reread.md) has since matched it.
 - **2 minutes is unread**, and a read there would be a new campaign.
 - **It is `TIER1_ONLY`.** None of the five labels exists in NT8, and a port needs each pinned first — `docs/nt8-fidelity.md` §M47.
 

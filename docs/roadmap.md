@@ -788,6 +788,10 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 **Pre-registered before its outputs were opened, and it fails gate 4 at every bar size: no shortlisted configuration survives without its session-close legs, the bootstrap fails in every cell, and the walk-forward fails on at least one root at 10 and 15 minutes, where it cleared §M39's paired bar; its shortlists beat the market entry's, which fail too.** Moved to [`docs/findings/m63-ema-pullback-confirmation-gate-4-result.md`](findings/m63-ema-pullback-confirmation-gate-4-result.md), pre-registered in [`docs/findings/m63-ema-pullback-confirmation-gate-4-preregistration.md`](findings/m63-ema-pullback-confirmation-gate-4-preregistration.md).
 
+### M64 — the new exits in the midday cells ([#354])
+
+**Read from stored outputs, with no new run: no exit clears either midday cell at 5 minutes under its own bar, the late-day exits gain held out and lose on the selection window, and #344's Phase 2 is a negative result; the confluence size clears its account null on TopStep, still loses money on Apex and passes no more on NQ.** Moved to [`docs/findings/m64-phase-2-midday-reread.md`](findings/m64-phase-2-midday-reread.md).
+
 ### Do the shortlists travel? ([#330])
 
 **Most of what a shortlist loses is selection rather than instrument — the drop from selection window to own holdout is two to five times the further drop to a market never seen — and the two inside-bar archetypes travel with almost no additional cost, while nothing clears a profit factor of 1.1 anywhere.** Moved to [`docs/findings/cross-root-transfer.md`](findings/cross-root-transfer.md).
@@ -1577,6 +1581,7 @@ ______________________________________________________________________
 [#35]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/35
 [#352]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/352
 [#353]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/353
+[#354]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/354
 [#36]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/36
 [#369]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/369
 [#37]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/37
