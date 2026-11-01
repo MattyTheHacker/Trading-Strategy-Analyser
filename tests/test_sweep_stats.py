@@ -1243,9 +1243,9 @@ def test_an_existing_database_gains_the_columns_and_keeps_its_rows(db: Path) -> 
     assert len(combos) == 1
     assert combos.loc[0, "profit_factor"] == pytest.approx(1.23)
     for name in results.AXIS_COLUMNS:
-        assert pd.isna(swept.loc[0, name]), name
-        assert pd.isna(combos.loc[0, name]), name
-    assert pd.isna(swept.loc[0, "batch_id"])
+        assert pd.isna(swept[name].loc[0]), name
+        assert pd.isna(combos[name].loc[0]), name
+    assert pd.isna(swept["batch_id"].loc[0])
 
 
 def test_a_migrated_database_puts_every_value_in_the_column_it_names(db: Path) -> None:

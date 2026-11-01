@@ -349,7 +349,7 @@ def test_a_cell_no_archetype_reached_is_absent_rather_than_zero() -> None:
         ignore_index=True,
     )
     table = matrix(agreement(block), "phase")
-    assert pd.isna(table.loc["CLOSE", "InsideBar"])
+    assert pd.isna(table["InsideBar"].loc["CLOSE"])
 
 
 def test_a_dimension_with_no_rows_gives_an_empty_matrix() -> None:

@@ -612,7 +612,7 @@ def test_an_unmatched_trade_is_marked_rather_than_dropped() -> None:
     assert annotated.unmatched == 1
     assert len(annotated.reviewable) == 1
     assert annotated.frame["entry_bar"].loc[2] is pd.NA
-    assert pd.isna(annotated.frame.loc[2, "entry_phase"])
+    assert pd.isna(annotated.frame["entry_phase"].loc[2])
 
 
 def test_a_trade_is_annotated_whole_or_not_at_all() -> None:
@@ -795,7 +795,7 @@ def test_contract_bars_reads_the_per_contract_cache(tmp_path: Path) -> None:
         ],
     )
     read = annotate.contract_bars(log, cache_dir=tmp_path)
-    pd.testing.assert_index_equal(read.index, frame.index, check_freq=False)  # type: ignore[call-arg]  # pandas-stubs 3.0.5 predates pandas 3.1's check_freq keyword
+    pd.testing.assert_index_equal(read.index, frame.index, check_freq=False)  # type: ignore[call-arg]  # pandas-stubs omits assert_index_equal's check_freq
 
 
 def test_contract_bars_refuses_a_log_that_names_no_contract() -> None:

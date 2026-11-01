@@ -346,7 +346,7 @@ def test_a_wholly_refused_cell_carries_a_count_rather_than_a_verdict() -> None:
     summary = family(rows).set_index("root")
     assert summary.loc["NQ", "measured"] == 0
     assert summary.loc["NQ", "refused"] == 2
-    assert pd.isna(summary.loc["NQ", "profit_factor_low"])
+    assert pd.isna(summary["profit_factor_low"].loc["NQ"])
 
 
 def test_a_partly_refused_cell_summarises_only_what_ran() -> None:
@@ -429,7 +429,7 @@ def test_a_wider_family_never_lowers_a_tests_family_wise_p() -> None:
 def test_a_refused_row_is_left_out_of_the_family_and_carries_no_family_wise_p() -> None:
     rows = drawn_rows(refused=[None, None, "dense", None])
     widened = family_wise(rows)
-    assert pd.isna(widened.loc[2, campaign_null.FAMILY_P])
+    assert pd.isna(widened[campaign_null.FAMILY_P].loc[2])
     assert widened[campaign_null.FAMILY_P].drop(index=2).notna().all()
     alone = family_wise(rows.drop(index=2))
     assert widened[campaign_null.FAMILY_P].drop(index=2).to_numpy() == pytest.approx(
@@ -526,7 +526,7 @@ def test_a_null_with_no_spread_leaves_its_test_out_and_the_rest_in() -> None:
     """One degenerate configuration must not cost a family read that took hours to measure."""
     rows = with_draws(drawn_rows(), 1, np.ones(NOISE_DRAWS))
     widened = family_wise(rows)
-    assert pd.isna(widened.loc[1, campaign_null.FAMILY_P])
+    assert pd.isna(widened[campaign_null.FAMILY_P].loc[1])
     assert widened[campaign_null.FAMILY_P].drop(index=1).notna().all()
     assert "the best of 3 tests" in family_headline(widened)
 

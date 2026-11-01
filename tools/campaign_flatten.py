@@ -168,7 +168,7 @@ def rung(table: pd.DataFrame, seconds: int, by: str) -> pd.DataFrame:
     if control.empty or treatment.empty:
         return pd.DataFrame()
 
-    joined: pd.DataFrame = control.join(treatment, how="inner", suffixes=("_control", ""))  # type: ignore[call-arg]  # pandas-stubs 3.0.5 predates pandas 3.1's suffixes keyword
+    joined: pd.DataFrame = control.join(treatment, how="inner", suffixes=("_control", ""))  # type: ignore[call-arg]  # pandas-stubs omits join's suffixes
     joined["delta"] = joined[by] - joined[f"{by}_control"]
     joined["moved"] = joined[MOVED_ON] != joined[f"{MOVED_ON}_control"]
 
