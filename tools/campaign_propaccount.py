@@ -34,7 +34,14 @@ from tools.campaign_null import stored_rows
 from tools.campaign_report import NET_TO_DRAWDOWN, log_key, stored_logs
 from tools.campaign_shortlist import TOP, rebuild, source
 from tools.campaign_sweep import db_path
-from tools.campaign_swept import CELL_KEYS, HELD_OUT, SWEPT_BARS, candidate_bars, logs_for
+from tools.campaign_swept import (
+    CELL_KEYS,
+    HELD_OUT,
+    SWEPT_BARS,
+    candidate_bars,
+    logs_for,
+    refuse_unreproduced,
+)
 
 if TYPE_CHECKING:
     import datetime as dt
@@ -505,6 +512,7 @@ def replay_rungs(
 ) -> pd.DataFrame:
     """Re-run and replay the shortlist once per contract count, each row tagged with its rung."""
     archetype: archetypes.Archetype = archetypes.get(strategy)
+    refuse_unreproduced(strategy, rows, root)
     tables: list[pd.DataFrame] = []
     for quantity in quantities:
         resized: pd.DataFrame = at_quantity(rows, archetype, quantity)
@@ -514,7 +522,7 @@ def replay_rungs(
 
         logs: dict[tuple[int, int], pd.DataFrame]
         rerun: pd.DataFrame
-        logs, rerun = logs_for(strategy, resized, root)
+        logs, rerun = logs_for(strategy, resized, root, require_stored=False)
         show(
             f"{strategy} {root} at {quantity} contracts -- what the re-run ran on",
             rerun.reindex(columns=RUNG_CHECK),
@@ -629,11 +637,12 @@ def logs_at_sizes(
 
         return {}
 
+    refuse_unreproduced(strategy, rows.loc[eligible.index], root)
     sized: dict[tuple[int, int], dict[int, pd.DataFrame]] = {}
     for quantity in distinct:
         logs: dict[tuple[int, int], pd.DataFrame]
         rerun: pd.DataFrame
-        logs, rerun = logs_for(strategy, eligible.assign(order_quantity=quantity), root)
+        logs, rerun = logs_for(strategy, eligible.assign(order_quantity=quantity), root, require_stored=False)
         show(
             f"{strategy} {root} at {quantity} contracts -- what the book's re-run ran on",
             rerun.reindex(columns=RUNG_CHECK),

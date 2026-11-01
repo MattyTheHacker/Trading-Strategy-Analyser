@@ -45,7 +45,7 @@ from tools.campaign_montecarlo import resample_row
 from tools.campaign_null import stored_rows
 from tools.campaign_propaccount import DEFAULT_PRESETS, replay_shortlist
 from tools.campaign_report import UNFILTERED, load, log_key, profile, rank
-from tools.campaign_shortlist import TOP, prepared, run_logged
+from tools.campaign_shortlist import TOP, prepared, run_logged, verify
 from tools.campaign_sizing import DRAWS, null_row, prop_draws, shuffled_null
 from tools.campaign_sweep import ROOTS, VARIANT_SETS, Variant, variants_for
 from tools.campaign_swept import (
@@ -328,7 +328,8 @@ def archive(root: str) -> pd.DataFrame:
 def reruns(task: Task) -> Iterator[Rerun]:
     """Re-run every configuration ``task.held`` holds once, on one prepared dataset for the task.
 
-    The archive is cut back at the newest bar those rows were swept on.
+    The archive is cut back at the newest bar those rows were swept on, and a row missing its
+    stored figures on them fails the task.
     """
     archetype: archetypes.Archetype = archetypes.get(task.name)
     frame, swept = bars_for(
@@ -337,6 +338,9 @@ def reruns(task: Task) -> Iterator[Rerun]:
     rebuilt, data = prepared(task.held, frame, archetype, task.minutes, context.PriceBasis.RAW)
     for position, params in enumerate(rebuilt):
         summary, log = run_logged(data, params, task.root, archetype)
+        if swept:
+            verify(task.held.iloc[position], summary)
+
         yield Rerun(position, params, summary, log, data, swept)
 
 

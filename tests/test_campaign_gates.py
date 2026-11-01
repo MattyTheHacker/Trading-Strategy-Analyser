@@ -67,7 +67,7 @@ from tools.campaign_holdout import JOIN_KEYS, held_out, pair_windows, verdict
 from tools.campaign_montecarlo import resample_row
 from tools.campaign_propaccount import CONTRACTS, DEFAULT_PRESETS, replay_shortlist
 from tools.campaign_report import log_key
-from tools.campaign_shortlist import TOP, rerun_group
+from tools.campaign_shortlist import TOP, rerun_group, verify
 from tools.campaign_sweep import (
     Variant,
     insidebartrailing_structure_end_variants,
@@ -585,7 +585,11 @@ def shortlisted_rows() -> pd.DataFrame:
 
 @pytest.fixture
 def on_the_walk(monkeypatch: pytest.MonkeyPatch, walk: pd.DataFrame) -> pd.DataFrame:
-    """Point every loader a re-run reads through at the synthetic walk."""
+    """Point every loader a re-run reads through at the synthetic walk.
+
+    Its rows carry no real figures, so they are held to none.
+    """
+    monkeypatch.setattr(campaign_gates, "verify", lambda *_: None)
     monkeypatch.setattr(campaign_gates, "archive", lambda _root: walk)
     monkeypatch.setattr(campaign_gates, "candidate_bars", lambda _stored, bars: (bars,))
     monkeypatch.setattr(
@@ -688,6 +692,46 @@ def test_every_re_run_says_what_it_reproduced_of_its_stored_row() -> None:
     assert rerun[campaign_swept.SWEPT_BARS].all()
     assert set(CELL) <= set(rerun.columns)
     assert set(rerun["strategy"]) == {NAME}
+
+
+@pytest.mark.usefixtures("on_the_walk")
+def test_a_row_its_re_run_misses_on_its_swept_bars_fails_the_task_by_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(campaign_gates, "verify", verify)
+    with pytest.raises(RuntimeError, match="sweep 9 combo 3 re-ran to"):
+        run_task(a_task(shortlisted_rows(), strata=reading("gate4")))
+
+
+def test_rows_their_re_runs_reproduce_pass_through_the_refusal(
+    monkeypatch: pytest.MonkeyPatch, on_the_walk: pd.DataFrame
+) -> None:
+    monkeypatch.setattr(campaign_gates, "verify", verify)
+    rows = shortlisted_rows()
+    figures = pd.DataFrame(
+        [
+            summary
+            for _, summary, _ in rerun_group(
+                rows, on_the_walk, archetypes.INSIDEBARTRAILING, "MNQ", 1, context.PriceBasis.RAW
+            )
+        ],
+    )
+    reproducing = rows.assign(trades=figures["trades"].to_numpy(), net_pnl=figures["net_pnl"].to_numpy())
+    rerun = run_task(a_task(reproducing, strata=reading("gate4")))[RERUN]
+    assert (rerun["trades"] == rerun["stored_trades"]).all()
+
+
+@pytest.mark.usefixtures("on_the_walk")
+def test_a_row_re_run_off_its_swept_bars_is_reported_rather_than_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(campaign_gates, "verify", verify)
+    monkeypatch.setattr(
+        campaign_gates, "bars_for", lambda candidates, _stored, _block, _minutes: (candidates[0], False)
+    )
+    rerun = run_task(a_task(shortlisted_rows(), strata=reading("gate4")))[RERUN]
+    assert not rerun[campaign_swept.SWEPT_BARS].any()
+    assert (rerun["trades"] != rerun["stored_trades"]).all()
 
 
 @pytest.mark.usefixtures("on_the_walk")

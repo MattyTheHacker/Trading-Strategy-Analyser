@@ -24,6 +24,7 @@ from nqbt.dispersion import MIN_TRADES
 from nqbt.instruments import get_instrument
 from tools.campaign_shortlist import TOP, rebuild, shortlist
 from tools.campaign_sweep import COMMISSION, SLIPPAGE_TICKS
+from tools.campaign_swept import refuse_unreproduced
 
 logger = logging.getLogger(__name__)
 
@@ -201,6 +202,7 @@ def main(argv: list[str]) -> int:
         args.variant or "any",
     )
 
+    refuse_unreproduced(args.strategy, rows, args.root)
     bars: pd.DataFrame = splice.load_continuous(args.root)
     verdicts: list[dict[str, object]] = [
         run_resolution(args.strategy, block, args.root, int(minutes), bars, args)  # type: ignore[arg-type]  # a groupby key on an int column
