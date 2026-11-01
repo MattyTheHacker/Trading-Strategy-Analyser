@@ -22,9 +22,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from nqbt import archetypes, context, disambiguate, logsetup, propaccount, resample, splice
 from tools.campaign_holdout import HELD_OUT_SUFFIX, JOIN_KEYS, SELECTION_SUFFIX, half, ranked_pairs
+from tools.campaign_null import stored_rows
 from tools.campaign_propaccount import calendar, labelled, sessions_between, uncapped
-from tools.campaign_shortlist import TOP, rebuild, rerun_group, source
+from tools.campaign_shortlist import TOP, rebuild, rerun_group, source, verify
 from tools.campaign_sweep import HOLD_VARIANTS
+from tools.campaign_swept import on_swept_bars, warn_unchecked
 
 if TYPE_CHECKING:
     import datetime as dt
@@ -205,14 +207,30 @@ def rerun_logs(  # type: ignore[explicit-any]  # duckdb's dtypes
     root: str,
     bars: pd.DataFrame,
 ) -> Iterator[tuple[pd.Series, dict[str, object], pd.DataFrame]]:
-    """Yield every row of one window re-run with its summary and log, one resample per resolution."""
+    """Yield every row of one window re-run with its summary and log, one resample per resolution.
+
+    A row missing its stored figures on the bars it was swept on is refused.
+    """
     archetype: archetypes.Archetype = archetypes.get(name)
-    for minutes, block in rows.groupby("resolution", sort=False):
-        bar_minutes: int = int(minutes)  # type: ignore[arg-type]  # a groupby key on an int column
+    for (window, minutes), block in rows.groupby(["window", "resolution"], sort=False):
+        bar_minutes: int = int(minutes)  # type: ignore[call-overload]  # a groupby key on an int column
         frame: pd.DataFrame = resample.resample(bars, bar_minutes)
+        stored: pd.DataFrame = stored_rows(
+            name, root, str(window), variants=set(block["variant"]), resolutions={bar_minutes}
+        )
+        swept: bool = on_swept_bars(stored, block, frame)
+        if not swept:
+            warn_unchecked(root, bar_minutes, window, len(block))
+
         # ``splice.load_continuous`` is called without ``back_adjust``, so these are the prices
         # that traded and a rule reading an absolute level may run, exactly as in the sweep.
-        yield from rerun_group(block, frame, archetype, root, bar_minutes, context.PriceBasis.RAW)
+        for row, summary, log in rerun_group(
+            block, frame, archetype, root, bar_minutes, context.PriceBasis.RAW
+        ):
+            if swept:
+                verify(row, summary)
+
+            yield row, summary, log
 
 
 def measure_window(

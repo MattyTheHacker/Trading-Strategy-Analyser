@@ -11,7 +11,7 @@ import argparse
 import dataclasses
 import datetime as dt
 import math
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 import numpy as np
 import pandas as pd
@@ -66,7 +66,6 @@ from tools.campaign_propaccount import (
 from tools.campaign_report import stored_logs
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
     from pathlib import Path
 
 SWEEP_ID = 58
@@ -169,6 +168,12 @@ CALENDAR = np.arange("2024-08-01", "2026-01-01", dtype="datetime64[D]")
 def calendar_stub(monkeypatch: pytest.MonkeyPatch) -> None:
     """Stand in for the held-out calendar, which needs the bar archive a test run does not have."""
     monkeypatch.setattr(campaign_propaccount, "held_out_days", lambda *_: CALENDAR)
+
+
+@pytest.fixture(autouse=True)
+def reproducing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stand in for the check at a ladder's stored size, which needs a campaign database."""
+    monkeypatch.setattr(campaign_propaccount, "refuse_unreproduced", lambda *_: None)
 
 
 # -- the cap that must not bind --------------------------------------------------------------
@@ -537,14 +542,23 @@ def test_a_rung_reads_its_profit_factor_off_its_own_log() -> None:
     assert np.isnan(with_own_profit_factor(rows, {})["profit_factor"].iloc[0])
 
 
-def fake_rerun(
-    calls: list[int],
-) -> Callable[[str, pd.DataFrame, str], tuple[dict[tuple[int, int], pd.DataFrame], pd.DataFrame]]:
+class FakeRerun(Protocol):
+    """The shape of ``logs_for`` that a ladder and a book call."""
+
+    def __call__(
+        self, _name: str, rows: pd.DataFrame, root: str, *, require_stored: bool = True
+    ) -> tuple[dict[tuple[int, int], pd.DataFrame], pd.DataFrame]:
+        """Return each configuration's log and what the re-run reproduced."""
+        ...
+
+
+def fake_rerun(calls: list[int]) -> FakeRerun:
     """Build a ``logs_for`` that records the size it was asked for and scales one log by it."""
 
     def logs_for(
-        _name: str, rows: pd.DataFrame, root: str
+        _name: str, rows: pd.DataFrame, root: str, *, require_stored: bool = True
     ) -> tuple[dict[tuple[int, int], pd.DataFrame], pd.DataFrame]:
+        assert not require_stored, "a resized row was held to figures from another size"
         quantity = int(rows["order_quantity"].iloc[0])
         calls.append(quantity)
         log = trade_log()
@@ -553,6 +567,40 @@ def fake_rerun(
         return {(SWEEP_ID, COMBO_ID): log}, pd.DataFrame([{"root": root, "resolution": 5, "rows": 1}])
 
     return logs_for
+
+
+def test_a_ladder_is_checked_once_at_the_size_it_was_swept_at(monkeypatch: pytest.MonkeyPatch) -> None:
+    checked: list[int] = []
+    monkeypatch.setattr(
+        campaign_propaccount,
+        "refuse_unreproduced",
+        lambda _name, rows, _root: checked.append(int(rows["order_quantity"].iloc[0])),
+    )
+    monkeypatch.setattr(campaign_propaccount, "logs_for", fake_rerun([]))
+    rows = pd.DataFrame([stored_row(order_quantity=6)])
+    replay_rungs("InsideBarTrailing", rows, "MNQ", [3, 8], [apex()], 5)
+    assert checked == [6]
+
+    checked.clear()
+    logs_at_sizes("InsideBarTrailing", rows, "MNQ", [3, 8])
+    assert checked == [6]
+
+
+def test_a_ladder_or_book_that_does_not_reproduce_stops_before_any_size_runs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def refuse(*_: object) -> None:
+        msg = "sweep 1 combo 0 re-ran to 1 trades, not the 2 stored"
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr(campaign_propaccount, "refuse_unreproduced", refuse)
+    monkeypatch.setattr(campaign_propaccount, "logs_for", lambda *_, **__: pytest.fail("ran a size anyway"))
+    rows = pd.DataFrame([stored_row(order_quantity=6)])
+    with pytest.raises(RuntimeError, match="sweep 1 combo 0 re-ran"):
+        replay_rungs("InsideBarTrailing", rows, "MNQ", [3, 8], [apex()], 5)
+
+    with pytest.raises(RuntimeError, match="sweep 1 combo 0 re-ran"):
+        logs_at_sizes("InsideBarTrailing", rows, "MNQ", [3, 8])
 
 
 def test_every_rung_is_re_run_and_tagged_with_its_size(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1129,7 +1177,7 @@ def test_a_book_at_other_sizes_reads_its_profit_factor_off_the_first_size_s_log(
     monkeypatch.setattr(
         campaign_propaccount,
         "logs_for",
-        lambda _name, rows, root: (
+        lambda _name, rows, root, **_: (
             {KEY: at_size[int(rows["order_quantity"].iloc[0])]},
             pd.DataFrame([{"root": root, "resolution": 5, "rows": 1}]),
         ),
