@@ -83,7 +83,7 @@ def paired(
     keys: list[str] = list(
         dict.fromkeys((cell_keys or CELL_KEYS) + shared_columns(control, treatment)),
     )
-    joined: pd.DataFrame = cells(control, keys, by).join(  # type: ignore[call-arg]  # pandas-stubs 3.0.5 predates pandas 3.1's suffixes keyword
+    joined: pd.DataFrame = cells(control, keys, by).join(  # type: ignore[call-arg]  # pandas-stubs omits join's suffixes
         cells(treatment, keys, by),
         how="inner",
         suffixes=("_control", "_treatment"),

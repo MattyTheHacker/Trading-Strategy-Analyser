@@ -40,7 +40,7 @@ def timezone_offset_hours(baseline: pd.DataFrame, candidate: pd.DataFrame) -> in
         if hours == 0:
             continue
 
-        shifted = candidate.index + pd.Timedelta(hours=hours)
+        shifted: pd.DatetimeIndex = pd.DatetimeIndex(candidate.index) + pd.Timedelta(hours=hours)
         overlap = len(baseline.index.intersection(shifted))
         if overlap > best_overlap:
             best_offset, best_overlap = hours, overlap
