@@ -111,6 +111,7 @@ Start at [the summary](README.md) for what any of this means for trading. Two ot
 | `§M61`                                                                                                | [M61 — every older campaign re-read on the October 2026 re-sweep: most findings hold, and they move where the fill fixes reached a stop entry](m61-registry-resweep-fill-fixes.md)                                                  | all 9                                                                                               | 1, 2, 3, 4 | `mixed`       | [#439]                         |
 | `§M62`                                                                                                | [M62 — a book of copied prop accounts: the money scales with the book, and the worst day takes all of it](m62-prop-account-book.md)                                                                                                 | all 9                                                                                               | --         | `mixed`       | [#446]                         |
 | `§M63`                                                                                                | [M63 — EmaPullback's one-bar confirmation entry fails gate 4 at every bar size](m63-ema-pullback-confirmation-gate-4-result.md)                                                                                                     | EmaPullback                                                                                         | 4          | `negative`    | [#311]                         |
+| `§M64`                                                                                                | [M64 — the new exits do not pay in the midday cells, and the confluence size clears its account null on TopStep only](m64-phase-2-midday-reread.md)                                                                                 | InsideBarTrailing, OpeningRange                                                                     | 4          | `negative`    | [#354], [#449]                 |
 | `§ "Counting the confluence a trade actually had"`                                                    | [Counting the confluence a trade actually had](confluence-count-per-trade.md)                                                                                                                                                       | EmaCrossover                                                                                        | 3          | `negative`    | [#74]                          |
 | `§ "Do the shortlists travel? NQ and MNQ configurations run on ES, MES, GC and MGC"`                  | [Do the shortlists travel? NQ and MNQ configurations run on ES, MES, GC and MGC](cross-root-transfer.md)                                                                                                                            | all 9                                                                                               | --         | `mixed`       | [#330]                         |
 | `§ "M26.7 — pre-registration: ElasticBand's signal inverted"`                                         | [M26.7 — pre-registration: ElasticBand's signal inverted](m26-7-inverted-signal-preregistration.md)                                                                                                                                 | ElasticBand                                                                                         | 1, 2, 3    | `spec`        | [#279], [#439]                 |
@@ -445,6 +446,10 @@ Read on the October 2026 re-sweep through every linked 2026 account: copying one
 
 Pre-registered before its outputs were opened, and it fails. At 10 and 15 minutes, where it cleared §M39's paired bar on both roots, no shortlisted configuration survives without its session-close legs, and the median configuration's bootstrap 5th-percentile profit factor is 0.58 to 0.71, so the confirmation passes gate 4 at no bar size. The walk-forward fails too, on both roots at 10 minutes and on MNQ at 15. Its shortlists beat the market entry's, which fail every read as well, so the paired gain is real and is a gain over a losing entry.
 
+**[M64 — the new exits do not pay in the midday cells, and the confluence size clears its account null on TopStep only](m64-phase-2-midday-reread.md)**
+
+Read from stored outputs, with no new run. No exit clears either midday cell at 5 minutes under its own pre-registered bar, the late-day arms that gain held out all lose on the selection window, and their survival of the exclusion is the forced flat's legs relabelled as stops. So #344's Phase 2 is a negative result and the epic moves to Phase 3. The confluence size, matched against its own sizes shuffled for the first time through the accounts, raises the MNQ pass rate on TopStep 150K and median net on TopStep 50K and 150K, which is unregistered; on Apex it still loses money and on NQ it passes nothing more.
+
 **[Counting the confluence a trade actually had](confluence-count-per-trade.md)**
 
 The gradient in confluence is monotone and the matched null removes it, so the count sorts trades rather than adding edge.
@@ -588,6 +593,7 @@ Pre-registered and falsified: 1 of EmaCrossover's 16 gold pairs clears against t
 [#351]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/351
 [#352]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/352
 [#353]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/353
+[#354]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/354
 [#360]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/360
 [#369]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/369
 [#391]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/391
@@ -601,6 +607,7 @@ Pre-registered and falsified: 1 of EmaCrossover's 16 gold pairs clears against t
 [#439]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/439
 [#440]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/440
 [#446]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/446
+[#449]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/449
 [#50]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/50
 [#51]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/51
 [#73]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/73
