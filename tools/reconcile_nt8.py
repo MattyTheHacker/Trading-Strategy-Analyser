@@ -1,6 +1,6 @@
 """Compare an NT8 Strategy Analyzer Trades export against an nqbt run, leg for leg.
 
-    uv run tools/reconcile_nt8.py <export.csv> <config> <contract> [from]
+    uv run tools/reconcile_nt8.py <export.csv> <config> <contract> [from] [--bars <minute export>]
 
 ``config`` is a key of :data:`CONFIGS`; ``from`` is an optional ISO date trimming the export.
 ``tools/README.md`` § "reconcile_nt8.py".
@@ -8,9 +8,10 @@
 
 from __future__ import annotations
 
+import argparse
 import logging
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -49,9 +50,11 @@ EXIT_NAMES = {
 
 REVERSAL = "reversal"
 
-EXPECTED_ARGV = (4, 5)
 FIRST_DISAGREEMENTS = 5
 """Disagreeing legs shown inline; the point is to characterise them, not to list them all."""
+
+DAY_FIRST_TIME = "%d/%m/%Y %I:%M:%S %p"
+MONTH_FIRST_TIME = "%m/%d/%Y %I:%M:%S %p"
 
 EXPORT_TZ = "Europe/London"
 """The export is stamped in NinjaTrader's display zone -- the machine's -- not UTC.
@@ -73,6 +76,14 @@ class Config:
     params: Params
     resolution: int = 1
 
+
+INSIDEBAR_SIM = InsideBarParams(
+    ema_period=44,
+    fast_sma_period=50,
+    error_margin=0.10,
+    atr_length=14,
+    atr_multiplier=20.0,
+)
 
 # The reconciled configurations, not the NinjaScripts' SetDefaults. See docs/nt8-fidelity.md.
 CONFIGS: dict[str, Config] = {
@@ -113,13 +124,38 @@ CONFIGS: dict[str, Config] = {
         ),
         resolution=5,
     ),
+    # The same settings over the whole session: the November 2026 sim's second account.
+    "InsideBarTrailing-2035": Config(
+        InsideBarTrailingParams(
+            ema_period=44,
+            fast_sma_period=20,
+            error_margin=0.05,
+            atr_length=14,
+        ),
+        resolution=5,
+    ),
+    # The sim's third account. Its one-hour no-entry window reads the wall clock, so it fires on
+    # a sim account and not in a Strategy Analyzer run started outside that hour, and each needs
+    # its own row -- docs/nt8-fidelity.md, "A no-entry window before the session close".
+    "InsideBar-sim": Config(INSIDEBAR_SIM, resolution=5),
+    "InsideBar-sim-analyzer": Config(replace(INSIDEBAR_SIM, no_entry_minutes_before_close=0), resolution=5),
 }
 
 
-def parse_nt8(path: Path) -> pd.DataFrame:
-    """Parse the export into one row per leg exit, matching nqbt's trade-log shape."""
+def read_export(path: Path) -> pd.DataFrame:
+    """Read a trade-list export as written, with its column names stripped."""
     raw = pd.read_csv(path)
     raw.columns = [c.strip() for c in raw.columns]
+
+    return raw
+
+
+def parse_nt8(path: Path, *, day_first: bool = True) -> pd.DataFrame:
+    """Parse the export into one row per leg exit, matching nqbt's trade-log shape.
+
+    ``day_first`` is the exporting machine's date order: the laptop's is, an en-US machine's is not.
+    """
+    raw = read_export(path)
 
     def money(column: pd.Series[str]) -> pd.Series[float]:
         """Parse NT8's money, which writes a loss as ``-$4.50`` or, in accounting format, as ``($4.50)``.
@@ -133,7 +169,7 @@ def parse_nt8(path: Path) -> pd.DataFrame:
         return bare.where(~negative, -bare.abs())
 
     def when(column: str) -> pd.Series[pd.Timestamp]:
-        naive = pd.to_datetime(raw[column], format="%d/%m/%Y %I:%M:%S %p")
+        naive = pd.to_datetime(raw[column], format=DAY_FIRST_TIME if day_first else MONTH_FIRST_TIME)
 
         return naive.dt.tz_localize(EXPORT_TZ, ambiguous="infer", nonexistent="shift_forward").dt.tz_convert(
             "UTC",
@@ -163,7 +199,25 @@ def parse_nt8(path: Path) -> pd.DataFrame:
     return out.sort_values(["entry_time", "leg"]).reset_index(drop=True)
 
 
-def run_nqbt(config_name: str, contract: str) -> pd.DataFrame:
+def load_bars(contract_id: ContractId, bars_export: Path | None) -> pd.DataFrame:
+    """Return one contract's bars from a minute export if given, else from the cache."""
+    if bars_export is None:
+        return ingest.load_contract(contract_id)
+
+    try:
+        named = ContractId.parse(bars_export.name.removesuffix(".Last.txt"))
+    except ValueError:
+        named = contract_id
+    if named != contract_id:
+        msg = f"{bars_export.name} holds {named.nt8_name}'s bars, not {contract_id.nt8_name}'s"
+        raise SystemExit(msg)
+
+    parsed = ingest.parse_export(bars_export.read_bytes(), source_name=bars_export.name)
+
+    return ingest.drop_out_of_session(parsed, source_name=bars_export.name)
+
+
+def run_nqbt(config_name: str, contract: str, bars_export: Path | None = None) -> pd.DataFrame:
     """Return nqbt's trade log for one named configuration on one contract."""
     if config_name not in CONFIGS:
         msg = f"unknown config {config_name!r}; known: {sorted(CONFIGS)}"
@@ -173,7 +227,7 @@ def run_nqbt(config_name: str, contract: str) -> pd.DataFrame:
     params = config.params
     archetype = archetypes.for_params(params)
     contract_id = ContractId.parse(contract)
-    bars = resample.resample(ingest.load_contract(contract_id), config.resolution)
+    bars = resample.resample(load_bars(contract_id, bars_export), config.resolution)
     data = context.prepare(
         bars,
         archetype.context_for({k: [v] for k, v in params.as_dict().items()}),  # type: ignore[list-item]  # a params field holds an axis value
@@ -185,45 +239,53 @@ def run_nqbt(config_name: str, contract: str) -> pd.DataFrame:
     return log.sort_values(["entry_time", "leg"]).reset_index(drop=True)
 
 
-def reconcile(nt8: pd.DataFrame, mine: pd.DataFrame) -> None:
-    """Log how NT8's legs and nqbt's agree, leg for leg, over the window both cover."""
-    # Both ends are excluded: NT8 warms indicators from bars before the export starts, and
-    # the export can stop before the backtest did. See docs/nt8-fidelity.md.
+def hold_out_reversals(nt8: pd.DataFrame) -> pd.DataFrame:
+    """Return the legs an NT8 reversal did not cut short, logging how many it did."""
     cut = nt8["exit_reason"] == REVERSAL
     if cut.any():
         logger.info("  reversals         %s cut short by an NT8 reversal, held out", f"{int(cut.sum()):,}")
-        nt8 = nt8[~cut]
 
-    lo, hi = nt8["entry_time"].min(), nt8["entry_time"].max()
-    inner = mine[(mine["entry_time"] > lo) & (mine["entry_time"] < hi)]
-    nt8_inner = nt8[(nt8["entry_time"] > lo) & (nt8["entry_time"] < hi)]
+    return nt8[~cut]
 
-    joined = nt8_inner.merge(
-        inner,
+
+def compare_legs(
+    left: pd.DataFrame,
+    right: pd.DataFrame,
+    left_name: str = "NT8",
+    right_name: str = "nqbt",
+) -> pd.DataFrame:
+    """Log how two trade lists agree, leg for leg, and return the legs both hold.
+
+    Each side's columns come back suffixed with its name in lower case.
+    """
+    left_suffix, right_suffix = f"_{left_name.lower()}", f"_{right_name.lower()}"
+    joined = left.merge(
+        right,
         on=["entry_time", "leg"],
         how="outer",
-        suffixes=("_nt8", "_nqbt"),
+        suffixes=(left_suffix, right_suffix),
         indicator=True,
     )
     both = joined[joined["_merge"] == "both"]
 
-    logger.info(
-        "  window            %s -> %s (ends excluded)", f"{lo:%Y-%m-%d %H:%M}", f"{hi:%Y-%m-%d %H:%M}"
-    )
-    logger.info("  NT8 legs          %s", f"{len(nt8_inner):,}")
-    logger.info("  nqbt legs         %s", f"{len(inner):,}")
-    logger.info("  joined            %s", f"{len(both):,}")
-    logger.info("  NT8 only          %s", f"{int((joined['_merge'] == 'left_only').sum()):,}")
-    logger.info("  nqbt only         %s", f"{int((joined['_merge'] == 'right_only').sum()):,}")
+    logger.info("  %-18s%s", f"{left_name} legs", f"{len(left):,}")
+    logger.info("  %-18s%s", f"{right_name} legs", f"{len(right):,}")
+    logger.info("  %-18s%s", "joined", f"{len(both):,}")
+    logger.info("  %-18s%s", f"{left_name} only", f"{int((joined['_merge'] == 'left_only').sum()):,}")
+    logger.info("  %-18s%s", f"{right_name} only", f"{int((joined['_merge'] == 'right_only').sum()):,}")
     if not len(both):
-        return
+        return both
 
     checks = {
-        "identical entry price": np.isclose(both["entry_price_nt8"], both["entry_price_nqbt"]),
-        "identical exit price": np.isclose(both["exit_price_nt8"], both["exit_price_nqbt"]),
-        "identical exit time": both["exit_time_nt8"] == both["exit_time_nqbt"],
-        "identical exit reason": both["exit_reason_nt8"] == both["exit_reason_nqbt"],
-        "identical P&L": np.isclose(both["net_pnl_nt8"], both["net_pnl_nqbt"], atol=1e-6),
+        "identical entry price": np.isclose(
+            both[f"entry_price{left_suffix}"], both[f"entry_price{right_suffix}"]
+        ),
+        "identical exit price": np.isclose(
+            both[f"exit_price{left_suffix}"], both[f"exit_price{right_suffix}"]
+        ),
+        "identical exit time": both[f"exit_time{left_suffix}"] == both[f"exit_time{right_suffix}"],
+        "identical exit reason": both[f"exit_reason{left_suffix}"] == both[f"exit_reason{right_suffix}"],
+        "identical P&L": np.isclose(both[f"net_pnl{left_suffix}"], both[f"net_pnl{right_suffix}"], atol=1e-6),
     }
     every = np.ones(len(both), dtype=bool)
     for name, ok in checks.items():
@@ -231,44 +293,61 @@ def reconcile(nt8: pd.DataFrame, mine: pd.DataFrame) -> None:
         logger.info("  %-22s%s (%s)", name, f"{int(np.sum(ok)):,}", f"{np.mean(ok):.2%}")
     logger.info("  %-22s%s (%s)", "identical everywhere", f"{int(every.sum()):,}", f"{every.mean():.2%}")
     logger.info(
-        "  net P&L           NT8 %s   nqbt %s",
-        f"{both['net_pnl_nt8'].sum():,.2f}",
-        f"{both['net_pnl_nqbt'].sum():,.2f}",
+        "  net P&L           %s %s   %s %s",
+        left_name,
+        f"{both[f'net_pnl{left_suffix}'].sum():,.2f}",
+        right_name,
+        f"{both[f'net_pnl{right_suffix}'].sum():,.2f}",
     )
 
     bad = both[~every]
     if len(bad):
-        cols = [
-            "entry_time",
-            "leg",
-            "exit_time_nt8",
-            "exit_time_nqbt",
-            "exit_price_nt8",
-            "exit_price_nqbt",
-            "exit_reason_nt8",
-            "exit_reason_nqbt",
-        ]
+        cols = ["entry_time", "leg"]
+        for column in ("exit_time", "exit_price", "exit_reason"):
+            cols += [f"{column}{left_suffix}", f"{column}{right_suffix}"]
         logger.info("")
         logger.info("  first %d disagreeing legs:", min(FIRST_DISAGREEMENTS, len(bad)))
         logger.info("%s", bad[cols].head(FIRST_DISAGREEMENTS).to_string(index=False))
+
+    return both
+
+
+def reconcile(nt8: pd.DataFrame, mine: pd.DataFrame) -> None:
+    """Log how NT8's legs and nqbt's agree, leg for leg, over the window both cover."""
+    nt8 = hold_out_reversals(nt8)
+    # Both ends are excluded: NT8 warms indicators from bars before the export starts, and
+    # the export can stop before the backtest did. See docs/nt8-fidelity.md.
+    lo, hi = nt8["entry_time"].min(), nt8["entry_time"].max()
+    inner = mine[(mine["entry_time"] > lo) & (mine["entry_time"] < hi)]
+    nt8_inner = nt8[(nt8["entry_time"] > lo) & (nt8["entry_time"] < hi)]
+
+    logger.info(
+        "  window            %s -> %s (ends excluded)", f"{lo:%Y-%m-%d %H:%M}", f"{hi:%Y-%m-%d %H:%M}"
+    )
+    compare_legs(nt8_inner, inner)
 
 
 def main(argv: list[str]) -> int:
     """Reconcile the NT8 export against an nqbt run and return the process exit code."""
     logsetup.configure(__name__)
-    if len(argv) not in EXPECTED_ARGV:
-        logger.info("%s", __doc__)
-        return 2
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument("export", type=Path)
+    parser.add_argument("config")
+    parser.add_argument("contract")
+    parser.add_argument("start", metavar="from", nargs="?")
+    parser.add_argument("--bars", type=Path, help="a minute export to read instead of the cached contract")
+    args = parser.parse_args(argv[1:])
 
-    export, config_name, contract = argv[1], argv[2], argv[3]
-    logger.info("== %s on %s ==", config_name, contract)
-    nt8 = parse_nt8(Path(export))
-    if len(argv) == EXPECTED_ARGV[1]:
-        start = pd.Timestamp(argv[4], tz="UTC")
+    logger.info("== %s on %s ==", args.config, args.contract)
+    nt8 = parse_nt8(args.export)
+    if args.start is not None:
+        start = pd.Timestamp(args.start, tz="UTC")
         logger.info("  trimmed to        %s onwards", f"{start:%Y-%m-%d}")
         nt8 = nt8[nt8["entry_time"] >= start]
 
-    mine = run_nqbt(config_name, contract)
+    mine = run_nqbt(args.config, args.contract, args.bars)
     reconcile(nt8, mine)
 
     return 0

@@ -36,7 +36,7 @@ These hold across the reading tools below, so they are stated once here rather t
 | Reading a campaign                | `campaign_report.py`, `campaign_holdout.py`, `campaign_paired.py`, `campaign_crossread.py`, `campaign_crossroot.py`, `campaign_labels.py`, `campaign_hold.py`, `campaign_early_exit.py`                                                                                                      |
 | Testing a shortlist               | `campaign_null.py`, `campaign_contracts.py`, `campaign_montecarlo.py`, `campaign_walkforward.py`, `campaign_exits.py`, `campaign_ambiguity.py`, `campaign_review.py`, `campaign_confluence.py`, `campaign_flatten.py`, `campaign_sizing.py`, `geometry_contribution.py`, `campaign_gates.py` |
 | Prop-firm accounts                | `campaign_propaccount.py`, `campaign_propobjectives.py`                                                                                                                                                                                                                                      |
-| Reconciling against NinjaTrader   | `reconcile_nt8.py`, `reconcile_higher_timeframe.py`, `reconcile_order_lifetime.py`, `reconcile_passed_target.py`, `compare_exports.py`                                                                                                                                                       |
+| Reconciling against NinjaTrader   | `reconcile_nt8.py`, `reconcile_sim.py`, `reconcile_higher_timeframe.py`, `reconcile_order_lifetime.py`, `reconcile_passed_target.py`, `compare_exports.py`                                                                                                                                   |
 | The regression gate and CI        | `capture_trade_logs.py`, `compare_trade_logs.py`, `trade_log_gate_ci.py`, `lint_commit_messages.py`, `submodule_tree_payload.py`, `numba_tuple_probe.py`                                                                                                                                     |
 | Documentation                     | `findings_index.py`                                                                                                                                                                                                                                                                          |
 
@@ -642,12 +642,36 @@ Reasoning, results and traps for every reconciliation are in `docs/nt8-fidelity.
 Compares a Strategy Analyzer Trades export against an nqbt run, leg for leg.
 
 ```bash
-uv run tools/reconcile_nt8.py <export.csv> <config> <contract> [from]
+uv run tools/reconcile_nt8.py <export.csv> <config> <contract> [from] [--bars <minute export>]
 ```
 
 `config` is a key of `CONFIGS`: usually an archetype's name, but one archetype can have several reconciled configurations at different parameters and bar sizes. `from` is an optional ISO date that trims the export. It is needed whenever NT8 was asked for more history than the contract has, because NT8 then serves its *merged* series, which a per-contract archive cannot reproduce -- `docs/nt8-fidelity.md`, "Reconciliation result -- InsideBar". Both ends of the export are excluded from the comparison: NT8 warms indicators from bars before the export starts, and the export can stop before the backtest did.
 
 The export is stamped in NinjaTrader's display time zone -- the machine's, `Europe/London` -- not UTC. That is set explicitly rather than inferred, because a wrong zone shifts every trade by a whole hour and still parses -- `docs/nt8-fidelity.md` § "Sessions".
+
+`--bars` reads a contract's bars straight from a minute export instead of the cache, and stops if the file is named for another contract. It writes nothing, so bars newer than the archive can be compared without ingesting them, which would move the 60/40 split under every stored campaign.
+
+### reconcile_sim.py
+
+Compares a sim account's trade list, exported from Trade Performance, against an nqbt run or a Strategy Analyzer export, leg for leg.
+
+```bash
+uv run tools/reconcile_sim.py <trades.csv> <config> <contract> --from <time> --to <time> --bars <minute export>
+uv run tools/reconcile_sim.py <trades.csv> <config> <contract> --from <time> --to <time> --analyzer <export>
+```
+
+`config` gives the bar size and, against nqbt, the parameters: `InsideBarTrailing-midday-2035`, `InsideBarTrailing-2035` and `InsideBar-sim` are the November 2026 sim's three accounts. Use `InsideBar-sim-analyzer` to reconcile InsideBar's Strategy Analyzer export with `reconcile_nt8.py`, because the C#'s one-hour no-entry window reads the wall clock: it fires on a sim account and not in a backtest started outside that hour. So InsideBar's sim and Strategy Analyzer trade lists are expected to differ in that last hour.
+
+`--from` and `--to` are UK local times. Unlike `reconcile_nt8.py`, both ends count, because the pass bar in #350 is no trade extra and none missing. An entry counts by the bar boundary that signalled it, on both sides, so a time inside a bar cannot split a trade from its match. Set `--from` to when the strategy went live and `--to` before the bars export ends, because the last bar of an export may still be forming. A sim entry outside the window stops the run: it usually means the date order is wrong, since an en-US machine's `11/03` reads cleanly as 11 March. An analyzer export may run past the window, so it only draws a warning, and only if none of it falls inside. Pass `--month-first` for such a trade list and `--analyzer-month-first` for such an analyzer export.
+
+A live fill's time is not a backtest's stamp, so the sim's times are moved onto the bars first:
+
+- **An entry** goes to the nearest bar boundary plus one bar. A market order fills just after its signal bar closes, and a backtest stamps it with the bar it filled in, the one ending a bar later. Rounding keeps it on the right bar if the machine's clock is a little behind the data. This holds for market entries only, which is all three sim configurations; a resting stop entry would need its own rule. The tool logs the furthest entry from its boundary, and a large figure means an order rested or the rule does not hold.
+- **An exit** goes up to the end of the bar it fell in. An exit on the first tick of a bar can display exactly on the boundary, because the export has no fractions of a second, and then lands one bar early. Read a lone one-bar exit-time disagreement with that in mind.
+
+The tool also logs the mean price gap in ticks, per exit reason, since sim fills are not bar-model fills. It stops rather than joining if either export mixes accounts or holds another contract, or if two rows share a bar and a leg, which would double count.
+
+**The stamping rules and the Trade Performance columns are read from what NinjaTrader should do, and have not yet been checked against a real sim export.** The tests' fixtures reuse the Strategy Analyzer export's shape.
 
 ### reconcile_higher_timeframe.py
 

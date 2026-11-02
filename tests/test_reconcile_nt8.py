@@ -201,11 +201,16 @@ def test_every_config_reconciles_at_zero_cost() -> None:
         assert params["slippage_ticks"] == 0.0, name
 
 
-def test_only_the_ported_config_runs_at_five_minutes() -> None:
+def test_only_the_ported_and_sim_configs_run_at_five_minutes() -> None:
     """Resolution is per configuration, and the default has to stay 1 for the older four."""
     at_five = {name for name, config in reconcile_nt8.CONFIGS.items() if config.resolution == 5}
 
-    assert at_five == {"InsideBarTrailing-midday-2035"}
+    assert at_five == {
+        "InsideBarTrailing-midday-2035",
+        "InsideBarTrailing-2035",
+        "InsideBar-sim",
+        "InsideBar-sim-analyzer",
+    }
     assert all(c.resolution == 1 for n, c in reconcile_nt8.CONFIGS.items() if n not in at_five)
 
 
