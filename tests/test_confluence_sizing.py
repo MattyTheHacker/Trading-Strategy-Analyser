@@ -86,7 +86,11 @@ TRADING: dict[str, ArchetypeParams] = {
     "ElasticBand": ElasticBandParams(band_period=20, entry_std=1.5, bars_required_to_trade=30),
     "OpeningRange": OpeningRangeParams(window_minutes=30, max_entries_per_session=0),
     "SqueezeBreakout": SqueezeBreakoutParams(squeeze_period=10, squeeze_below=0.5),
-    "FailedBreak": FailedBreakParams(max_signals_per_session=0, bars_required_to_trade=30),
+    # Its re-break takes the bars the shared early-exit rules are tested on, so it is off. Short,
+    # because a long sweep on this walk mostly enters with the trend already down, which cannot turn.
+    "FailedBreak": FailedBreakParams(
+        direction=-1.0, max_signals_per_session=0, bars_required_to_trade=30, exit_on_rebreak=False
+    ),
 }
 """A combination per archetype but InsideBarTrailing that trades on :func:`walk_bars`."""
 
