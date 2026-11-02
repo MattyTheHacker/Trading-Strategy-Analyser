@@ -534,7 +534,7 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 ### M26.7 — the inverted signal: the fade's bars traded the other way ([#279])
 
-**Pre-registered and run at 2 to 15 minutes, 1 minute not yet run: paired on the same signal bars, every inverted arm beats its fade twin on the selection window and loses to it held out at every bar size, so no pair clears §M37's bar; the inversion fails gate 2 unfiltered on both roots where the fades pass, and gate 3 finds nothing on both roots.** Moved to [`docs/findings/m26-7-inverted-signal-result.md`](findings/m26-7-inverted-signal-result.md), pre-registered in [`docs/findings/m26-7-inverted-signal-preregistration.md`](findings/m26-7-inverted-signal-preregistration.md); the rules and their NinjaScript are [`nt8-fidelity.md`](nt8-fidelity.md) §M26.7.
+**Pre-registered and run at 2 to 15 minutes, with 1 minute read afterwards: paired on the same signal bars, every inverted arm beats its fade twin on the selection window and loses to it held out at each of those sizes, and at 1 minute no longer loses held out, so no pair clears §M37's bar; the inversion fails gate 2 unfiltered on both roots where the fades pass, and gate 3 finds nothing on both roots.** Moved to [`docs/findings/m26-7-inverted-signal-result.md`](findings/m26-7-inverted-signal-result.md), pre-registered in [`docs/findings/m26-7-inverted-signal-preregistration.md`](findings/m26-7-inverted-signal-preregistration.md); the rules and their NinjaScript are [`nt8-fidelity.md`](nt8-fidelity.md) §M26.7.
 
 ### M26.8 — the stop on the band itself: the level §M26 specified and never built ([#280])
 
@@ -754,7 +754,7 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 ### M55 — EmaCrossover's confluence count over filters that point the trade's way ([#439])
 
-**Pre-registered and run at 2 to 15 minutes, 1 minute not yet run: 14 of 64 cells clear §M37's paired bar against the ungated control, against a prediction of none — the phase gate at all four sizes under the swing stop and at 2 and 5 under the ATR stop — and none clears gate 3 family-wise, at a smallest p of 0.41 over 140 tests.** Moved to [`docs/findings/m55-side-count-result.md`](findings/m55-side-count-result.md), pre-registered in [`docs/findings/m55-side-count-preregistration.md`](findings/m55-side-count-preregistration.md); the filters and their NinjaScript are [`nt8-fidelity.md`](nt8-fidelity.md), "Filters relative to the trade's side".
+**Pre-registered and run, with 1 minute read afterwards: 18 of 80 cells clear §M37's paired bar against the ungated control, against a prediction of none — the phase gate at all five sizes under the swing stop and at 1, 2 and 5 under the ATR stop — and none clears gate 3 family-wise, at a smallest p of 0.46 over 180 tests.** Moved to [`docs/findings/m55-side-count-result.md`](findings/m55-side-count-result.md), pre-registered in [`docs/findings/m55-side-count-preregistration.md`](findings/m55-side-count-preregistration.md); the filters and their NinjaScript are [`nt8-fidelity.md`](nt8-fidelity.md), "Filters relative to the trade's side".
 
 ### M56 — every archetype in half-hour slots of the cash session ([#439])
 
@@ -762,7 +762,7 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 ### M57 — the noise area, followed, against its pieces and its fade ([#439])
 
-**Pre-registered and run at 2 to 15 minutes, 1 minute not yet run: the rule passes gate 2 unfiltered on both roots and in 11 of 18 strata, and clears gate 3 in no cell, at a smallest family-wise p of 0.115 over 216 tests; no arm clears §M37's paired bar against it — the fade costs everywhere, deciding on every bar costs, and dropping the trail raises profit factor in all 16 cells but misses the sign test on NQ's selection window.** Moved to [`docs/findings/m57-noise-area-result.md`](findings/m57-noise-area-result.md), pre-registered in [`docs/findings/m57-noise-area-preregistration.md`](findings/m57-noise-area-preregistration.md); the band and its rules are [`nt8-fidelity.md`](nt8-fidelity.md), "The noise area".
+**Pre-registered and run at 2 to 15 minutes, with 1 minute read afterwards and changing no verdict: the rule passes gate 2 unfiltered on both roots and in 11 of 18 strata, and clears gate 3 in no cell, at a smallest family-wise p of 0.115 over 216 tests, and 0.137 over the 204 of the family 1 minute picks; no arm clears §M37's paired bar against it — the fade costs everywhere, deciding on every bar costs, and dropping the trail raises profit factor in all 16 cells but misses the sign test on NQ's selection window.** Moved to [`docs/findings/m57-noise-area-result.md`](findings/m57-noise-area-result.md), pre-registered in [`docs/findings/m57-noise-area-preregistration.md`](findings/m57-noise-area-preregistration.md); the band and its rules are [`nt8-fidelity.md`](nt8-fidelity.md), "The noise area".
 
 ### M58 — the latched squeeze ([#439])
 
