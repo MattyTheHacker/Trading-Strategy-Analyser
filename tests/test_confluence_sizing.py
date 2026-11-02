@@ -32,6 +32,7 @@ from nqbt.sim.types import (
     ElasticBandParams,
     EmaCrossoverParams,
     EmaPullbackParams,
+    FailedBreakParams,
     InsideBarParams,
     InsideBarTrailingParams,
     OpeningRangeParams,
@@ -85,6 +86,7 @@ TRADING: dict[str, ArchetypeParams] = {
     "ElasticBand": ElasticBandParams(band_period=20, entry_std=1.5, bars_required_to_trade=30),
     "OpeningRange": OpeningRangeParams(window_minutes=30, max_entries_per_session=0),
     "SqueezeBreakout": SqueezeBreakoutParams(squeeze_period=10, squeeze_below=0.5),
+    "FailedBreak": FailedBreakParams(max_signals_per_session=0, bars_required_to_trade=30),
 }
 """A combination per archetype but InsideBarTrailing that trades on :func:`walk_bars`."""
 
@@ -107,6 +109,7 @@ EVERY_CLASS: tuple[type[ArchetypeParams], ...] = (
     ElasticBandParams,
     OpeningRangeParams,
     SqueezeBreakoutParams,
+    FailedBreakParams,
 )
 
 SIZE_COLUMNS = (C_QUANTITY, C_GROSS_PNL, C_COMMISSION, C_NET_PNL)
@@ -258,6 +261,7 @@ def test_insidebartrailing_adds_to_the_whole_position_before_the_split() -> None
         (InsideBarTrailingParams(), EXPANSION),
         (SqueezeBreakoutParams(), EXPANSION),
         (ElasticBandParams(), ROTATION),
+        (FailedBreakParams(), ROTATION),
         (OpeningRangeParams(entry_mode=ORB_ENTRY_BREAKOUT), EXPANSION),
         (OpeningRangeParams(entry_mode=ORB_ENTRY_RETEST, target_mode=ORB_TARGET_WIDTH), EXPANSION),
         (OpeningRangeParams(entry_mode=ORB_ENTRY_FADE, stop_mode=2), ROTATION),

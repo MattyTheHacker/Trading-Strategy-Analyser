@@ -23,6 +23,7 @@ from nqbt.sim import (
     crossover,
     elasticband,
     emapullback,
+    failedbreak,
     insidebar,
     insidebartrailing,
     openingrange,
@@ -35,6 +36,9 @@ from nqbt.sim.types import (
     BAND_NOISE,
     BAND_VWAP,
     EARLINESS_OFF,
+    FB_LEVELS,
+    FB_RANGE_KEYS,
+    FB_TARGET_OPPOSITE_NEXT,
     LOSING_OPTIONAL_EXITS,
     ORB_SCALE_NONE,
     ORB_STOP_ATR,
@@ -46,6 +50,7 @@ from nqbt.sim.types import (
     ElasticBandParams,
     EmaCrossoverParams,
     EmaPullbackParams,
+    FailedBreakParams,
     InsideBarParams,
     InsideBarTrailingParams,
     OpeningRangeParams,
@@ -461,6 +466,28 @@ def openingrange_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSp
         follow_through_sessions=tuple(sorted(scaled)),
         needs_vwap=_reads_vwap(values),
         atr_periods=tuple(sorted(atr | _exit_atr_periods(values))),
+        needs_time_of_day=_needs_time_of_day(values),
+        regime_lookbacks=_regime_lookbacks(values),
+        volume_keys=_volume_keys(values),
+        compression_keys=_compression_keys(values),
+        trend_keys=_trend_keys(values),
+        higher_timeframe_keys=_higher_timeframe_keys(values),
+        needs_session_clock=_needs_session_clock(values),
+    )
+
+
+def failedbreak_context(values: Mapping[str, Sequence[AxisValue]]) -> ContextSpec:
+    """Return what FailedBreak reads: its level's range, and all three under the next-level target."""
+    levels: set[int] = (
+        set(FB_LEVELS)
+        if any(int(v) == FB_TARGET_OPPOSITE_NEXT for v in values.get("target_mode", ()))
+        else {int(v) for v in values.get("level", ())}
+    )
+
+    return ContextSpec(
+        range_keys=tuple(sorted(FB_RANGE_KEYS[level] for level in levels)),
+        needs_vwap=_reads_vwap(values),
+        atr_periods=tuple(sorted(_exit_atr_periods(values))),
         needs_time_of_day=_needs_time_of_day(values),
         regime_lookbacks=_regime_lookbacks(values),
         volume_keys=_volume_keys(values),
@@ -899,6 +926,13 @@ combination, and the stop axes cannot be gated -- see :data:`OPENINGRANGE_GATES`
 """
 
 
+FAILEDBREAK_GATES: Mapping[str, Gate] = {
+    **CONTEXT_GATES,
+    "round_number_offset_ticks": "round_number_points",
+}
+"""The shared context filters, and the round-number offset read only with a spacing to move off."""
+
+
 @dataclass(frozen=True, slots=True)
 class Archetype:  # type: ignore[explicit-any]  # its __init__ takes the Callables below
     """How to sweep one strategy. Frozen, so a lookup cannot mutate the registry."""
@@ -1116,6 +1150,21 @@ SQUEEZEBREAKOUT = Archetype(
 """The fifth original: OpeningRange's resting breakout with the level taken from a compressed
 rolling window -- ``docs/findings/m19-2-squeeze-breakout-spec.md``."""
 
+FAILEDBREAK = Archetype(
+    name="FailedBreak",
+    params_cls=FailedBreakParams,
+    run=failedbreak.run_failedbreak,
+    legs=failedbreak.failedbreak_legs,
+    signal=failedbreak.failedbreak_signal,
+    long_side=failedbreak.failedbreak_long_side,
+    tier2=Tier2Status.TIER1_ONLY,
+    gated_by=FAILEDBREAK_GATES,
+    context_for=failedbreak_context,
+    not_sweepable=frozenset({"target_r_multiples"}),
+)
+"""The sixth original: the close back inside a range whose edge was just traded through --
+``docs/findings/m66-failed-break-spec.md``."""
+
 _REGISTRY: dict[str, Archetype] = {
     a.name: a
     for a in (
@@ -1123,6 +1172,7 @@ _REGISTRY: dict[str, Archetype] = {
         ELASTICBAND,
         EMACROSSOVER,
         EMAPULLBACK,
+        FAILEDBREAK,
         INSIDEBAR,
         INSIDEBARTRAILING,
         OPENINGRANGE,

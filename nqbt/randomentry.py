@@ -358,14 +358,15 @@ def _ranges_at(
     high: FloatArray,
     low: FloatArray,
 ) -> sessionrange.SessionRangeGrid:
-    """Return ``key``'s sessions and armed flags with ``high`` and ``low`` as its levels."""
-    return sessionrange.SessionRangeGrid(
-        keys=(key,),
-        session_id=data.range_session_id(),
-        armed=data.range_armed(key)[np.newaxis, :],
-        high=high[np.newaxis, :],
-        low=low[np.newaxis, :],
-    )
+    """Return the dataset's ranges with ``high`` and ``low`` as ``key``'s levels and the rest as they were."""
+    grid: sessionrange.SessionRangeGrid = data.range_grid()
+    row: int = grid.row(key)
+    drawn_high: FloatArray = grid.high.copy()
+    drawn_low: FloatArray = grid.low.copy()
+    drawn_high[row] = high
+    drawn_low[row] = low
+
+    return replace(grid, high=drawn_high, low=drawn_low)
 
 
 def _drawn_ranges(

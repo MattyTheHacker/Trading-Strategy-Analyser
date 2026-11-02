@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, NamedTuple, Protocol
 import numpy as np
 
 from nqbt import compression, conditions, higher_timeframe, regime, timeofday, trend, volume
+from nqbt.context import PriceBasis
 from nqbt.sim import bracket
 from nqbt.sim.types import (
     REQUIRE_ALL,
@@ -39,6 +40,7 @@ __all__ = [
     "apply_confluence_filters",
     "apply_context_filters",
     "breakeven",
+    "check_price_basis",
     "confluence_counts",
     "confluence_sizing",
     "context_gates",
@@ -517,3 +519,21 @@ def stop_tightening(data: Dataset, params: StopTighteningParams) -> bracket.Stop
         late_atr_multiple=float(params.late_stop_atr),
         late_atr=late_atr,
     )
+
+
+def check_price_basis(data: Dataset, round_number_points: float) -> None:
+    """Refuse round-number avoidance on bars whose absolute levels may not be the traded ones.
+
+    Fails closed: :attr:`~nqbt.context.PriceBasis.UNKNOWN` is the default and is refused --
+    ``docs/roadmap.md`` § "The build spec's three loose ends".
+    """
+    if round_number_points <= 0.0 or data.price_basis is PriceBasis.RAW:
+        return
+
+    msg: str = (
+        f"round_number_points is {round_number_points} but these bars are "
+        f"{data.price_basis.value}; a round number is only a round number on raw prices. "
+        f"Pass price_basis=PriceBasis.RAW to prepare() for a single contract or an "
+        f"unadjusted splice."
+    )
+    raise ValueError(msg)

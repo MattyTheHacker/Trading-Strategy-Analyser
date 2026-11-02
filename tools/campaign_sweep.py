@@ -59,6 +59,8 @@ from nqbt.sim.types import (
     EARLINESS_FIRST_BREAKOUT,
     EARLINESS_SMA_EXTENSION,
     EARLINESS_TREND_AGE,
+    FB_LEVELS,
+    FB_TARGET_MODES,
     ORB_ENTRY_BREAKOUT,
     ORB_ENTRY_FADE,
     ORB_ENTRY_REJECTION,
@@ -93,6 +95,7 @@ from nqbt.sim.types import (
     ElasticBandParams,
     EmaCrossoverParams,
     EmaPullbackParams,
+    FailedBreakParams,
     InsideBarParams,
     InsideBarTrailingParams,
     OpeningRangeParams,
@@ -1228,6 +1231,40 @@ def squeeze_variants(root: str) -> list[Variant]:
     ]
 
 
+FB_ROUND_NUMBER_POINTS = 50.0
+"""The round numbers a stop is moved off -- ``docs/findings/m66-failed-break-spec.md`` § "The stop"."""
+
+
+def failedbreak_variants(root: str) -> list[Variant]:
+    """Build one variant per level, target scheme and re-break exit; the four axes are shared."""
+    axes: dict[str, list[AxisValue]] = {
+        "direction": [trades.LONG, trades.SHORT],
+        "max_sweep_minutes": [0, 30, 60, 120],
+        "stop_offset_ticks": [2, 4, 8, 16],
+        "max_signals_per_session": [1, 2],
+    }
+
+    return [
+        Variant(
+            name=f"{level_name} target={target_name} rebreak={'on' if exit_on_rebreak else 'off'}",
+            archetype=archetypes.FAILEDBREAK,
+            base=_costed(
+                FailedBreakParams(
+                    level=level,
+                    target_mode=target_mode,
+                    exit_on_rebreak=exit_on_rebreak,
+                    round_number_points=FB_ROUND_NUMBER_POINTS,
+                ),
+                root,
+            ),
+            axes=axes,
+        )
+        for level, level_name in FB_LEVELS.items()
+        for target_mode, target_name in FB_TARGET_MODES.items()
+        for exit_on_rebreak in (True, False)
+    ]
+
+
 LONDON_OPEN_MINUTES = sessionrange.anchor_for(timeofday.SessionPhase.LONDON)
 """Minutes from the 18:00 ET session open to the 03:00 ET European open -- §M28's third anchor."""
 
@@ -1751,6 +1788,7 @@ VARIANTS: VariantBuilders = {
     "ElasticBand": elasticband_variants,
     "OpeningRange": openingrange_variants,
     "SqueezeBreakout": squeeze_variants,
+    "FailedBreak": failedbreak_variants,
 }
 """Archetype name -> the variants swept for it, built per root so costs are the root's.
 

@@ -13,7 +13,6 @@ import numpy as np
 from numba import njit
 
 from nqbt import conditions, trades
-from nqbt.context import PriceBasis
 from nqbt.instruments import MNQ, Instrument
 from nqbt.sim import bracket, filters
 from nqbt.sim.types import STOP_MIN_TICKS
@@ -398,24 +397,6 @@ def crossover_signal(data: Dataset, params: EmaCrossoverParams) -> BoolArray:
     return filters.apply_confluence_filters(signal, data, params, lambda: crossover_long_side(data, params))
 
 
-def _check_price_basis(data: Dataset, params: EmaCrossoverParams) -> None:
-    """Refuse round-number avoidance on bars whose absolute levels may not be the traded ones.
-
-    Fails closed: :attr:`~nqbt.context.PriceBasis.UNKNOWN` is the default and is refused --
-    ``docs/roadmap.md`` § "The build spec's three loose ends".
-    """
-    if params.round_number_points <= 0.0 or data.price_basis is PriceBasis.RAW:
-        return
-
-    msg: str = (
-        f"round_number_points is {params.round_number_points} but these bars are "
-        f"{data.price_basis.value}; a round number is only a round number on raw prices. "
-        f"Pass price_basis=PriceBasis.RAW to prepare() for a single contract or an "
-        f"unadjusted splice."
-    )
-    raise ValueError(msg)
-
-
 def crossover_long_side(data: Dataset, params: EmaCrossoverParams) -> BoolArray:
     """Return the bars one combination would enter long: those with the fast average above the slow one."""
     fast, slow = crossover_averages(data, params)
@@ -436,7 +417,7 @@ def crossover_legs(
     ``signal`` overrides the computed entry signal for the random-entry control arm; the regime
     series is *not* overridden, so a drawn bar is taken on whichever side the averages were on.
     """
-    _check_price_basis(data, params)
+    filters.check_price_basis(data, params.round_number_points)
     fast, slow = crossover_averages(data, params)
     direction_at: FloatArray = regime_direction(fast, slow)
     signal = crossover_signal(data, params) if signal is None else signal

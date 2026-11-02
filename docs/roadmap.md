@@ -798,7 +798,7 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 ### M66 — FailedBreak: the sweep and recovery of an obvious level ([#355])
 
-**Spec only, nothing built or swept: a close back inside yesterday's, the overnight or the first-hour range, entered at market on the next open, with the stop beyond the sweep's extreme; a random drawn bar has no sweep to stop behind, so the null has to carry each signal's geometry**: [`docs/findings/m66-failed-break-spec.md`](findings/m66-failed-break-spec.md).
+**Built and registered, not swept: a close back inside yesterday's, the overnight or the first-hour range, entered at market on the next open, with the stop beyond the sweep's extreme; a random drawn bar has no sweep to stop behind, so the null carries each signal's geometry**: [`docs/findings/m66-failed-break-spec.md`](findings/m66-failed-break-spec.md).
 
 ### Do the shortlists travel? ([#330])
 

@@ -206,6 +206,12 @@ below and is what you quote; this file is the index, not the record.
   frozen at the bar before, and the cap is 1, so a fill ends the latch; every other bar keeps its
   own row. `entry_bound` reads levels through `session_id` for that reason.
   `docs/nt8-fidelity.md`, "The latched squeeze".
+- **FailedBreak's prices are all fixed at its signal bar, and a drawn bar carries them.** A bar
+  that is not a sweep has no extreme to stop behind, so `geometry_of` moves a real signal's
+  extreme, level and targets to each drawn bar by the two closes' distance, paired by minute of
+  session in time order. **`legs(signal=...)` therefore refuses a mask that is neither inside the
+  real signal nor matched to it minute by minute**, where every other archetype takes any mask. Its signal cap counts signals rather than
+  fills, or the draw trades far more often than the rule. `docs/nt8-fidelity.md` §M66.
 - **OpeningRange computes its whole bracket from the trigger, never from the fill**, because the
   trigger is the only price known when the order is submitted. A gapped fill is worse than
   planned and its R is measured against the plan — DeadCatBounce's rule, shared deliberately.
@@ -258,10 +264,10 @@ below and is what you quote; this file is the index, not the record.
   EmaCrossover's flip, and refuses one on the same side, because the position is still open when
   it is submitted and `EntriesPerDirection = 1` ignores it (#393). It binds under the hold cap and
   the early exit, never the flip. `docs/nt8-fidelity.md` §M39.
-- **`EXIT_SIGNAL` is spent by EmaCrossover and InsideBarTrailing** — a rule-driven exit with no
-  bracket level, and the second is the first with C# behind it. A test guards structurally that
-  DeadCatBounce, PullBackAndGo, InsideBar and `bracket.py` never produce it, *and* that the two
-  that should still do.
+- **`EXIT_SIGNAL` is spent by EmaCrossover, ElasticBand, FailedBreak and InsideBarTrailing** — a
+  rule-driven exit with no bracket level, and InsideBarTrailing's is the first with C# behind it. A
+  test guards structurally that DeadCatBounce, PullBackAndGo, InsideBar and `bracket.py` never
+  produce it, *and* that the four that should still do.
 - **ElasticBand's signal-bar requirements are strict on both sides, and that deliberately does
   not inherit the ported archetypes' boundaries.** `PullBackAndGo.cs` and `DeadCatBounce.cs`
   disagree about equality — `Close[1] >= Open[1]` for green against `Close[1] < Open[1]` for red —

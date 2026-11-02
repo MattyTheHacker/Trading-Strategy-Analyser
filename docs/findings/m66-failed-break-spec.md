@@ -1,17 +1,17 @@
 ---
 id: M66
 title: "M66 — FailedBreak: the sweep and recovery of an obvious level"
-archetypes: []
+archetypes: [FailedBreak]
 issues: [355]
 gates: []
 outcome: spec
 verdict: >-
-  A close back inside yesterday's, the overnight or the first-hour range after trading through it, entered at market on the next open, with the stop beyond the sweep's extreme and the targets on the levels; its signal is event-like enough for the bar draw, but a drawn bar has no sweep to stop behind, so the null has to carry each signal's geometry.
+  A close back inside yesterday's, the overnight or the first-hour range after trading through it, entered at market on the next open, with the stop beyond the sweep's extreme and the targets on the levels; its signal is event-like enough for the bar draw, but a drawn bar has no sweep to stop behind, so the null carries each signal's geometry.
 ---
 
 # M66 — FailedBreak: the sweep and recovery of an obvious level ([#355])
 
-**Nothing here is a result.** This is the design, written before the Python. The one measurement is a count of signals and bracket distances on the selection window: no trade was simulated and no return was read.
+**Nothing here is a result.** This is the design, written before the Python and then built to; the rules and the NinjaScript each would be written as are in [`nt8-fidelity.md`](../nt8-fidelity.md) §M66. The one measurement is a count of signals and bracket distances on the selection window: no trade was simulated and no return was read.
 
 The setup is `Trading-Docs/discretionary_trading_concepts.md` §7.1, and §7.2 is the same rule on one level. The archetype is called `FailedBreak` because "sweep" already means a parameter sweep in `nqbt/sweep.py`, every tool and the results tables.
 
@@ -99,7 +99,7 @@ It is decided at the bar close and fills at the next open as `EXIT_SIGNAL`, the 
 | `direction`               | long, short     | axis    | one side per configuration, as OpeningRange             |
 | `max_sweep_minutes`       | 0, 30, 60, 120  | axis    | 0 is the same bar; §7.2 gives thirty minutes as a claim |
 | `stop_offset_ticks`       | 2, 4, 8, 16     | axis    | the cushion                                             |
-| `max_entries_per_session` | 1, 2            | axis    | the first signal against a second chance                |
+| `max_signals_per_session` | 1, 2            | axis    | the first signal against a second chance                |
 
 That is 18 variants of 64 combinations, or 1,152 per root, bar size, window and stratum, before the usual context strata. The run time gets measured once it is built. §7.1's "rotational or transitional conditions" is the existing regime strata rather than a rule, and how far the sweep went has no axis.
 
@@ -127,7 +127,7 @@ Selection window only, 2020-10-25 to 2024-05-10. MNQ, long side; NQ is close to 
 Four things to take from it:
 
 - **[#355]'s reason for choosing this setup holds.** Across both roots, all six bar sizes, all levels and both sides, draw freedom is never below 11.4 spare bars per signal, against `MIN_DRAW_FREEDOM` of 1. It is only thinner once a context filter is added, so it still has to be read per stratum.
-- **The first signal of a session is a different signal from the rest.** `every` runs 2 to 15 times `first`, widest at one minute, where price chops around the level. That is why `max_entries_per_session` is an axis.
+- **The first signal of a session is a different signal from the rest.** `every` runs 2 to 15 times `first`, widest at one minute, where price chops around the level. That is why `max_signals_per_session` is an axis.
 - **The first target is far away.** Its median is 89 to 210 points against a median stop of 6 to 48, and it clears 2:1 on 54% to 98% of signals. So the bracket looks good on paper and many trades may never reach it. **Expect a high `session_close_share` under `opposite+next`, and read it first**, which is why the two nearer schemes are there.
 - **One-minute overnight ranges are patchy on NQ.** A window missing a single minute has no range, which removes 120 of 916 NQ sessions at one minute against 44 of 919 on MNQ. At two minutes and above the two roots agree to within a few sessions.
 
@@ -137,7 +137,9 @@ Four things to take from it:
 
 **So a drawn bar carries a real signal's geometry.** The loop reads per-bar prices for the stop, the targets and the invalidation level, all fixed at the signal bar. Under a drawn signal, `failedbreak_legs` pairs each drawn bar with a real signal at the same minute of session, in time order within that minute, and places those prices at the same distances from the drawn bar's close. Pairing in time order keeps a quiet year's distances on a quiet year's bars. `randomentry` does not change, and the null holds the count, the time of day, the side and the bracket's distances, and moves only where the trade happens.
 
-**That null tests the entry, and the setup's claim is about the level.** §7.1 says obvious levels are where the stops are. The sharper test re-runs the whole rule against a level placed at random, the way §M60's `kinds` draw does for OpeningRange. It is not in this first version. The campaign's pre-registration should say whether it runs.
+**The cap counts signals rather than fills, and the null is why.** Capped on fills, a rule firing several times in each of 487 sessions trades 487 times while the same count of drawn bars lands in nearly every session and trades far more often. `max_signals_per_session` is applied to the signal itself, after the context filters, so a signal taken while a position is open still uses one up. A port counts the same way, at the bar close.
+
+**That null tests the entry, and the setup's claim is about the level.** §7.1 says obvious levels are where the stops are. So the campaign also re-runs the whole rule against a level placed at random, with `randomentry`'s existing `kinds` draw from §M60, and against another session's level with its `levels` draw from §M28.2. Both work through `FailedBreakParams.range_key`. Under `yesterday` the level is placed around the close of the session it is read from. A level draw moves one range and leaves the other two where they were, so a second target can still sit on a real level.
 
 ## The expressibility checklist
 
@@ -152,16 +154,16 @@ Four things to take from it:
 
 The levels, the state per level and the exit are bar-close reads in `OnBarUpdate`, the stop is `SetStopLoss` and the targets are `SetProfitTarget`. Whether NT8's `PriorDayOHLC` would give the same yesterday is not measured, so the port should not assume it does.
 
-## The build, for when it starts
+## The build
 
 - **A new loop in `nqbt/sim/failedbreak.py`, on `bracket.py`.** `simulate_crossover` is close, with a market entry and a level stop, but its targets are R multiples only and it is EmaCrossover's negative control, so a per-signal target price does not belong in it.
 - **The signal is worked out before the loop**, one run per level, side and age cap.
 - **`Tier2Status` is `TIER1_ONLY`**, every rule goes in `nt8-fidelity.md`, and its defaults have to trade on MNQ 03-24 for the trade-log gate.
-- **The sweep runs in Azure**, once built and pre-registered, and only after someone says go. There is no VM at the moment.
+- **The sweep is `campaign_sweep.py --strategies FailedBreak`.** It runs in Azure, once pre-registered, and only after someone says go. There is no VM at the moment.
 
 ## Not in this version
 
-Each of these is a later campaign, and none is ruled out: the pullback entry, the level placebo null, all three levels at once, Group 1's other levels, §8's reward-to-risk filter and a maximum risk. The order-flow confirmation and the book-flip read need depth data, which is [#120] and [#121].
+Each of these is a later campaign, and none is ruled out: the pullback entry, all three levels at once, Group 1's other levels, §8's reward-to-risk filter and a maximum risk. The order-flow confirmation and the book-flip read need depth data, which is [#120] and [#121].
 
 [#120]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/120
 [#121]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/121
