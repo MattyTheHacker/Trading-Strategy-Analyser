@@ -1,6 +1,6 @@
-"""The sim trade-list comparison, whose first real export arrives with the sim already running."""
+"""The sim trade-list comparison, over the rows a real Trade Performance export holds."""
 
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -8,9 +8,6 @@ import pytest
 from nqbt import paths
 from nqbt.instruments import ContractId
 from tools import reconcile_nt8, reconcile_sim
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 HEADER = (
     "Trade number,Instrument,Account,Strategy,Market pos.,Qty,Entry price,Exit price,"
@@ -20,6 +17,11 @@ HEADER = (
 ROW = (
     "1,{instrument},{account},X,Long,4,25000.00,25010.00,{entry},{exit},entry1,Profit target,"
     "$80.00,$80.00,$0.00,$0.00,$0.00,$0.00,$0.00,$0.00,$80.00,$0.00,5,\n"
+)
+FILL = (
+    "1,MNQ 12-26,SimAccount1,X,{side},{quantity},{entry_price},{exit_price},"
+    "03/11/2026 3:35:00 PM,{exit_time},"
+    "{entry_name},{exit_name},{profit},$80.00,$0.00,$0.00,$0.00,$0.00,$0.00,$0.00,$80.00,$0.00,2,\n"
 )
 START = pd.Timestamp("2026-11-03 14:00", tz="UTC")
 END = pd.Timestamp("2026-11-03 21:00", tz="UTC")
@@ -41,11 +43,40 @@ def export(
     return path
 
 
+def fill_row(
+    quantity: int,
+    entry_price: float = 25000.0,
+    exit_price: float = 25010.0,
+    exit_name: str = "Profit target",
+    exit_time: str = "03/11/2026 3:42:17 PM",
+    entry_name: str = "entry1",
+    side: str = "Long",
+) -> str:
+    return FILL.format(
+        side=side,
+        quantity=quantity,
+        entry_price=f"{entry_price:.2f}",
+        exit_price=f"{exit_price:.2f}",
+        exit_time=exit_time,
+        entry_name=entry_name,
+        exit_name=exit_name,
+        profit=f"${(exit_price - entry_price) * quantity * 2:.2f}",
+    )
+
+
+def fills(tmp_path: Path, *rows: str) -> pd.DataFrame:
+    path = tmp_path / "trades.csv"
+    path.write_text(HEADER + "".join(rows), encoding="utf-8")
+
+    return reconcile_nt8.parse_nt8(path)
+
+
 def nqbt_leg(entry: str = "2026-11-03 15:40", exit_time: str = "2026-11-03 15:45") -> dict[str, object]:
     return {
         "entry_time": pd.Timestamp(entry, tz="UTC"),
         "exit_time": pd.Timestamp(exit_time, tz="UTC"),
         "leg": 1,
+        "quantity": 4,
         "entry_price": 25000.0,
         "exit_price": 25010.0,
         "net_pnl": 80.0,
@@ -129,17 +160,86 @@ def test_month_first_reads_an_en_us_export_without_leading_zeros(tmp_path: Path)
     assert len(compare(sim, pd.DataFrame([nqbt_leg()]))) == 1
 
 
-def test_a_split_fill_is_refused_rather_than_double_counted(tmp_path: Path) -> None:
-    second_row = ROW.format(
-        instrument="MNQ 12-26",
-        account="SimAccount1",
-        entry="03/11/2026 3:35:03 PM",
-        exit="03/11/2026 3:42:17 PM",
-    )
-    path = export(tmp_path, extra_row=second_row)
+def test_a_split_fill_merges_into_one_leg_at_its_weighted_prices(tmp_path: Path) -> None:
+    """Three lots at one price and one at another average by lots, not by rows."""
+    sim = fills(tmp_path, fill_row(3, 25000.0, 25010.0), fill_row(1, 25004.0, 25014.0))
 
-    with pytest.raises(SystemExit, match="share a bar and a leg"):
-        reconcile_sim.to_bar_stamps(reconcile_nt8.parse_nt8(path), 5)
+    both = compare(sim, pd.DataFrame([nqbt_leg()]))
+
+    assert len(both) == 1
+    assert both["entry_price_sim"].iloc[0] == pytest.approx(25001.0)
+    assert both["exit_price_sim"].iloc[0] == pytest.approx(25011.0)
+    assert both["quantity_sim"].iloc[0] == 4
+    assert both["net_pnl_sim"].iloc[0] == pytest.approx(80.0)
+
+
+def test_each_of_a_trades_legs_keeps_its_own_row(tmp_path: Path) -> None:
+    """Rows sharing a bar merge only within a leg: the runner is not the bracketed lot."""
+    sim = fills(
+        tmp_path,
+        fill_row(2),
+        fill_row(2),
+        fill_row(2, exit_price=25030.0, entry_name="entry2", exit_name="Trail stop"),
+    )
+
+    merged = reconcile_sim.merge_split_fills(reconcile_sim.to_bar_stamps(sim, 5))
+
+    assert list(merged["leg"]) == [1, 2]
+    assert list(merged["quantity"]) == [4, 2]
+    assert list(merged["exit_reason"]) == ["target", "stop"]
+
+
+def test_a_split_exit_over_two_bars_closes_the_leg_on_the_later_one(tmp_path: Path) -> None:
+    """A backtest leg closes on one bar, so the disagreement has to show rather than average away."""
+    sim = fills(
+        tmp_path,
+        fill_row(2, exit_time="03/11/2026 3:44:59 PM"),
+        fill_row(2, exit_time="03/11/2026 3:45:01 PM"),
+    )
+
+    merged = reconcile_sim.merge_split_fills(reconcile_sim.to_bar_stamps(sim, 5))
+
+    assert merged["exit_time"].iloc[0] == pd.Timestamp("2026-11-03 15:50", tz="UTC")
+
+
+def test_a_leg_closed_for_two_reasons_reads_as_a_disagreement(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A target part filled before the stop took the rest is real, and must not pass as one exit."""
+    sim = fills(tmp_path, fill_row(2), fill_row(2, exit_price=24990.0, exit_name="Stop loss"))
+
+    with caplog.at_level("INFO"):
+        both = compare(sim, pd.DataFrame([nqbt_leg()]))
+
+    assert both["exit_reason_sim"].iloc[0] == "stop+target"
+    assert any("identical exit reason" in message and "0 (0.00%)" in message for message in caplog.messages)
+
+
+def test_both_sides_on_one_bar_and_leg_are_refused(tmp_path: Path) -> None:
+    """A restart can leave two real trades there, and merging them would net one against the other."""
+    sim = fills(tmp_path, fill_row(4), fill_row(4, side="Short"))
+
+    with pytest.raises(SystemExit, match="both sides"):
+        compare(sim, pd.DataFrame([nqbt_leg()]))
+
+
+def test_a_leg_part_open_at_the_export_is_refused(tmp_path: Path) -> None:
+    sim = fills(tmp_path, fill_row(3))
+
+    with pytest.raises(SystemExit, match="different quantity from nqbt"):
+        compare(sim, pd.DataFrame([nqbt_leg()]))
+
+
+def test_a_leg_only_the_sim_holds_counts_as_missing_whatever_its_quantity(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    other = pd.DataFrame([nqbt_leg("2026-11-03 16:40", "2026-11-03 16:45")])
+
+    with caplog.at_level("INFO"):
+        both = compare(fills(tmp_path, fill_row(3)), other)
+
+    assert both.empty
+    assert any("Sim only" in message and message.endswith("1") for message in caplog.messages)
 
 
 def test_an_export_mixing_accounts_is_refused(tmp_path: Path) -> None:
@@ -252,16 +352,55 @@ def test_a_reversal_on_the_other_side_is_held_out_too(
     assert any("nqbt legs" in message and message.endswith("0") for message in caplog.messages)
 
 
-def test_an_other_side_entirely_outside_the_window_is_warned_about(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
+def analyzer_run(tmp_path: Path, entry: str, exit_time: str) -> list[str]:
+    sim_dir = tmp_path / "sim"
+    sim_dir.mkdir()
+    analyzer_dir = tmp_path / "analyzer"
+    analyzer_dir.mkdir()
+
+    return [
+        "reconcile_sim.py",
+        str(export(sim_dir)),
+        "InsideBar-sim",
+        "MNQ 12-26",
+        "--from",
+        "2026-11-03 14:00",
+        "--to",
+        "2026-11-03 21:00",
+        "--analyzer",
+        str(export(analyzer_dir, entry=entry, exit_time=exit_time)),
+    ]
+
+
+def test_an_analyzer_export_entirely_outside_the_window_is_warned_about(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A misread analyzer date order drops every leg, and that must not read as trades missing."""
-    in_march = nqbt_leg("2026-03-11 15:40", "2026-03-11 15:45")
+    assert reconcile_sim.main(analyzer_run(tmp_path, "11/03/2026 3:40:00 PM", "11/03/2026 3:45:00 PM")) == 0
+
+    captured = capsys.readouterr()
+    assert "check its date order" in captured.out + captured.err
+
+
+def test_an_analyzer_export_inside_the_window_draws_no_warning(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert reconcile_sim.main(analyzer_run(tmp_path, "03/11/2026 3:40:00 PM", "03/11/2026 3:45:00 PM")) == 0
+
+    captured = capsys.readouterr()
+    assert "check its date order" not in captured.out + captured.err
+
+
+def test_no_nqbt_trade_in_the_window_is_not_blamed_on_the_date_order(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The dates of nqbt's legs come from the bars, so a window it did not trade in is only that."""
+    earlier = nqbt_leg("2026-10-27 15:40", "2026-10-27 15:45")
 
     with caplog.at_level("WARNING"):
-        compare(reconcile_nt8.parse_nt8(export(tmp_path)), pd.DataFrame([in_march]))
+        compare(reconcile_nt8.parse_nt8(export(tmp_path)), pd.DataFrame([earlier]))
 
-    assert any("check its date order" in message for message in caplog.messages)
+    assert not caplog.messages
 
 
 def test_an_analyzer_export_of_another_contract_is_refused(tmp_path: Path) -> None:
@@ -316,30 +455,31 @@ def test_a_bars_export_named_for_another_contract_is_refused(tmp_path: Path) -> 
         reconcile_nt8.load_bars(ContractId.parse("MNQ 12-26"), bars)
 
 
+def test_an_analyzer_export_holding_split_rows_is_merged_before_it_joins(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Two rows on that side would join one sim leg twice and read as a perfect match."""
+    argv = analyzer_run(tmp_path, "03/11/2026 3:40:00 PM", "03/11/2026 3:45:00 PM")
+    analyzer = Path(argv[-1])
+    half = (
+        analyzer.read_text(encoding="utf-8")
+        .splitlines(keepends=True)[1]
+        .replace(",Long,4,", ",Long,2,")
+        .replace("$80.00,$80.00", "$40.00,$40.00")
+    )
+    analyzer.write_text(HEADER + half + half, encoding="utf-8")
+
+    assert reconcile_sim.main(argv) == 0
+
+    captured = capsys.readouterr().out
+    assert "joined            1" in captured
+    assert "identical P&L         1 (100.00%)" in captured
+
+
 def test_a_strategy_analyzer_export_can_be_the_other_side(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    sim_dir = tmp_path / "sim"
-    sim_dir.mkdir()
-    analyzer_dir = tmp_path / "analyzer"
-    analyzer_dir.mkdir()
-    sim = export(sim_dir)
-    analyzer = export(analyzer_dir, entry="03/11/2026 3:40:00 PM", exit_time="03/11/2026 3:45:00 PM")
-
-    code = reconcile_sim.main(
-        [
-            "reconcile_sim.py",
-            str(sim),
-            "InsideBar-sim",
-            "MNQ 12-26",
-            "--from",
-            "2026-11-03 14:00",
-            "--to",
-            "2026-11-03 21:00",
-            "--analyzer",
-            str(analyzer),
-        ]
-    )
+    code = reconcile_sim.main(analyzer_run(tmp_path, "03/11/2026 3:40:00 PM", "03/11/2026 3:45:00 PM"))
 
     assert code == 0
     # The agreement lines log from reconcile_nt8, whose logger the entry point has to switch on.

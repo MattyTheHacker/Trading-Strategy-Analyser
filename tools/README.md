@@ -672,9 +672,11 @@ A live fill's time is not a backtest's stamp, so the sim's times are moved onto 
 - **An entry** goes to the nearest bar boundary plus one bar. A market order fills just after its signal bar closes, and a backtest stamps it with the bar it filled in, the one ending a bar later. Rounding keeps it on the right bar if the machine's clock is a little behind the data. This holds for market entries only, which is all three sim configurations; a resting stop entry would need its own rule. The tool logs the furthest entry from its boundary, and a large figure means an order rested or the rule does not hold.
 - **An exit** goes up to the end of the bar it fell in. An exit on the first tick of a bar can display exactly on the boundary, because the export has no fractions of a second, and then lands one bar early. Read a lone one-bar exit-time disagreement with that in mind.
 
-The tool also logs the mean price gap in ticks, per exit reason, since sim fills are not bar-model fills. It stops rather than joining if either export mixes accounts or holds another contract, or if two rows share a bar and a leg, which would double count.
+**A live order fills in parts, and Trade Performance writes a row per part**, so one leg can take several rows where a backtest's export has one. The tool merges a leg's rows, by bar and leg, on an analyzer export as well: entry and exit prices weighted by quantity, P&L summed, and the latest exit's bar. A leg whose rows closed for different reasons keeps them all, as `stop+target`, so it reads as a disagreement rather than as one exit. It stops if one bar and leg holds both sides, which is two trades, or if a leg both sides hold has a different quantity on each, which is usually a leg part open when the export ran.
 
-**The stamping rules and the Trade Performance columns are read from what NinjaTrader should do, and have not yet been checked against a real sim export.** The tests' fixtures reuse the Strategy Analyzer export's shape.
+The tool also logs the mean price gap in ticks, per exit reason and per leg rather than per contract, since sim fills are not bar-model fills. It also stops if either export mixes accounts or holds another contract.
+
+**Checked against real sim exports from 3 November 2026, taken mid-session.** The columns, `--month-first` and both stamping rules held: every entry lay on its bar boundary, and all nine legs of the one full session the bars covered joined nqbt's on entry bar, exit bar and exit reason. That is a small sample in which no leg closed for two reasons, and no trail stop came before its target, so how NT8 pairs that exit has not been seen. The tests' fixtures reuse the export's shape.
 
 ### reconcile_higher_timeframe.py
 
