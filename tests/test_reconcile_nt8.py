@@ -5,6 +5,7 @@ NinjaTrader time to produce. A parse bug is therefore discovered at the worst po
 moment, which is the whole reason these exist -- ``docs/nt8-fidelity.md`` §M22.
 """
 
+import math
 from typing import TYPE_CHECKING
 
 import pandas as pd
@@ -324,3 +325,48 @@ def test_the_bars_are_resampled_to_the_configs_own_resolution(monkeypatch: pytes
 
     assert seen["minutes"] == 5
     assert seen["bar_minutes"] == 5
+
+
+def priced_leg(price: float) -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "entry_time": [pd.Timestamp("2026-11-02 15:00", tz="UTC")],
+            "leg": [1],
+            "entry_price": [price],
+            "exit_price": [price],
+            "exit_time": [pd.Timestamp("2026-11-02 15:05", tz="UTC")],
+            "exit_reason": ["target"],
+            "net_pnl": [0.0],
+        }
+    )
+
+
+def identical_counts(left: pd.DataFrame, right: pd.DataFrame, caplog: pytest.LogCaptureFixture) -> list[str]:
+    with caplog.at_level("INFO"):
+        reconcile_nt8.compare_legs(left, right)
+
+    return [
+        message.split()[3]
+        for message in caplog.messages
+        if message.strip().startswith(("identical entry", "identical exit price"))
+    ]
+
+
+@pytest.mark.parametrize("price", [16_000.0, 28_693.25, 100_000.0])
+def test_a_one_tick_price_gap_is_not_identical_at_any_price(
+    price: float, caplog: pytest.LogCaptureFixture
+) -> None:
+    assert identical_counts(priced_leg(price), priced_leg(price + 0.25), caplog) == ["0", "0"]
+
+
+def test_an_averaged_fill_an_eighth_of_a_point_away_is_not_identical(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    assert identical_counts(priced_leg(28_693.125), priced_leg(28_693.25), caplog) == ["0", "0"]
+
+
+def test_floating_point_noise_in_a_price_stays_identical(caplog: pytest.LogCaptureFixture) -> None:
+    next_float_up: float = math.nextafter(28_693.25, math.inf)
+
+    assert next_float_up != 28_693.25
+    assert identical_counts(priced_leg(next_float_up), priced_leg(28_693.25), caplog) == ["1", "1"]

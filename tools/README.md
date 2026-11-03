@@ -652,6 +652,8 @@ uv run tools/reconcile_nt8.py <export.csv> <config> <contract> [from] [--bars <m
 
 The export is stamped in NinjaTrader's display time zone -- the machine's, `Europe/London` -- not UTC. That is set explicitly rather than inferred, because a wrong zone shifts every trade by a whole hour and still parses -- `docs/nt8-fidelity.md` § "Sessions".
 
+Two prices count as identical only within `PRICE_TOLERANCE`, a fixed gap far below a tick, here and in `reconcile_sim.py`, which shares the check. It can't scale with the price: numpy's default reaches a whole tick at 25,000, and one-tick gaps above that used to pass as identical. The stored exports, all from 2024 contracts, read the same either way.
+
 `--bars` reads a contract's bars straight from a minute export instead of the cache, and stops if the file is named for another contract. It writes nothing, so bars newer than the archive can be compared without ingesting them, which would move the 60/40 split under every stored campaign.
 
 ### reconcile_sim.py
