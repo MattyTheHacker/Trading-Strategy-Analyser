@@ -56,6 +56,8 @@ FIRST_DISAGREEMENTS = 5
 DAY_FIRST_TIME = "%d/%m/%Y %I:%M:%S %p"
 MONTH_FIRST_TIME = "%m/%d/%Y %I:%M:%S %p"
 
+LEG_KEY = ["entry_time", "leg"]
+
 EXPORT_TZ = "Europe/London"
 """The export is stamped in NinjaTrader's display zone -- the machine's -- not UTC.
 
@@ -184,6 +186,8 @@ def parse_nt8(path: Path, *, day_first: bool = True) -> pd.DataFrame:
             # bracketed and trailing lots in. InsideBar brackets one order called "entry" and
             # has no scale-out, so it is leg 1.
             "leg": raw["Entry name"].str.extract(r"(\d+)")[0].fillna("1").astype(int),
+            "side": raw["Market pos."],
+            "quantity": raw["Qty"].astype(int),
             "entry_price": raw["Entry price"].astype(float),
             "exit_price": raw["Exit price"].astype(float),
             "net_pnl": money(raw["Profit"]),
@@ -261,7 +265,7 @@ def compare_legs(
     left_suffix, right_suffix = f"_{left_name.lower()}", f"_{right_name.lower()}"
     joined = left.merge(
         right,
-        on=["entry_time", "leg"],
+        on=LEG_KEY,
         how="outer",
         suffixes=(left_suffix, right_suffix),
         indicator=True,
@@ -302,7 +306,7 @@ def compare_legs(
 
     bad = both[~every]
     if len(bad):
-        cols = ["entry_time", "leg"]
+        cols = list(LEG_KEY)
         for column in ("exit_time", "exit_price", "exit_reason"):
             cols += [f"{column}{left_suffix}", f"{column}{right_suffix}"]
         logger.info("")
