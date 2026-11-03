@@ -58,6 +58,9 @@ MONTH_FIRST_TIME = "%m/%d/%Y %I:%M:%S %p"
 
 LEG_KEY = ["entry_time", "leg"]
 
+PRICE_TOLERANCE = 1e-6
+"""The widest gap, in points, that still counts as the same price; far below a tick."""
+
 EXPORT_TZ = "Europe/London"
 """The export is stamped in NinjaTrader's display zone -- the machine's -- not UTC.
 
@@ -282,10 +285,16 @@ def compare_legs(
 
     checks = {
         "identical entry price": np.isclose(
-            both[f"entry_price{left_suffix}"], both[f"entry_price{right_suffix}"]
+            both[f"entry_price{left_suffix}"],
+            both[f"entry_price{right_suffix}"],
+            rtol=0.0,
+            atol=PRICE_TOLERANCE,
         ),
         "identical exit price": np.isclose(
-            both[f"exit_price{left_suffix}"], both[f"exit_price{right_suffix}"]
+            both[f"exit_price{left_suffix}"],
+            both[f"exit_price{right_suffix}"],
+            rtol=0.0,
+            atol=PRICE_TOLERANCE,
         ),
         "identical exit time": both[f"exit_time{left_suffix}"] == both[f"exit_time{right_suffix}"],
         "identical exit reason": both[f"exit_reason{left_suffix}"] == both[f"exit_reason{right_suffix}"],
