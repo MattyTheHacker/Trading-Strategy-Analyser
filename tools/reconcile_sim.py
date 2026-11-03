@@ -74,16 +74,69 @@ def to_bar_stamps(sim: pd.DataFrame, resolution: int) -> pd.DataFrame:
     stamped = sim.copy()
     stamped["entry_time"] = signal_boundaries(sim["entry_time"], resolution) + bar
     stamped["exit_time"] = sim["exit_time"].dt.ceil(bar)
-    repeated = stamped[stamped.duplicated(["entry_time", "leg"], keep=False)]
-    if len(repeated):
+
+    return stamped
+
+
+def each_exit_reason(reasons: pd.Series[str]) -> str:
+    """Return every reason a leg's rows closed for, so a mixed leg cannot read as one exit."""
+    return "+".join(sorted(set(reasons)))
+
+
+def merge_split_fills(trades: pd.DataFrame) -> pd.DataFrame:
+    """Return one row per bar and leg from a list holding one row per partial fill."""
+    two_sides = trades[trades.groupby(reconcile_nt8.LEG_KEY)["side"].transform("nunique") > 1]
+    if len(two_sides):
         msg = (
-            f"{len(repeated)} rows share a bar and a leg, first at "
-            f"{repeated['entry_time'].iloc[0]:%Y-%m-%d %H:%M} UTC; NT8 split a fill or paired an "
-            "exit across legs, and joining them would double count"
+            f"{len(two_sides)} rows of one bar and leg hold both sides, first at "
+            f"{two_sides['entry_time'].iloc[0]:%Y-%m-%d %H:%M} UTC; those are two trades, not one"
         )
         raise SystemExit(msg)
 
-    return stamped
+    merged = (
+        trades.assign(
+            entry_value=trades["entry_price"] * trades["quantity"],
+            exit_value=trades["exit_price"] * trades["quantity"],
+        )
+        .groupby(reconcile_nt8.LEG_KEY, as_index=False)
+        .agg(
+            side=("side", "first"),
+            quantity=("quantity", "sum"),
+            entry_value=("entry_value", "sum"),
+            exit_value=("exit_value", "sum"),
+            exit_time=("exit_time", "max"),
+            net_pnl=("net_pnl", "sum"),
+            exit_reason=("exit_reason", each_exit_reason),
+        )
+    )
+    merged["entry_price"] = merged["entry_value"] / merged["quantity"]
+    merged["exit_price"] = merged["exit_value"] / merged["quantity"]
+
+    return merged.drop(columns=["entry_value", "exit_value"])
+
+
+def refuse_unequal_quantities(merged: pd.DataFrame, other: pd.DataFrame, other_name: str) -> None:
+    """Stop if a leg both sides hold has a different quantity on each."""
+    shared = merged.merge(other, on=reconcile_nt8.LEG_KEY, suffixes=("", "_other"))
+    unequal = shared[shared["quantity"] != shared["quantity_other"]]
+    if not len(unequal):
+        return
+
+    msg = (
+        f"{len(unequal)} legs hold a different quantity from {other_name}, first at "
+        f"{unequal['entry_time'].iloc[0]:%Y-%m-%d %H:%M} UTC; a leg was part open at the export "
+        "or part closed by a reversal, or NT8 paired an exit across legs"
+    )
+    raise SystemExit(msg)
+
+
+def signalled_inside(
+    legs: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp, resolution: int
+) -> pd.DataFrame:
+    """Return the legs, stamped as a backtest stamps them, whose signal falls in the window."""
+    signals = legs["entry_time"] - pd.Timedelta(minutes=resolution)
+
+    return legs[(signals >= start) & (signals <= end)]
 
 
 def log_price_gaps(both: pd.DataFrame, other_name: str, tick_size: float) -> None:
@@ -112,19 +165,14 @@ def compare_sim(
     sim = reconcile_nt8.hold_out_reversals(sim)
     # Unlike a backtest's export, both ends count: the window is when the strategy was enabled.
     # Each side is read at its signal, because a stamp is a bar later than the order went in.
-    signals = other["entry_time"] - pd.Timedelta(minutes=resolution)
-    inside = other[(signals >= start) & (signals <= end)]
-    if len(other) and not len(inside):
-        logger.warning(
-            "none of %s's %d legs falls in the window; check its date order", other_name, len(other)
-        )
-
-    inside = reconcile_nt8.hold_out_reversals(inside)
+    inside = reconcile_nt8.hold_out_reversals(signalled_inside(other, start, end, resolution))
     if len(sim):
         furthest = seconds_from_bar_boundary(sim, resolution).abs().max()
         logger.info("  %-18s%.0f s from its bar boundary", "furthest entry", furthest)
 
-    both = reconcile_nt8.compare_legs(to_bar_stamps(sim, resolution), inside, "Sim", other_name)
+    merged = merge_split_fills(to_bar_stamps(sim, resolution))
+    refuse_unequal_quantities(merged, inside, other_name)
+    both = reconcile_nt8.compare_legs(merged, inside, "Sim", other_name)
     log_price_gaps(both, other_name.lower(), tick_size)
 
     return both
@@ -158,6 +206,7 @@ def main(argv: list[str]) -> int:
         msg = f"unknown config {args.config!r}; known: {sorted(reconcile_nt8.CONFIGS)}"
         raise SystemExit(msg)
 
+    resolution = reconcile_nt8.CONFIGS[args.config].resolution
     start = pd.Timestamp(args.start, tz=reconcile_nt8.EXPORT_TZ).tz_convert("UTC")
     end = pd.Timestamp(args.end, tz=reconcile_nt8.EXPORT_TZ).tz_convert("UTC")
     logger.info("== %s on %s, %s to %s ==", args.config, args.contract, args.start, args.end)
@@ -167,8 +216,14 @@ def main(argv: list[str]) -> int:
         other, other_name = reconcile_nt8.run_nqbt(args.config, args.contract, args.bars), "nqbt"
     else:
         refuse_mixed_export(args.analyzer, args.contract)
-        other = reconcile_nt8.parse_nt8(args.analyzer, day_first=not args.analyzer_month_first)
+        other = merge_split_fills(
+            reconcile_nt8.parse_nt8(args.analyzer, day_first=not args.analyzer_month_first)
+        )
         other_name = "Analyzer"
+        if len(other) and not len(signalled_inside(other, start, end, resolution)):
+            logger.warning(
+                "none of the analyzer export's %d legs falls in the window; check its date order", len(other)
+            )
 
     compare_sim(
         sim,
@@ -176,7 +231,7 @@ def main(argv: list[str]) -> int:
         other_name,
         start,
         end,
-        reconcile_nt8.CONFIGS[args.config].resolution,
+        resolution,
         ContractId.parse(args.contract).instrument.tick_size,
     )
 
