@@ -32,6 +32,7 @@ from nqbt.sim.types import (
     DeadCatParams,
     EmaCrossoverParams,
     EmaPullbackParams,
+    FailedBreakParams,
     InsideBarParams,
     InsideBarTrailingParams,
     OpeningRangeParams,
@@ -48,6 +49,7 @@ def test_every_archetype_is_registered() -> None:
         "ElasticBand",
         "EmaCrossover",
         "EmaPullback",
+        "FailedBreak",
         "InsideBar",
         "InsideBarTrailing",
         "OpeningRange",
@@ -63,6 +65,7 @@ def test_every_archetype_is_registered() -> None:
     assert archetypes.get("OpeningRange") is archetypes.OPENINGRANGE
     assert archetypes.get("PullBackAndGo") is archetypes.PULLBACKANDGO
     assert archetypes.get("SqueezeBreakout") is archetypes.SQUEEZEBREAKOUT
+    assert archetypes.get("FailedBreak") is archetypes.FAILEDBREAK
 
 
 def test_an_unknown_name_lists_the_known_ones() -> None:
@@ -99,6 +102,7 @@ def test_for_params_infers_the_archetype_from_its_parameter_class() -> None:
     assert archetypes.for_params(InsideBarTrailingParams()) is archetypes.INSIDEBARTRAILING
     assert archetypes.for_params(OpeningRangeParams()) is archetypes.OPENINGRANGE
     assert archetypes.for_params(SqueezeBreakoutParams()) is archetypes.SQUEEZEBREAKOUT
+    assert archetypes.for_params(FailedBreakParams()) is archetypes.FAILEDBREAK
 
 
 def test_for_params_refuses_to_guess_for_an_unregistered_class() -> None:
@@ -126,6 +130,7 @@ def test_tier2_separates_the_ported_archetypes_from_the_original() -> None:
     assert archetypes.ELASTICBAND.tier2 is Tier2Status.TIER1_ONLY
     assert archetypes.OPENINGRANGE.tier2 is Tier2Status.TIER1_ONLY
     assert archetypes.SQUEEZEBREAKOUT.tier2 is Tier2Status.TIER1_ONLY
+    assert archetypes.FAILEDBREAK.tier2 is Tier2Status.TIER1_ONLY
 
 
 SCALES_ITS_TARGETS = [

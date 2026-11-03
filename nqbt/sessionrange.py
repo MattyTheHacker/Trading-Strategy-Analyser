@@ -36,8 +36,10 @@ __all__ = [
     "RangeKey",
     "SessionRangeGrid",
     "anchor_for",
+    "contract_codes",
     "follow_through",
     "follow_through_grid",
+    "previous_session",
     "range_grid",
     "trailing_median",
     "validate_follow_through_sessions",
@@ -153,6 +155,9 @@ class SessionRangeGrid:
     low: FloatArray
     """``[n_keys, n_sessions]``: the window's lowest low, ``nan`` where there is no range."""
 
+    new_contract: BoolArray
+    """``[n_sessions]``: does this session open on a different contract from the one before it?"""
+
     def __len__(self) -> int:
         """Count the bars, not the keys or the sessions."""
         return int(self.armed.shape[1])
@@ -185,12 +190,52 @@ class SessionRangeGrid:
     @property
     def nbytes(self) -> int:
         """Bytes the grid occupies -- what a parallel worker is handed."""
-        return self.session_id.nbytes + self.armed.nbytes + self.high.nbytes + self.low.nbytes
+        return (
+            self.session_id.nbytes
+            + self.armed.nbytes
+            + self.high.nbytes
+            + self.low.nbytes
+            + self.new_contract.nbytes
+        )
 
 
 def _session_ids(trading_day: DateArray) -> IndexArray:
     """Return each bar's session as a dense index from zero, in bar order."""
     return (np.cumsum(indicators.new_session_flags(trading_day)) - 1).astype(np.int32)
+
+
+def contract_codes(bars: pd.DataFrame) -> IntArray:
+    """Return an integer code per bar for the contract it traded on, one code for a frame of one contract."""
+    if "contract" not in bars.columns:
+        return np.zeros(len(bars), dtype=np.int64)
+
+    codes, _ = pd.factorize(bars["contract"])
+
+    return np.asarray(codes, dtype=np.int64)
+
+
+def _new_contract(bars: pd.DataFrame, session_id: IndexArray, n_sessions: int) -> BoolArray:
+    """Flag each session that opens on a different contract from the bar before it."""
+    flags: BoolArray = np.zeros(n_sessions, dtype=np.bool_)
+    codes: IntArray = contract_codes(bars)
+    first_bars: OffsetArray = np.flatnonzero(session_id[1:] != session_id[:-1]) + 1
+    flags[session_id[first_bars]] = codes[first_bars] != codes[first_bars - 1]
+
+    return flags
+
+
+def previous_session(levels: FloatArray, new_contract: BoolArray) -> FloatArray:
+    """Return each session's level as the session before it left it, in prices it can trade at.
+
+    ``nan`` on the first session and on the first of each contract, whose previous level is in
+    another contract's prices -- ``docs/findings/m66-failed-break-spec.md`` § "The levels are
+    fixed, not swept".
+    """
+    previous: FloatArray = np.full(levels.shape, np.nan, dtype=np.float64)
+    previous[1:] = levels[:-1]
+    previous[new_contract] = np.nan
+
+    return previous
 
 
 def _session_runs(
@@ -297,6 +342,7 @@ def range_grid(
         armed=armed,
         high=session_high,
         low=session_low,
+        new_contract=_new_contract(bars, session_id, n_sessions),
     )
 
 

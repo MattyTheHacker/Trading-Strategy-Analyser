@@ -68,6 +68,7 @@ from nqbt.sim.types import (
     ElasticBandParams,
     EmaCrossoverParams,
     EmaPullbackParams,
+    FailedBreakParams,
     InsideBarTrailingParams,
     OpeningRangeParams,
     SqueezeBreakoutParams,
@@ -132,6 +133,7 @@ from tools.campaign_sweep import (
     EMAPULLBACK_MA_TRAIL_VARIANTS,
     EMAPULLBACK_TRAIL,
     EMAPULLBACK_TRAIL_VARIANTS,
+    FB_ROUND_NUMBER_POINTS,
     GIVE_BACK_FROM_R,
     GIVE_BACKS,
     HOLD,
@@ -444,6 +446,26 @@ def test_the_squeeze_variants_split_the_stop_axes_and_share_the_squeeze() -> Non
         assert ("atr_stop_multiple" in variant.axes) is reads_atr, variant.name
         assert ("stop_offset_ticks" in variant.axes) is not reads_atr, variant.name
         assert {"squeeze_form", "squeeze_period", "squeeze_below", "direction"} <= set(variant.axes)
+
+
+def test_failedbreak_has_one_variant_per_level_target_and_rebreak_over_shared_axes() -> None:
+    """Each is a choice a tuple or a paired read needs as a variant, and the four axes are all read."""
+    variants = VARIANTS["FailedBreak"]("MNQ")
+    bases = [base_as(v, FailedBreakParams) for v in variants]
+
+    assert len(variants) == 18
+    assert len({v.name for v in variants}) == 18
+    assert len({(b.level, b.target_mode, b.exit_on_rebreak) for b in bases}) == 18
+    assert {b.round_number_points for b in bases} == {FB_ROUND_NUMBER_POINTS}
+    assert all(b.commission_per_contract > 0.0 for b in bases)
+    for variant in variants:
+        assert set(variant.axes) == {
+            "direction",
+            "max_sweep_minutes",
+            "stop_offset_ticks",
+            "max_signals_per_session",
+        }
+        assert len(sweep.Grid(axes=variant.axes, base=variant.base, archetype=variant.archetype)) == 64
 
 
 def test_every_elastic_ladder_is_distinct_and_ends_in_a_runner() -> None:

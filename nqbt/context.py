@@ -22,6 +22,7 @@ from nqbt import (
     indicators,
     noise,
     regime,
+    resample,
     sessionrange,
     sessions,
     timeofday,
@@ -274,6 +275,9 @@ class Dataset:
 
     _bar_seconds: FloatArray | None = field(default=None, init=False, repr=False, compare=False)
     """:meth:`bar_seconds`, built on its first read."""
+
+    _minutes_of_session: IntArray | None = field(default=None, init=False, repr=False, compare=False)
+    """:meth:`minutes_of_session`, built on its first read."""
 
     def __post_init__(self) -> None:
         _check_first_signal_bar(self.first_signal_bar, len(self))
@@ -541,6 +545,26 @@ class Dataset:
     def range_low(self, key: sessionrange.RangeKey) -> FloatArray:
         """Return one range's low per **session**, read through :meth:`range_session_id`."""
         return self._session_ranges().low_for(key)
+
+    def minutes_of_session(self) -> IntArray:
+        """Return how far each bar sits past its session open, in minutes.
+
+        Built on the first read and shared read-only after it.
+        """
+        if self._minutes_of_session is None:
+            minutes: IntArray = resample.minutes_since_open(self.index)
+            minutes.flags.writeable = False
+            self._minutes_of_session = minutes
+
+        return self._minutes_of_session
+
+    def range_new_contract(self) -> BoolArray:
+        """Return, per **session**, whether it opens on a different contract from the one before it."""
+        return self._session_ranges().new_contract
+
+    def range_grid(self) -> SessionRangeGrid:
+        """Return every declared session range, for a level draw to replace one of."""
+        return self._session_ranges()
 
     def range_session_id(self) -> IndexArray:
         """Return, per bar, which session it belongs to, which is the index into the range levels."""
@@ -850,16 +874,6 @@ class Dataset:
         return replace(self, bars=self.bars.iloc[:, :0])
 
 
-def contract_codes(bars: pd.DataFrame) -> IntArray:
-    """Return an integer code per bar for the contract it traded on, one code for a frame of one contract."""
-    if "contract" not in bars.columns:
-        return np.zeros(len(bars), dtype=np.int64)
-
-    codes, _ = pd.factorize(bars["contract"])
-
-    return np.asarray(codes, dtype=np.int64)
-
-
 def _check_first_signal_bar(first_signal_bar: int, n_bars: int) -> None:
     """Refuse a first signal bar outside ``0`` to ``n_bars``, where a slice would count from the end."""
     if 0 <= first_signal_bar <= n_bars:
@@ -950,7 +964,7 @@ def prepare(
             low,
             close,
             float_column(bars, "volume"),
-            contract_codes(bars),
+            sessionrange.contract_codes(bars),
             volume.session_ids(info.trading_day, info.in_session),
             tod,  # type: ignore[arg-type]  # built above whenever lookbacks exist
             spec.noise_lookbacks,

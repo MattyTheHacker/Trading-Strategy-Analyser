@@ -3989,3 +3989,358 @@ class SqueezeBreakoutParams:
             out[f.name] = list(value) if isinstance(value, tuple) else value
 
         return out
+
+
+FB_LEVEL_YESTERDAY = 0
+FB_LEVEL_OVERNIGHT = 1
+FB_LEVEL_FIRST_HOUR = 2
+FB_LEVELS = {
+    FB_LEVEL_YESTERDAY: "yesterday",
+    FB_LEVEL_OVERNIGHT: "overnight",
+    FB_LEVEL_FIRST_HOUR: "first-hour",
+}
+"""The fixed set of levels a sweep can be of -- ``docs/findings/m66-failed-break-spec.md``."""
+
+FB_CASH_SESSION_MINUTES = 390
+"""The cash session's length, 09:30 to 16:00 ET."""
+
+FB_FIRST_HOUR_MINUTES = 60
+
+FB_RANGE_KEYS: dict[int, sessionrange.RangeKey] = {
+    FB_LEVEL_YESTERDAY: (sessionrange.CASH_OPEN_MINUTES, FB_CASH_SESSION_MINUTES),
+    FB_LEVEL_OVERNIGHT: (sessionrange.ETH_OPEN_MINUTES, sessionrange.CASH_OPEN_MINUTES),
+    FB_LEVEL_FIRST_HOUR: (sessionrange.CASH_OPEN_MINUTES, FB_FIRST_HOUR_MINUTES),
+}
+"""The session range each level is read from; ``yesterday``'s is read one session late."""
+
+FB_TARGET_OPPOSITE_NEXT = 0
+FB_TARGET_MID_OPPOSITE = 1
+FB_TARGET_R = 2
+FB_TARGET_MODES = {
+    FB_TARGET_OPPOSITE_NEXT: "opposite+next",
+    FB_TARGET_MID_OPPOSITE: "mid+opposite",
+    FB_TARGET_R: "R",
+}
+"""Where the targets come from -- ``docs/findings/m66-failed-break-spec.md`` § "The targets"."""
+
+FB_LEVEL_TARGET_LEGS = 2
+"""The legs a target scheme read from the levels has."""
+
+
+@dataclass(slots=True)
+class FailedBreakParams:
+    """Rule set for the FailedBreak archetype -- an original, with no NinjaScript.
+
+    The sweep and recovery of an obvious level: a bar closes back inside a range after trading
+    through its edge, and the next bar's open is entered back into the range. One level and one
+    side per combination.
+
+    Its rules: ``docs/nt8-fidelity.md`` §M66. The design and the alternatives rejected:
+    ``docs/findings/m66-failed-break-spec.md``.
+    """
+
+    level: int = FB_LEVEL_FIRST_HOUR
+    """One of :data:`FB_LEVELS`."""
+
+    direction: float = trades.LONG
+    """Which sweep is traded: :data:`nqbt.trades.LONG` recovers the range's low, ``SHORT`` its high."""
+
+    max_sweep_minutes: int = 30
+    """How long after the bar that started the sweep a close back inside still counts, bar close to
+    bar close. ``0`` takes only a bar that sweeps and recovers by itself."""
+
+    max_signals_per_session: int = 1
+    """Signals taken per session after the context filters, off at ``0``. Counted on the signal
+    rather than the fill -- ``docs/nt8-fidelity.md`` §M66."""
+
+    exit_on_rebreak: bool = True
+    """Exit at the next bar's open once a bar closes back beyond the swept level."""
+
+    phase_filter: int = timeofday.ALL_PHASES
+    """Session phases an entry may be taken in -- see :attr:`DeadCatParams.phase_filter`."""
+
+    slot_filter: int = timeofday.ALL_SLOTS
+    """Half-hour slots an entry may be taken in -- see :attr:`DeadCatParams.slot_filter`."""
+
+    regime_filter: int = regime.ALL_REGIMES
+    """Market regimes an entry may be taken in -- see :attr:`DeadCatParams.regime_filter`."""
+
+    regime_lookback: int = 20
+    regime_consolidating_below: float = 0.3
+    regime_directional_above: float = 0.5
+    """The efficiency-ratio lookback and its two cuts -- see
+    :attr:`DeadCatParams.regime_directional_above`."""
+
+    volume_filter: int = volume.ALL_STATES
+    """Volume states an entry may be taken in -- see :attr:`DeadCatParams.volume_filter`."""
+
+    volume_form: int = int(volume.VolumeForm.PER_BAR)
+    volume_rolling_bars: int = 30
+    volume_baseline_sessions: int = 20
+    volume_thin_below: float = 0.7
+    volume_heavy_above: float = 1.5
+    """The relative-volume series and its two cuts -- see
+    :attr:`DeadCatParams.volume_heavy_above`."""
+
+    compression_filter: int = compression.ALL_STATES
+    """Compression states an entry may be taken in -- see
+    :attr:`DeadCatParams.compression_filter`."""
+
+    compression_form: int = int(compression.CompressionForm.BANDWIDTH)
+    compression_period: int = 20
+    compression_baseline_bars: int = 250
+    compression_compressed_below: float = 0.25
+    compression_expanded_above: float = 0.75
+    """The width measure the rank is taken of, its two windows and its two cuts -- see
+    :attr:`DeadCatParams.compression_expanded_above`."""
+
+    trend_filter: int = trend.ALL_TRENDS
+    """Trends an entry may be taken in -- see :attr:`DeadCatParams.trend_filter`."""
+
+    trend_fast_period: int = 20
+    trend_slow_period: int = 50
+    trend_slope_lookback: int = 5
+    trend_min_agreement: int = 3
+    """The trend label's averages and its agreement threshold -- see
+    :attr:`DeadCatParams.trend_min_agreement`."""
+
+    higher_timeframe_filter: int = higher_timeframe.ALL_SIDES
+    """Sides of a coarse average an entry may be taken on -- see
+    :attr:`DeadCatParams.higher_timeframe_filter`."""
+
+    higher_timeframe_minutes: int = 60
+    higher_timeframe_period: int = 50
+    """The coarse resolution and the period averaged on it -- see
+    :attr:`DeadCatParams.higher_timeframe_period`."""
+
+    with_trend: bool = False
+    with_higher_timeframe: bool = False
+    with_vwap: bool = False
+    """Admit an entry only where that label points its way -- see :attr:`DeadCatParams.with_trend`."""
+
+    quantity_per_confluence: int = 0
+    size_on_trend: bool = False
+    size_on_higher_timeframe: bool = False
+    size_on_vwap: bool = False
+    size_on_regime: bool = False
+    size_on_volume: bool = False
+    size_symmetric: bool = False
+    """The confluence size, the labels it counts and whether it also removes --
+    see :attr:`DeadCatParams.quantity_per_confluence`."""
+
+    stop_offset_ticks: int = 4
+    """Ticks beyond the sweep's extreme the stop sits. The setup's cushion, so at least one."""
+
+    round_number_points: float = 0.0
+    """Spacing of the round numbers a stop is moved off, off at ``0``. Needs raw prices --
+    see :attr:`EmaCrossoverParams.round_number_points`."""
+
+    round_number_offset_ticks: int = 4
+    """Ticks a stop landing exactly on a round number is moved further from the entry."""
+
+    target_mode: int = FB_TARGET_OPPOSITE_NEXT
+    """One of :data:`FB_TARGET_MODES`."""
+
+    target_r_multiples: tuple[float, ...] = (1.0, 1.5, 2.0, float("nan"))
+    """Per-leg targets in R, read under :data:`FB_TARGET_R`. ``nan`` marks a runner."""
+
+    tp_multiplier: float = 1.0
+    """Scales every R target, as on the ported archetypes."""
+
+    order_quantity: int = 4
+
+    bars_required_to_trade: int = 200
+
+    ambiguity_policy: int = 1
+    """See :attr:`DeadCatParams.ambiguity_policy` -- same concept, same default."""
+
+    fill_limit_on_touch: bool = False
+    block_entry_at_session_close: bool = True
+
+    max_hold_bars: int = 0
+    """See :attr:`DeadCatParams.max_hold_bars` -- same rule, same default."""
+
+    early_exit_bars: int = 0
+    early_exit_minutes: int = 0
+    early_exit_below_r: float = 0.0
+    early_exit_measure: int = MEASURE_OPEN_PROFIT
+    early_exit_minutes_before_close: int = 0
+    early_exit_on_regime_change: bool = False
+    early_exit_on_trend: int = TREND_EXIT_OFF
+    early_exit_on_invalidation: bool = False
+    early_exit_only_if_losing: bool = False
+    early_exit_counter_trend_bars: int = 0
+    early_exit_stall_bars: int = 0
+    early_exit_on_phase_change: bool = False
+    early_exit_on_higher_timeframe: bool = False
+    early_exit_on_thin_volume: bool = False
+    early_exit_on_heavy_against: bool = False
+    early_exit_atr_expansion: float = 0.0
+    early_exit_adverse_closes: int = 0
+    early_exit_adverse_atr: float = 0.0
+    early_exit_atr_period: int = EARLY_EXIT_ATR_PERIOD
+    early_exit_give_back: float = 0.0
+    early_exit_give_back_from_r: float = 1.0
+    """See :attr:`DeadCatParams.early_exit_bars` and the twenty after it -- same rules, same defaults."""
+
+    breakeven_at: float = 0.0
+    breakeven_unit: int = BREAKEVEN_R
+    breakeven_on: int = BREAKEVEN_ON_CLOSE
+    breakeven_offset_ticks: int = 0
+    breakeven_atr_period: int = BREAKEVEN_ATR_PERIOD
+    """See :attr:`DeadCatParams.breakeven_at` and the four after it -- same rules, same defaults."""
+
+    age_stop_bars: int = 0
+    age_stop_minutes: int = 0
+    age_stop_fraction: float = 1.0
+    age_stop_shape: int = AGE_STOP_STEP
+    age_stop_only_if_losing: bool = False
+    late_stop_minutes_before_close: int = 0
+    late_stop_to: int = LATE_STOP_ENTRY
+    late_stop_atr: float = 1.0
+    late_stop_atr_period: int = LATE_STOP_ATR_PERIOD
+    """See :attr:`DeadCatParams.age_stop_bars` and the eight after it -- same rules, same defaults."""
+
+    round_targets: bool = True
+    """Snap targets onto the tick grid, which NT8 does at submission whatever the script does."""
+
+    commission_per_contract: float = 0.0
+    slippage_ticks: float = 0.0
+    """Adverse slippage on the market entry and both market exits. Never applied to a limit target."""
+
+    def __post_init__(self) -> None:
+        self._validate_entry()
+        validate_tp_multiplier(self.tp_multiplier)
+        self._validate_exit_scheme()
+        validate_max_hold_bars(self.max_hold_bars)
+        validate_early_exit(self)
+        validate_breakeven(self)
+        validate_stop_tightening(self)
+        validate_context_filters(self)
+        validate_sizing(self)
+
+    def _validate_entry(self) -> None:
+        """Check the level, the side and the two limits on a signal."""
+        if self.level not in FB_LEVELS:
+            msg: str = f"unknown level {self.level}; use one of {sorted(FB_LEVELS)}"
+            raise ValueError(msg)
+
+        if self.direction not in (trades.LONG, trades.SHORT):
+            msg = f"direction must be {trades.LONG} (long) or {trades.SHORT} (short), got {self.direction}"
+            raise ValueError(msg)
+
+        if self.max_sweep_minutes < 0:
+            msg = f"max_sweep_minutes must be >= 0, got {self.max_sweep_minutes}; 0 is the same bar"
+            raise ValueError(msg)
+
+        if self.max_signals_per_session < 0:
+            msg = f"max_signals_per_session must be >= 0, got {self.max_signals_per_session}; 0 is no cap"
+            raise ValueError(msg)
+
+    def _validate_exit_scheme(self) -> None:
+        """Check the stop and the targets."""
+        if self.target_mode not in FB_TARGET_MODES:
+            msg: str = f"unknown target_mode {self.target_mode}; use one of {sorted(FB_TARGET_MODES)}"
+            raise ValueError(msg)
+
+        if self.order_quantity < len(self.target_levels):
+            msg = f"order_quantity {self.order_quantity} cannot fill {len(self.target_levels)} legs"
+            raise ValueError(msg)
+
+        if self.stop_offset_ticks < 1:
+            msg = f"stop_offset_ticks must be >= 1, got {self.stop_offset_ticks}; it sits beyond the extreme"
+            raise ValueError(msg)
+
+        self._validate_r_targets()
+        if self.round_number_points < 0.0:
+            msg = f"round_number_points must be >= 0, got {self.round_number_points}"
+            raise ValueError(msg)
+
+        if self.round_number_offset_ticks < 0:
+            msg = f"round_number_offset_ticks must be >= 0, got {self.round_number_offset_ticks}"
+            raise ValueError(msg)
+
+    def _validate_r_targets(self) -> None:
+        """Check the R ladder, and refuse a multiplier a scheme read from the levels would ignore."""
+        if self.target_mode != FB_TARGET_R:
+            if self.tp_multiplier != 1.0:
+                msg: str = (
+                    f"tp_multiplier is read under R targets, and target_mode {self.target_mode} has none"
+                )
+                raise ValueError(msg)
+
+            return
+
+        if not self.target_r_multiples:
+            msg = "target_r_multiples must name at least one leg"
+            raise ValueError(msg)
+
+        if any(multiple <= 0.0 for multiple in self.target_r_multiples):
+            msg = f"target_r_multiples must be above zero or nan, got {self.target_r_multiples}"
+            raise ValueError(msg)
+
+    @property
+    def range_key(self) -> sessionrange.RangeKey:
+        """Which of the dataset's session ranges the level is read from."""
+        return FB_RANGE_KEYS[self.level]
+
+    @property
+    def target_levels(self) -> tuple[float, ...]:
+        """One entry per leg: the R ladder, or ``nan`` per leg where the prices come from the levels."""
+        if self.target_mode == FB_TARGET_R:
+            return self.target_r_multiples
+
+        return (float("nan"),) * FB_LEVEL_TARGET_LEGS
+
+    @property
+    def volume_key(self) -> volume.VolumeKey:
+        """Which of the dataset's volume series this combination reads."""
+        return volume.key(self.volume_form, self.volume_rolling_bars, self.volume_baseline_sessions)
+
+    @property
+    def compression_key(self) -> compression.CompressionKey:
+        """Which of the dataset's compression series the compression filter reads."""
+        return compression.key(
+            self.compression_form,
+            self.compression_period,
+            self.compression_baseline_bars,
+        )
+
+    @property
+    def trend_key(self) -> trend.TrendKey:
+        """Which of the dataset's trend labels this combination reads."""
+        return trend.key(self.trend_fast_period, self.trend_slow_period, self.trend_slope_lookback)
+
+    @property
+    def higher_timeframe_key(self) -> higher_timeframe.HigherTimeframeKey:
+        """Which of the dataset's higher-timeframe averages this combination reads."""
+        return higher_timeframe.key(self.higher_timeframe_minutes, self.higher_timeframe_period)
+
+    @property
+    def leg_quantities(self) -> tuple[int, ...]:
+        """Contracts per leg, with the remainder on the last -- the ported archetypes' split."""
+        return split_evenly(self.order_quantity, len(self.target_levels))
+
+    @property
+    def minimum_quantity(self) -> int:
+        """The smallest position this bracket takes: one contract per leg."""
+        return len(self.target_levels)
+
+    @property
+    def size_table(self) -> tuple[tuple[int, ...], ...]:
+        """Every per-leg split a signal can take -- :func:`leg_size_table`."""
+        return leg_size_table(self, len(self.target_levels))
+
+    @property
+    def sizing_thesis(self) -> SizingThesis:
+        """A fade back into a range -- ``docs/nt8-fidelity.md`` §M47."""
+        return ROTATION
+
+    def as_dict(self) -> dict[str, object]:
+        """Return a flat mapping of every parameter, keyed by field name."""
+        out: dict[str, object] = {}
+        for f in fields(self):
+            value: object = getattr(self, f.name)
+            out[f.name] = list(value) if isinstance(value, tuple) else value
+
+        return out

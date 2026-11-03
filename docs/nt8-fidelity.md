@@ -1189,6 +1189,30 @@ With `confirm_entry` on, the signal is §M34's unchanged and only the order chan
 
 **The exits are the market entry's**: the stop and targets through `resolve_brackets`, the trail arming at the entry bar's close, and the trend-flip and hold-limit exits filling at the next open.
 
+### M66 — the failed break's rules, written before the Python (#355)
+
+**Every rule below was written down before the Python existed.** There is no NinjaScript, so nothing here is backed by a trade list, and each item names the NinjaScript it would be written as. `Archetype.tier2` is `TIER1_ONLY`, and stays there until a trade list has been diffed against it. The reasoning and the alternatives rejected are in [`findings/m66-failed-break-spec.md`](findings/m66-failed-break-spec.md).
+
+**The sweep is a state per session, in `OnBarUpdate` under `Calculate.OnBarClose`.** Three values: not yet inside, inside, swept. A level becomes readable in the first, a close strictly inside moves it to the second, a low strictly through it moves it to the third, and a close strictly inside moves it back and is the signal. A bar can do the last two together. So a session opening beyond the level has not swept it, and a low or a close exactly on the level does nothing.
+
+**The age cap is measured from the close of the bar that started the sweep to the close of the bar that recovers**, in wall-clock time, so a hole in the bars counts. `Time[0] - sweepStarted <= TimeSpan.FromMinutes(MaxSweepMinutes)`. A recovery past the cap fires nothing and still ends the sweep.
+
+**The levels are bar reads, not indicators.** The port tracks each window's high and low from `Time[0]`, and the three windows are `sessionrange.range_grid`'s: a session short of bars in a window has no range. `yesterday` is the previous session's `(930, 390)`, and is not read on the first session of a new contract, because the raw series changes contract there. **A merged NT8 series is back-adjusted and has no such step, so a port has to decide this explicitly.** `PriorDayOHLC` is not assumed to give the same value and nothing has measured whether it does.
+
+**The entry is `EnterLong()` at the signal bar's close, so it fills at the next open**, like every market entry here. It is submitted only when flat at that close, and at most `MaxSignalsPerSession` signals are taken per session, **counted at the close whether or not the position allows the entry**, so that the same count of drawn bars trades about as often as the rule does.
+
+**The stop is `SetStopLoss(CalculationMode.Price, ...)`, set from the sweep's extreme at the signal bar**: `StopOffsetTicks` beyond it, snapped to the tick grid and then moved off a round number by `bracket.avoid_round_number`. It is at least one tick, because the setup says not at the extreme. It takes no dollar floor. A stop at or through the fill refuses the entry, §M18's rule.
+
+**The targets are `SetProfitTarget(CalculationMode.Price, ...)` per leg, prices fixed at the signal bar and never measured from the fill**, except under the R ladder, which is measured from the fill as `simulate_crossover`'s is. A signal whose close is at or past the first level target is not a signal. The second target under `opposite+next` is the nearest opposing edge past the first, among the other two ranges readable at that bar, and with none the leg has no target.
+
+**The re-break is `ExitLong()` at a close strictly back beyond the swept level, so it fills at the next open as `EXIT_SIGNAL`**, ElasticBand's `exit_on_invalidation` shape. It is decided on the entry bar too, and takes a bar the hold cap or an early exit also wants, as an archetype's own exit does. A wick through the level is not a re-break, because the stop sits beyond everything the sweep traded and could otherwise never be reached.
+
+### A drawn bar carries a real signal's geometry
+
+**`matched_random_signal` moves a signal to another bar, and a bar that is not a sweep has no extreme, no swept level and no range side chosen by a sweep.** So `failedbreak_legs` pairs each drawn bar with a real signal at the same minute of session, in time order within that minute, and places the extreme, the level and the targets at the same distances from the drawn bar's close. Time order keeps a quiet year's distances on a quiet year's bars. A mask inside the real signal, a signal drawn whole among them, reads each bar's own prices, so it reproduces those trades exactly, which `tests/test_failedbreak_sim.py` pins. Any other mask not matched minute by minute is refused rather than guessed at.
+
+This is the null's rule and no part of the rule set, so a port has nothing to reconcile here.
+
 ### The session end is the observed last bar, not the template's (#68)
 
 `sessions.seconds_to_session_end` counts down to each trading day's **last in-session bar**, and `force_flat_mask` cuts that countdown at `ExitOnSessionCloseSeconds`. On a session that runs to 17:00 ET the two are the same thing, so the mask is unchanged there.

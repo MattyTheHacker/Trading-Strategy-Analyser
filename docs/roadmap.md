@@ -796,6 +796,10 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 **The four campaigns §M61 left waiting for 1-minute bars: 2022 to 2025 reproduce to the dollar, 2026 is now a small loss on both roots and no follow-through arm restores it, the break in gate 3 between 30 and 45 minutes holds and the wider stop still fails 2022; the entry's excess over a permuted range now peaks at a stop of 1.5 to 2 range widths rather than 1, and a target-only arm now returns its drawdown**: [`docs/findings/m65-openingrange-one-minute.md`](findings/m65-openingrange-one-minute.md).
 
+### M66 — FailedBreak: the sweep and recovery of an obvious level ([#355])
+
+**Built and registered, not swept: a close back inside yesterday's, the overnight or the first-hour range, entered at market on the next open, with the stop beyond the sweep's extreme; a random drawn bar has no sweep to stop behind, so the null carries each signal's geometry**: [`docs/findings/m66-failed-break-spec.md`](findings/m66-failed-break-spec.md).
+
 ### Do the shortlists travel? ([#330])
 
 **Most of what a shortlist loses is selection rather than instrument — the drop from selection window to own holdout is two to five times the further drop to a market never seen — and the two inside-bar archetypes travel with almost no additional cost, while nothing clears a profit factor of 1.1 anywhere.** Moved to [`docs/findings/cross-root-transfer.md`](findings/cross-root-transfer.md).
@@ -1586,6 +1590,7 @@ ______________________________________________________________________
 [#352]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/352
 [#353]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/353
 [#354]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/354
+[#355]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/355
 [#36]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/36
 [#369]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/369
 [#37]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/37

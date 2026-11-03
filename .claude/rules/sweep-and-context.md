@@ -185,6 +185,11 @@ paths:
   `session_id`. Stamping the level per bar instead costs 16 bytes a bar **per window**, which
   every parallel worker pays; as stored it is about 5 bytes a bar whatever a sweep asks for. Do
   not "simplify" it into a per-bar level. `docs/roadmap.md` §M28.1.
+- **`yesterday` is a session range read one session late, and not across a roll.** The campaign
+  runs on raw prices, so the first session of a contract would read a low in the old contract's
+  prices; `sessionrange.previous_session` blanks it from `SessionRangeGrid.new_contract`. A level
+  draw replaces one row of the grid and keeps the rest, because FailedBreak's second target reads
+  the other two. `docs/findings/m66-failed-break-spec.md`.
 - **A rolling window's high and low are per bar, because the window moves every bar**, and keyed
   by period alone like the band grid: `compression.window_range_grid` builds them once per
   `squeeze_period`, and

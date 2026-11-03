@@ -58,6 +58,7 @@ from nqbt.sim.types import (
     ElasticBandParams,
     EmaCrossoverParams,
     EmaPullbackParams,
+    FailedBreakParams,
     InsideBarParams,
     InsideBarTrailingParams,
     OpeningRangeParams,
@@ -757,7 +758,13 @@ def test_the_stop_entries_are_the_ones_the_simulation_walks_a_path_for() -> None
     assert not enters_on_stop(EmaPullbackParams())
     for always in (DeadCatParams(), PullBackAndGoParams(), SqueezeBreakoutParams()):
         assert enters_on_stop(always), type(always).__name__
-    for never in (InsideBarParams(), InsideBarTrailingParams(), ElasticBandParams(), EmaCrossoverParams()):
+    for never in (
+        InsideBarParams(),
+        InsideBarTrailingParams(),
+        ElasticBandParams(),
+        EmaCrossoverParams(),
+        FailedBreakParams(),
+    ):
         assert not enters_on_stop(never), type(never).__name__
 
 
@@ -773,6 +780,7 @@ def test_every_registered_archetype_has_its_entries_classified() -> None:
         InsideBarTrailingParams,
         ElasticBandParams,
         EmaCrossoverParams,
+        FailedBreakParams,
     }
     assert {archetypes.get(name).params_cls for name in archetypes.names()} == classified
 

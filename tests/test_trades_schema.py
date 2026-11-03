@@ -394,7 +394,7 @@ def test_every_loop_takes_its_market_exit_from_the_one_shared_order() -> None:
 def test_only_the_archetypes_with_a_rule_driven_exit_reference_exit_signal() -> None:
     # DeadCatBounce, InsideBar and the bracket engine have no rule-driven exit, so none imports
     # the constant. EmaCrossover, InsideBarTrailing (``docs/nt8-fidelity.md`` §M23) and
-    # ElasticBand (§M26) do.
+    # ElasticBand (§M26) and FailedBreak (§M66) do.
     assert "nqbt.trades.EXIT_SIGNAL" not in imports_of("sim/deadcat.py")
     assert "nqbt.trades.EXIT_SIGNAL" not in imports_of("sim/bracket.py")
     assert "nqbt.trades.EXIT_SIGNAL" not in imports_of("sim/pullback.py")
@@ -403,6 +403,7 @@ def test_only_the_archetypes_with_a_rule_driven_exit_reference_exit_signal() -> 
     assert "nqbt.trades" in imports_of("sim/crossover.py")
     assert "nqbt.trades" in imports_of("sim/insidebartrailing.py")
     assert "nqbt.trades" in imports_of("sim/elasticband.py")
+    assert "nqbt.trades" in imports_of("sim/failedbreak.py")
     assert {"EXIT_SIGNAL"} <= names_used_in("sim/crossover.py")
     assert {"EXIT_SIGNAL"} <= names_used_in("sim/insidebartrailing.py")
     assert {"EXIT_SIGNAL"} <= names_used_in("sim/elasticband.py")
