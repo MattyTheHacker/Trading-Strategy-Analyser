@@ -678,7 +678,7 @@ A live fill's time is not a backtest's stamp, so the sim's times are moved onto 
 
 The tool also logs the mean price gap in ticks, per exit reason and per leg rather than per contract, since sim fills are not bar-model fills. It also stops if either export mixes accounts or holds another contract.
 
-**Checked against real sim exports from 3 November 2026, taken mid-session.** The columns, `--month-first` and both stamping rules held: every entry lay on its bar boundary, and all nine legs of the one full session the bars covered joined nqbt's on entry bar, exit bar and exit reason. That is a small sample in which no leg closed for two reasons, and no trail stop came before its target, so how NT8 pairs that exit has not been seen. The tests' fixtures reuse the export's shape.
+**Checked against the November 2026 sim's real exports.** The columns, `--month-first` and both stamping rules held: every entry lay on its bar boundary and all 33 legs joined on their entry bar, against both nqbt and Strategy Analyzer. **A trail stop that fills before the target is filed against `entry1` in a sim's trade list and `entry2` in a backtest's**, so that trade's two legs read as an exit-reason disagreement at almost the same prices. Compare it across the whole position. [`docs/findings/nt8-sim-november-2026.md`](../docs/findings/nt8-sim-november-2026.md) has the result. The tests' fixtures reuse the export's shape.
 
 ### reconcile_higher_timeframe.py
 
