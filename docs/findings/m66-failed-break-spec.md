@@ -101,7 +101,7 @@ It is decided at the bar close and fills at the next open as `EXIT_SIGNAL`, the 
 | `stop_offset_ticks`       | 2, 4, 8, 16     | axis    | the cushion                                             |
 | `max_signals_per_session` | 1, 2            | axis    | the first signal against a second chance                |
 
-That is 18 variants of 64 combinations, or 1,152 per root, bar size, window and stratum, before the usual context strata. The [pre-registration](m66-failed-break-preregistration.md) scales the run time from past sweeps, since none has been timed. §7.1's "rotational or transitional conditions" is the existing regime strata rather than a rule, and how far the sweep went has no axis.
+That is 18 variants of 64 combinations, or 1,152 per root, bar size, window and stratum, before the usual context strata. [§M66.1](m66-1-failed-break-swept.md) records the run time. §7.1's "rotational or transitional conditions" is the existing regime strata rather than a rule, and how far the sweep went has no axis.
 
 **The minutes are minutes rather than bars** so that one cut means the same at every bar size. All of `campaign_sweep.RESOLUTIONS` can express all three ranges.
 
@@ -159,7 +159,7 @@ The levels, the state per level and the exit are bar-close reads in `OnBarUpdate
 - **A new loop in `nqbt/sim/failedbreak.py`, on `bracket.py`.** `simulate_crossover` is close, with a market entry and a level stop, but its targets are R multiples only and it is EmaCrossover's negative control, so a per-signal target price does not belong in it.
 - **The signal is worked out before the loop**, one run per level, side and age cap.
 - **`Tier2Status` is `TIER1_ONLY`**, every rule goes in `nt8-fidelity.md`, and its defaults have to trade on MNQ 03-24 for the trade-log gate.
-- **The sweep is `campaign_sweep.py --strategies FailedBreak`.** It runs in Azure, [pre-registered](m66-failed-break-preregistration.md), and only after someone says go. There is no VM at the moment.
+- **The sweep is `campaign_sweep.py --strategies FailedBreak`**, [pre-registered](m66-failed-break-preregistration.md) and [run](m66-1-failed-break-swept.md).
 
 ## Not in this version
 
