@@ -9,6 +9,7 @@ for leg -- is a property of ``resolve_brackets`` rather than of this module.
 
 from __future__ import annotations
 
+import math
 from dataclasses import replace
 
 import numpy as np
@@ -279,6 +280,24 @@ def test_a_stop_that_moved_is_refused_rather_than_read_at_the_wrong_level() -> N
     assert not stop_is_the_one_it_opened_with(stop_legs(90.0), pd.DataFrame({"exit_price": []}), 0.0)
 
 
+@pytest.mark.parametrize("direction", [LONG, SHORT])
+@pytest.mark.parametrize("price", [16_000.0, 25_000.0, 28_693.25, 100_000.0])
+def test_a_stop_one_tick_from_where_it_opened_has_moved_at_any_price(price: float, direction: float) -> None:
+    worst = pd.DataFrame({"exit_price": [price + direction * 0.25]})
+    assert not stop_is_the_one_it_opened_with(stop_legs(price, direction), worst, 0.0)
+
+
+@pytest.mark.parametrize("direction", [LONG, SHORT])
+def test_floating_point_noise_in_a_stop_fill_has_not_moved_it(direction: float) -> None:
+    exact_fill = 28_693.25 - direction * 0.25
+    noisy_fill = math.nextafter(exact_fill, math.inf)
+
+    assert noisy_fill != exact_fill
+    assert stop_is_the_one_it_opened_with(
+        stop_legs(28_693.25, direction), pd.DataFrame({"exit_price": [noisy_fill]}), 0.25
+    )
+
+
 # -- reading the assumption back --------------------------------------------------------------
 
 
@@ -537,6 +556,39 @@ def test_a_moved_stop_is_refused_through_the_whole_pass() -> None:
 
     assert set(table["resolved"]) == {STOP_MOVED}
     assert accuracy(table)["refused"] == len(table)
+
+
+@pytest.mark.parametrize(("stop_moved_by", "verdict"), [(0.0, TARGET_FIRST), (0.25, STOP_MOVED)])
+def test_a_one_tick_stop_move_above_25000_is_refused_through_the_whole_pass(
+    stop_moved_by: float, verdict: str
+) -> None:
+    fine = minutes((28_000.0, 28_001.0), (28_000.0, 28_012.0), (27_985.0, 28_001.0))
+    coarse = pd.DataFrame(
+        {
+            "open": [28_000.0, 28_000.0],
+            "high": [28_001.0, 28_012.0],
+            "low": [28_000.0, 27_985.0],
+            "close": [28_001.0, 28_001.0],
+        },
+        index=fine.index[[0, 2]],
+    )
+    ranked = pd.DataFrame(
+        {
+            "trade_id": [1],
+            "entry_bar": [0],
+            "exit_bar": [1],
+            "ambiguous_bar": [True],
+            "exit_reason": ["target"],
+            "direction": [LONG],
+            "entry_price": [28_000.0],
+            "initial_stop": [27_990.0],
+            "target_price": [28_010.0],
+        }
+    )
+    worst = ranked.assign(exit_price=27_990.0 + stop_moved_by)
+    table = resolve(ranked, worst, fine, coarse, slippage=0.0, fill_limit_on_touch=False)
+
+    assert list(table["resolved"]) == [verdict]
 
 
 def test_a_window_that_cannot_be_lined_up_is_refused_through_the_whole_pass() -> None:
