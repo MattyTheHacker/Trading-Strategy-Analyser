@@ -804,6 +804,10 @@ Built one side at a time at §M19.2, and closed there: the two-sided form is not
 
 **Pre-registered and not a candidate: unfiltered it fails gate 2 at all three levels, no cell beats a matched random entry on 100 held-out trades, no level and bar size beats a level placed at random, and gate 4 did not run**: [`docs/findings/m66-1-failed-break-swept.md`](findings/m66-1-failed-break-swept.md).
 
+### The November 2026 NT8 sim: 21 of 21 trades match, and one was skipped ([#350])
+
+**Over three sessions every sim trade matches the backtests on its entry bar and no account held past a close, but the whole-session account skipped one trade for a reason the data cannot settle**: [`docs/findings/nt8-sim-november-2026.md`](findings/nt8-sim-november-2026.md).
+
 ### Do the shortlists travel? ([#330])
 
 **Most of what a shortlist loses is selection rather than instrument — the drop from selection window to own holdout is two to five times the further drop to a market never seen — and the two inside-bar archetypes travel with almost no additional cost, while nothing clears a profit factor of 1.1 anywhere.** Moved to [`docs/findings/cross-root-transfer.md`](findings/cross-root-transfer.md).
@@ -1591,6 +1595,7 @@ ______________________________________________________________________
 [#346]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/346
 [#347]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/347
 [#35]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/35
+[#350]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/350
 [#352]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/352
 [#353]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/353
 [#354]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/354
