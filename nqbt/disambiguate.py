@@ -56,6 +56,9 @@ MIN_AMBIGUOUS_SHARE = 0.05
 §M28.4.
 """
 
+PRICE_TOLERANCE = 1e-6
+"""The widest gap, in points, that still counts as the same price; far below a tick."""
+
 
 class DisambiguationError(ValueError):
     """Raised when the three arms cannot be read as one configuration's three outcomes."""
@@ -198,7 +201,7 @@ def stop_is_the_one_it_opened_with(legs: pd.DataFrame, worst_legs: pd.DataFrame,
     expected: float = stop - direction * slippage
     fills: FloatArray = worst_legs["exit_price"].to_numpy()
 
-    return bool(np.isclose(fills, expected).all())
+    return bool(np.isclose(fills, expected, rtol=0.0, atol=PRICE_TOLERANCE).all())
 
 
 def _verdict(
