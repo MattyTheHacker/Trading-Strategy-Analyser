@@ -10,8 +10,8 @@ description = "Tier 1 strategy research and backtesting tool for NQ/MNQ futures"
 requires-python = ">=3.14"
 dependencies = [
     "numpy==2.5.4",
-    "pandas==3.1.0",
-    "pyarrow==26.0.0",
+    "pandas==3.1.1",
+    "pyarrow==26.0.1",
     "numba==0.68.1",
     "duckdb==2.0.0",
     "joblib==1.6.0",
@@ -28,7 +28,7 @@ dev = [
     "pytest==9.2.0",
     "pytest-cov==7.1.0",
     "ta-lib==0.8.3",
-    "ruff==0.17.3",
+    "ruff==0.17.4",
     "mypy==2.4.1",
     "pandas-stubs==3.1.0.261029",
     "pymarkdownlnt==0.9.41",
