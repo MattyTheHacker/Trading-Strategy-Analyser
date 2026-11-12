@@ -266,7 +266,7 @@ def stop_legs(initial_stop: float, direction: float = LONG) -> pd.DataFrame:
 def test_the_stop_is_verified_against_the_arm_that_always_takes_it() -> None:
     """The worst-case arm exits every open leg at the stop, so its fill is the live stop's."""
     worst = pd.DataFrame({"exit_price": [89.75]})
-    assert stop_is_the_one_it_opened_with(stop_legs(90.0), worst, 0.25)
+    assert stop_is_the_one_it_opened_with(stop_legs(90.0), worst, 0.25, 100.0)
 
 
 def test_a_stop_that_moved_is_refused_rather_than_read_at_the_wrong_level() -> None:
@@ -276,15 +276,16 @@ def test_a_stop_that_moved_is_refused_rather_than_read_at_the_wrong_level() -> N
     a different question confidently.
     """
     worst = pd.DataFrame({"exit_price": [95.0]})
-    assert not stop_is_the_one_it_opened_with(stop_legs(90.0), worst, 0.0)
-    assert not stop_is_the_one_it_opened_with(stop_legs(90.0), pd.DataFrame({"exit_price": []}), 0.0)
+    assert not stop_is_the_one_it_opened_with(stop_legs(90.0), worst, 0.0, 100.0)
+    assert not stop_is_the_one_it_opened_with(stop_legs(90.0), pd.DataFrame({"exit_price": []}), 0.0, 100.0)
 
 
 @pytest.mark.parametrize("direction", [LONG, SHORT])
 @pytest.mark.parametrize("price", [16_000.0, 25_000.0, 28_693.25, 100_000.0])
 def test_a_stop_one_tick_from_where_it_opened_has_moved_at_any_price(price: float, direction: float) -> None:
     worst = pd.DataFrame({"exit_price": [price + direction * 0.25]})
-    assert not stop_is_the_one_it_opened_with(stop_legs(price, direction), worst, 0.0)
+    bar_open = price + direction * 10.0
+    assert not stop_is_the_one_it_opened_with(stop_legs(price, direction), worst, 0.0, bar_open)
 
 
 @pytest.mark.parametrize("direction", [LONG, SHORT])
@@ -294,7 +295,55 @@ def test_floating_point_noise_in_a_stop_fill_has_not_moved_it(direction: float) 
 
     assert noisy_fill != exact_fill
     assert stop_is_the_one_it_opened_with(
-        stop_legs(28_693.25, direction), pd.DataFrame({"exit_price": [noisy_fill]}), 0.25
+        stop_legs(28_693.25, direction),
+        pd.DataFrame({"exit_price": [noisy_fill]}),
+        0.25,
+        28_693.25 + direction * 10.0,
+    )
+
+
+@pytest.mark.parametrize("direction", [LONG, SHORT])
+@pytest.mark.parametrize("gap", [0.25, 40.0])
+def test_a_fill_at_the_open_of_a_bar_that_opened_past_the_stop_has_not_moved_it(
+    gap: float, direction: float
+) -> None:
+    """A stop the bar gaps through fills at the open, so that fill is still ``initial_stop``'s."""
+    stop = 28_693.25
+    bar_open = stop - direction * gap
+    worst = pd.DataFrame({"exit_price": [bar_open - direction * 0.25]})
+
+    assert stop_is_the_one_it_opened_with(stop_legs(stop, direction), worst, 0.25, bar_open)
+
+
+@pytest.mark.parametrize("direction", [LONG, SHORT])
+def test_a_fill_at_the_open_of_a_bar_that_opened_short_of_the_stop_has_moved_it(direction: float) -> None:
+    """Only a stop nearer the market than ``initial_stop`` fills at an open short of it."""
+    stop = 28_693.25
+    bar_open = stop + direction * 5.0
+    worst = pd.DataFrame({"exit_price": [bar_open]})
+
+    assert not stop_is_the_one_it_opened_with(stop_legs(stop, direction), worst, 0.0, bar_open)
+
+
+@pytest.mark.parametrize("direction", [LONG, SHORT])
+def test_a_fill_off_both_the_stop_and_the_open_it_gapped_to_has_moved_it(direction: float) -> None:
+    stop = 28_693.25
+    bar_open = stop - direction * 40.0
+    worst = pd.DataFrame({"exit_price": [stop - direction * 20.0]})
+
+    assert not stop_is_the_one_it_opened_with(stop_legs(stop, direction), worst, 0.0, bar_open)
+
+
+@pytest.mark.parametrize("direction", [LONG, SHORT])
+def test_legs_filled_at_the_stop_and_at_the_open_it_gapped_to_have_not_moved_it(direction: float) -> None:
+    """A stop entry's own bar can stop its earlier legs at the open and its last at the stop."""
+    stop = 28_693.25
+    bar_open = stop - direction * 40.0
+    worst = pd.DataFrame({"exit_price": [bar_open, bar_open, stop]})
+
+    assert stop_is_the_one_it_opened_with(stop_legs(stop, direction), worst, 0.0, bar_open)
+    assert not stop_is_the_one_it_opened_with(
+        stop_legs(stop, direction), worst.assign(exit_price=[bar_open, bar_open, stop + 0.25]), 0.0, bar_open
     )
 
 
@@ -522,7 +571,7 @@ def test_a_real_ambiguous_bar_is_settled_against_its_own_minute_bars() -> None:
         logs[AMBIGUITY_WORST_CASE],
         logs[AMBIGUITY_BEST_CASE],
     )
-    table = resolve(ranked, worst, fine, coarse, slippage=0.0, fill_limit_on_touch=False)
+    table = resolve(ranked, worst, fine, coarse, slippage=0.0, fill_limit_on_touch=False, stop_entry=False)
 
     assert not table.empty, "fixture produced no ambiguous bar; the test proves nothing"
     assert set(table["resolved"]) <= {TARGET_FIRST, STOP_FIRST, STILL_AMBIGUOUS, MISALIGNED, STOP_MOVED}
@@ -540,7 +589,13 @@ def test_a_configuration_with_no_ambiguous_bar_produces_no_table() -> None:
     logs, fine, coarse = three_arms()
     clean = logs[AMBIGUITY_NEAREST_TO_OPEN].assign(ambiguous_bar=False)
     assert resolve(
-        clean, logs[AMBIGUITY_WORST_CASE], fine, coarse, slippage=0.0, fill_limit_on_touch=False
+        clean,
+        logs[AMBIGUITY_WORST_CASE],
+        fine,
+        coarse,
+        slippage=0.0,
+        fill_limit_on_touch=False,
+        stop_entry=False,
     ).empty
 
 
@@ -552,7 +607,15 @@ def test_a_moved_stop_is_refused_through_the_whole_pass() -> None:
     logs, fine, coarse = three_arms()
     ranked = logs[AMBIGUITY_NEAREST_TO_OPEN].copy()
     ranked.loc[ranked["ambiguous_bar"], "initial_stop"] += 7.0
-    table = resolve(ranked, logs[AMBIGUITY_WORST_CASE], fine, coarse, slippage=0.0, fill_limit_on_touch=False)
+    table = resolve(
+        ranked,
+        logs[AMBIGUITY_WORST_CASE],
+        fine,
+        coarse,
+        slippage=0.0,
+        fill_limit_on_touch=False,
+        stop_entry=False,
+    )
 
     assert set(table["resolved"]) == {STOP_MOVED}
     assert accuracy(table)["refused"] == len(table)
@@ -586,7 +649,72 @@ def test_a_one_tick_stop_move_above_25000_is_refused_through_the_whole_pass(
         }
     )
     worst = ranked.assign(exit_price=27_990.0 + stop_moved_by)
-    table = resolve(ranked, worst, fine, coarse, slippage=0.0, fill_limit_on_touch=False)
+    table = resolve(ranked, worst, fine, coarse, slippage=0.0, fill_limit_on_touch=False, stop_entry=False)
+
+    assert list(table["resolved"]) == [verdict]
+
+
+@pytest.mark.parametrize(("worst_fill", "verdict"), [(27_985.0, STOP_FIRST), (27_987.0, STOP_MOVED)])
+def test_a_bar_that_gaps_through_an_unmoved_stop_is_settled_through_the_whole_pass(
+    worst_fill: float, verdict: str
+) -> None:
+    """The exit bar opens five points past the stop, and its first minute holds no target."""
+    fine = minutes((28_000.0, 28_001.0), (27_985.0, 27_990.0), (27_995.0, 28_012.0))
+    coarse = pd.DataFrame(
+        {
+            "open": [28_000.0, 27_985.0],
+            "high": [28_001.0, 28_012.0],
+            "low": [28_000.0, 27_985.0],
+            "close": [28_001.0, 28_012.0],
+        },
+        index=fine.index[[0, 2]],
+    )
+    ranked = pd.DataFrame(
+        {
+            "trade_id": [1],
+            "entry_bar": [0],
+            "exit_bar": [1],
+            "ambiguous_bar": [True],
+            "exit_reason": ["stop"],
+            "direction": [LONG],
+            "entry_price": [28_000.0],
+            "initial_stop": [27_990.0],
+            "target_price": [28_010.0],
+        }
+    )
+    worst = ranked.assign(exit_price=worst_fill)
+    table = resolve(ranked, worst, fine, coarse, slippage=0.0, fill_limit_on_touch=False, stop_entry=False)
+
+    assert list(table["resolved"]) == [verdict]
+
+
+@pytest.mark.parametrize(("stop_entry", "verdict"), [(False, STOP_FIRST), (True, TARGET_FIRST)])
+def test_an_entry_bar_that_opened_past_the_stop_is_walked_from_where_the_position_began(
+    *, stop_entry: bool, verdict: str
+) -> None:
+    """A limit the bar opened past was live at that open; a stop entry fills at its trigger, later.
+
+    The bar opens under the stop, trades up through the entry price and then reaches the target,
+    and the worst-case arm stops the leg at the open either way.
+    """
+    fine, coarse = a_bar((27_985.0, 27_988.0), (27_995.0, 28_001.0), (27_999.0, 28_012.0))
+    ranked = pd.DataFrame(
+        {
+            "trade_id": [1],
+            "entry_bar": [0],
+            "exit_bar": [0],
+            "ambiguous_bar": [True],
+            "exit_reason": ["stop"],
+            "direction": [LONG],
+            "entry_price": [28_000.0],
+            "initial_stop": [27_990.0],
+            "target_price": [28_010.0],
+        }
+    )
+    worst = ranked.assign(exit_price=27_985.0)
+    table = resolve(
+        ranked, worst, fine, coarse, slippage=0.0, fill_limit_on_touch=False, stop_entry=stop_entry
+    )
 
     assert list(table["resolved"]) == [verdict]
 
@@ -605,6 +733,7 @@ def test_a_window_that_cannot_be_lined_up_is_refused_through_the_whole_pass() ->
         shifted,
         slippage=0.0,
         fill_limit_on_touch=False,
+        stop_entry=False,
     )
 
     assert set(table["resolved"]) == {MISALIGNED}

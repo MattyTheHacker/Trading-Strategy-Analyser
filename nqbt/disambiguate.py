@@ -46,7 +46,8 @@ ENTRY_UNLOCATED = "entry_unlocated"
 
 STOP_MOVED = "stop_moved"
 """The stop at the exit differs from the one the trade opened with, so the log's ``initial_stop``
-is not the level that was live. A trailing archetype reaches this on every leg."""
+is not the level that was live. A trailing archetype reaches this once its stop has moved, unless
+the bar opened past both levels."""
 
 DECIDED = (TARGET_FIRST, STOP_FIRST)
 """The verdicts :func:`resolved_log` acts on. Everything else keeps NT8's guess and is counted."""
@@ -186,22 +187,38 @@ def first_target(
     return float(reachable[np.argmin(np.abs(reachable - entry))])
 
 
-def stop_is_the_one_it_opened_with(legs: pd.DataFrame, worst_legs: pd.DataFrame, slippage: float) -> bool:
+def opened_past(bar_open: float, stop: float, direction: float) -> bool:
+    """Return whether a bar opened beyond a stop, which then fills at that open.
+
+    ``docs/nt8-fidelity.md``, "A stop fills at the open when the bar gaps through it".
+    """
+    return direction * bar_open < direction * stop
+
+
+def stop_is_the_one_it_opened_with(
+    legs: pd.DataFrame, worst_legs: pd.DataFrame, slippage: float, bar_open: float
+) -> bool:
     """Return whether ``initial_stop`` was still the live stop when the bar resolved.
 
-    The worst-case arm exits **every** ambiguous leg at the stop, so its fill is the live stop's
-    fill and disagreeing with ``initial_stop`` means the stop moved. Derived
-    from the arms rather than declared per archetype, so a trailing one is caught by the data.
+    The worst-case arm exits **every** ambiguous leg at the stop, so each of its fills is the live
+    stop's: ``initial_stop``'s own price, or ``bar_open`` where the bar opened past it. Any other
+    fill means the stop moved. Derived from the arms rather than declared per archetype, so a
+    trailing one is caught by the data -- ``docs/findings/m28-4-settling-ambiguous-bar.md``
+    § "Four refusals, each of which would otherwise be a confident wrong answer".
     """
     if worst_legs.empty:
         return False
 
     stop: float = float(legs["initial_stop"].iloc[0])
     direction: float = float(legs["direction"].iloc[0])
-    expected: float = stop - direction * slippage
     fills: FloatArray = worst_legs["exit_price"].to_numpy()
+    filled_at_stop = np.isclose(fills, stop - direction * slippage, rtol=0.0, atol=PRICE_TOLERANCE)
+    if not opened_past(bar_open, stop, direction):
+        return bool(filled_at_stop.all())
 
-    return bool(np.isclose(fills, expected, rtol=0.0, atol=PRICE_TOLERANCE).all())
+    filled_at_open = np.isclose(fills, bar_open - direction * slippage, rtol=0.0, atol=PRICE_TOLERANCE)
+
+    return bool((filled_at_stop | filled_at_open).all())
 
 
 def _verdict(
@@ -212,20 +229,27 @@ def _verdict(
     slippage: float,
     *,
     fill_limit_on_touch: bool,
+    stop_entry: bool,
 ) -> tuple[str, float, float]:
-    """Return one ambiguous bar's verdict and the two levels it was read against."""
+    """Return one ambiguous bar's verdict and the two levels it was read against.
+
+    A market or limit entry whose own bar opened past its stop was live at that open, so its walk
+    takes the whole bar; a stop entry fills later, and its walk starts at the fill.
+    """
     direction: float = float(legs["direction"].iloc[0])
     stop: float = float(legs["initial_stop"].iloc[0])
     target: float = first_target(legs, coarse_bar, direction, fill_limit_on_touch=fill_limit_on_touch)
-    if not stop_is_the_one_it_opened_with(legs, worst_legs, slippage):
+    bar_open: float = float(coarse_bar["open"])
+    if not stop_is_the_one_it_opened_with(legs, worst_legs, slippage, bar_open):
         return STOP_MOVED, stop, target
 
     if np.isnan(target) or not rebuilds(window, coarse_bar):
         return MISALIGNED, stop, target
 
     opened_here: bool = int(legs["entry_bar"].iloc[0]) == int(legs["exit_bar"].iloc[0])
+    live_at_the_open: bool = not opened_here or (not stop_entry and opened_past(bar_open, stop, direction))
     opened_in: int = (
-        entry_minute(window, coarse_bar, float(legs["entry_price"].iloc[0])) if opened_here else -1
+        -1 if live_at_the_open else entry_minute(window, coarse_bar, float(legs["entry_price"].iloc[0]))
     )
     reached: str = first_level_reached(
         window,
@@ -255,11 +279,13 @@ def resolve(
     *,
     slippage: float,
     fill_limit_on_touch: bool,
+    stop_entry: bool,
 ) -> pd.DataFrame:
     """Return one row per ambiguous bar, saying what the minute bars inside it show.
 
     ``ranked`` is the log NT8's rule produced and ``worst`` the same configuration under
     ``AMBIGUITY_WORST_CASE``; the second is read only to check that the stop had not moved.
+    ``stop_entry`` is whether the configuration enters on stop orders -- :func:`enters_on_stop`.
     """
     ambiguous: pd.DataFrame = ranked[ranked["ambiguous_bar"]]
     if ambiguous.empty:
@@ -280,6 +306,7 @@ def resolve(
             coarse_bar,
             slippage,
             fill_limit_on_touch=fill_limit_on_touch,
+            stop_entry=stop_entry,
         )
         rows.append(
             {
