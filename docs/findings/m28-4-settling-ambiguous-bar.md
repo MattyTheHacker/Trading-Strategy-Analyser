@@ -30,7 +30,7 @@ That works because of a property of `resolve_brackets` rather than of the diagno
 ## Four refusals, each of which would otherwise be a confident wrong answer
 
 - **The window is checked by rebuilding the bar.** §M13's associativity says the minutes inside a coarse bar must aggregate back to it exactly, so `rebuilds` uses that as a guard on the alignment rather than as an argument for it. A window off by one bar still looks like bars.
-- **The stop is checked against the arm that always takes it.** The worst-case arm exits every open leg at the stop, so its fill *is* the live stop's fill; disagreeing with the log's `initial_stop` means the stop moved between entry and exit. A trailing archetype hits this on every leg, which is the intended outcome — refused with a reason beats resolved against the wrong level. Derived from the data rather than declared per archetype, so the next trailing archetype is caught too.
+- **The stop is checked against the arm that always takes it.** The worst-case arm exits every open leg at the stop, so its fill *is* the live stop's fill: the stop's own price, or the bar's open where the bar opened past it ([#522]). A fill that is neither of those for the log's `initial_stop` means the stop moved between entry and exit. A trailing archetype hits this once its stop has moved, which is the intended outcome — refused with a reason beats resolved against the wrong level. Derived from the data rather than declared per archetype, so the next trailing archetype is caught too.
 - **A minute holding both levels is the residue, not a verdict.** This is where `data/tick/` would be needed, and it is reported and counted rather than assumed a second time.
 - **The minutes before the fill are not the trade's.** See below; this is the one that mattered.
 
@@ -68,3 +68,4 @@ Found while building this and fixed here. **numba's `cache=True` does not track 
 Every fill rule lives in `bracket.py`, so this disabled the gate precisely on the file it exists to protect. `tools/capture_trade_logs.py` now purges `*.nbi`/`*.nbc` before each capture. `.claude/rules/regression-gate.md` carries it as the fourth item.
 
 [#248]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/248
+[#522]: https://github.com/MattyTheHacker/Trading-Strategy-Analyser/issues/522

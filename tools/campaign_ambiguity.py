@@ -218,6 +218,7 @@ def settle_row(  # type: ignore[explicit-any]  # duckdb's dtypes
         coarse,
         slippage=slippage,
         fill_limit_on_touch=bool(params.fill_limit_on_touch),
+        stop_entry=disambiguate.enters_on_stop(params),
     )
     resolved: pd.DataFrame = disambiguate.resolved_log(
         arms[RANKED_POLICY],
